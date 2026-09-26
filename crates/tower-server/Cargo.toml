@@ -33,6 +33,7 @@ tower-service = "0.3.3"
 hyper-util = "0.1.21"
 hyper = { version = "1.11.1", features = ["http1"] }
 http = "1.5.0"
+tower-client = { version = "0.1.0", path = "../tower-client" }
 
 [lints]
 workspace = true
