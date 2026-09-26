@@ -21,13 +21,20 @@ pub enum Command {
 
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .json()
+        .init();
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async_main(cli))
+}
+
+async fn async_main(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
-        Command::Serve => {
-            println!("tower serve: server shell lands in milestone 3");
-            Ok(())
-        }
-        Command::Node => {
-            anyhow::bail!("node agent arrives in phase 5")
-        }
+        Command::Serve => tower_server::serve::serve().await,
+        Command::Node => anyhow::bail!("node agent arrives in phase 5"),
     }
 }

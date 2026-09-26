@@ -1,0 +1,23 @@
+[Unit]
+Description=tower server — control and visibility for agent herds
+Documentation=https://github.com/geoffjay/tower
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tower serve
+Restart=on-failure
+RestartSec=2
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/tower %h/.config/tower %h/.cache/tower
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+
+[Install]
+WantedBy=default.target

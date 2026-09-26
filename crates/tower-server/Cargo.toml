@@ -14,6 +14,7 @@ path = "src/main.rs"
 tower-core = { workspace = true }
 tower-driver = { workspace = true }
 axum = { workspace = true }
+
 tokio = { workspace = true }
 clap = { workspace = true }
 sqlx = { workspace = true }
@@ -27,6 +28,14 @@ futures = { workspace = true }
 directories = { workspace = true }
 toml = { workspace = true }
 async-trait = { workspace = true }
+tower = { version = "0.5.3", features = ["util"] }
+tower-service = "0.3.3"
+hyper-util = "0.1.21"
+hyper = { version = "1.11.1", features = ["http1"] }
+http = "1.5.0"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempdir = "0.3.7"
