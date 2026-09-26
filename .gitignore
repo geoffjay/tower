@@ -1,0 +1,25 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# cargo
+Cargo.lock.orig
+
+# local state (agentos runtime, if run from repo)
+/.agentos/
+*.db
+*.db-wal
+*.db-shm
+
+# secrets
+token
+*.token
+
+# editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# scratch
+/tmp/
+*.log
