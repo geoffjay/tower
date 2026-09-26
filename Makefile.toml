@@ -1,0 +1,46 @@
+[config]
+skip_core_tasks = true
+# Run tasks once at the workspace root, not per member crate.
+default_to_workspace = false
+
+[tasks.default]
+description = "List tasks"
+command = "cargo"
+args = ["make", "--list-all-steps"]
+
+[tasks.build]
+description = "Build everything"
+command = "cargo"
+args = ["build", "--workspace"]
+
+[tasks.test]
+description = "Run workspace tests"
+command = "cargo"
+args = ["test", "--workspace"]
+
+[tasks.dev]
+description = "Dev build + run tests"
+dependencies = ["build", "test"]
+
+[tasks.fmt-check]
+description = "Check formatting"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.clippy]
+description = "Clippy with warnings denied"
+command = "cargo"
+args = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+
+[tasks.lint]
+description = "fmt check + clippy"
+dependencies = ["fmt-check", "clippy"]
+
+[tasks.run]
+description = "Run the server (dev)"
+command = "cargo"
+args = ["run", "-p", "tower-server", "--", "serve"]
+
+[tasks.e2e]
+description = "End-to-end smoke (requires local herdr + pi)"
+command = "./scripts/e2e.sh"

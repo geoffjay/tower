@@ -1,4 +1,4 @@
-//! Server config (DESIGN.md §4). All keys optional; defaults in code.
+//! Server config (D§4). All keys optional; defaults in code.
 
 use serde::Deserialize;
 

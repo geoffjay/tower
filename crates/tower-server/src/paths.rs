@@ -1,4 +1,4 @@
-//! XDG paths, config, first-run token (DESIGN.md §4, D§13).
+//! XDG paths, config, first-run token (D§4, D§13).
 
 use std::path::PathBuf;
 

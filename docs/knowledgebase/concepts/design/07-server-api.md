@@ -1,0 +1,105 @@
+---
+type: Concept
+title: Design §7 — Server API
+description: REST control/query routes, SSE streams, MCP tools, the A2A edge, and auth conventions.
+tags:
+  - design
+  - design-s7
+  - api
+  - sse
+  - mcp
+  - a2a
+status: draft
+sources:
+  - resource: git:340c189:DESIGN.md
+    title: tower design document §7 (original, removed from repo root after ingest)
+generated:
+  by: omp/claude-opus-5-5
+  at: "2026-09-26T22:59:25Z"
+---
+
+# 7. Server API
+
+REST-style JSON over one port. JSON-RPC appears only at the MCP and A2A
+boundaries (decision: REST internally for debuggability with curl; the
+research protocols where they are standards).
+
+Conventions:
+
+- Errors: `{"error": {"code": "not_found|conflict|timeout|driver|invalid",
+  "message": "...", "detail": {...}}}` with proper HTTP status
+- All timestamps ms epoch; all ids ULIDs
+- `GET /v1/schema` returns the route + event-type registry (herdr's
+  `api schema` idea — the contract is introspectable)
+
+## Control (POST)
+
+| Route | Body | Effect |
+|---|---|---|
+| `POST /v1/agents` | `{name, kind, workdir?, worktree?, permissions?, machine?, prompt?, task_title?}` | Spawn agent in a herdr pane on `machine` (default local); returns agent |
+| `POST /v1/agents/{id}/prompt` | `{text, wait?}` | `herdr agent prompt --wait`; creates `prompt` message + task if `task_title` |
+| `POST /v1/agents/{id}/interrupt` | — | `ctrl+c` via send-keys |
+| `POST /v1/agents/{id}/send-keys` | `{keys}` | escape hatch (power users) |
+| `POST /v1/agents/{id}/stop` | `{remove?}` | stop session; keep agent row (seat) |
+| `POST /v1/messages` | `{to, kind, parts, task_id?, deadline_s?}` | unified send (any direction) |
+| `POST /v1/messages/{id}/respond` | `{parts}` | answer/question or approval-response; sets `responded_at` |
+| `POST /v1/tasks` | `{title, description?, priority?, tags?, assign?}` | create task; `assign: <agent>` pre-assigns (claim), else it enters the shared pool |
+| `POST /v1/tasks/{id}/claim` | `{as: <agent_id>, lease_s?}` | atomic CAS claim (conflict on 0 rows); state → `working` |
+| `POST /v1/tasks/pull` | `{as: <agent_id>, tags?, capacity: 1, lease_s?}` | atomically claim next-highest-priority unowned task matching tags; empty result when pool dry |
+| `POST /v1/tasks/{id}/heartbeat` | `{as: <agent_id>}` | renew lease (owner-only, 409 otherwise) |
+| `POST /v1/tasks/{id}/status` | `{as: <agent_id>, state?, result?}` | owner status report; emits `task.status`; terminal states close the task |
+| `POST /v1/tasks/{id}/release` | `{as: <agent_id>, reason?}` | voluntary release → back to pool (`queued`) |
+| `POST /v1/tasks/{id}/cancel` | — | cancel + interrupt owning agent |
+
+## Query (GET)
+
+| Route | Notes |
+|---|---|
+| `GET /v1/agents` | list with state, machine, task summary |
+| `GET /v1/agents/{id}` | full detail incl. recent output ref |
+| `GET /v1/agents/{id}/read` | `?source=visible\|recent\|detection&format=text\|ansi` — proxied herdr read |
+| `GET /v1/tasks` | `?state=queued&tags=&owner=&since=` pool/inventory queries |
+| `GET /v1/tasks/{id}` | task detail + message trail + claim/lease history |
+| `GET /v1/messages` | `?to=&status=&since=` inbox queries |
+| `GET /v1/machines` | inventory |
+| `GET /healthz`, `GET /v1/schema` | health, contract |
+
+## Streaming (GET, SSE)
+
+| Route | Semantics |
+|---|---|
+| `GET /v1/events` | global event bus. `?cursor=<seq>&filter=type:...&subject=agent:<id>`. `Last-Event-ID` honored; replay from cursor |
+| `GET /v1/agents/{id}/stream` | output chunks as `agent.output` events (15s heartbeat comment) |
+| `GET /v1/tasks/{id}/stream` | task-scoped events (A2A `SubscribeToTask` semantics) |
+
+Backpressure: slow SSE consumers get disconnected (with a `resume` hint carrying
+their cursor); clients re-request from the log. Output chunks are also appended
+to artifacts storage so replay is lossless for subscribed tasks.
+
+## MCP (for agents)
+
+`POST /mcp` — streamable HTTP MCP server exposing the same operations:
+
+tools: `tower_ps`, `tower_spawn`, `tower_prompt`, `tower_send`,
+`tower_ask`, `tower_approve`, `tower_task_list`, `tower_task_show`,
+`tower_task_create`, `tower_task_claim`, `tower_task_pull`,
+`tower_task_heartbeat`, `tower_task_status`, `tower_task_release`,
+`tower_machine_list`. One management surface for humans and agents
+(openrig-proven pattern). The claim/pull/heartbeat/status tools are what
+agents use in their work loop: pull work → do it → report status →
+complete. Server-side, MCP `tower_task_claim` is the same code path as
+the REST route (one transaction, same CAS) — there is no second
+implementation to drift.
+
+## A2A (edge)
+
+- `GET /.well-known/agent-card.json` — card: skills derived from agent roster
+  (one skill per named agent), `capabilities: {streaming: true}`.
+- `POST /a2a` — JSON-RPC 2.0: `message/send` and `message/stream`.
+  Inbound message → `prompt` message + task (origin `a2a`); outbound replies and
+  task events use A2A shapes (already native, per [§5](05-core-objects.md)).
+  Push notifications (`pushNotifications`) deferred (phase 6+).
+
+Auth: all `/a2a` and `/v1` TCP access requires `Authorization: Bearer <token>`
+(unix socket access is exempt — filesystem permissions are the auth).
+Read-only UI routes accept the same token.

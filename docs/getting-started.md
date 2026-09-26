@@ -2,9 +2,9 @@
 
 > **Status: this is the UX contract, not a working product.** The commands
 > and output below describe what tower *will* look like when phase 1–2 of
-> the [execution plans](../plans/) are complete. Nothing here runs yet.
+> the [execution plans](knowledgebase/plans/index.md) are complete. Nothing here runs yet.
 > The CLI verbs shown are the target surface — implementation plans
-> ([plans/README.md](../plans/README.md)) treat this document as the
+> ([plans overview](knowledgebase/plans/overview.md)) treat this document as the
 > reference for CLI behavior and output shape.
 
 Everything happens through one binary: `tower`.

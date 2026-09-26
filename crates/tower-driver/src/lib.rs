@@ -1,4 +1,4 @@
-//! Harness abstraction (DESIGN.md §8.1, plan T4.1).
+//! Harness abstraction (D§8.1, plan T4.1).
 //!
 //! One implementation in phase 1: HerdrDriver (CLI transport). TmuxDriver
 //! (fallback) and the remote node proxy arrive later; the trait is the seam.

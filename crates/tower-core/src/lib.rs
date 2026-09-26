@@ -1,4 +1,4 @@
-//! tower core types: agents, tasks, messages, events, machines (DESIGN.md §5).
+//! tower core types: agents, tasks, messages, events, machines (D§5).
 
 pub mod error;
 pub mod ids;

@@ -1,4 +1,4 @@
-//! State enums (DESIGN.md §5). `#[non_exhaustive]`: states evolve.
+//! State enums (D§5). `#[non_exhaustive]`: states evolve.
 
 use serde::{Deserialize, Serialize};
 

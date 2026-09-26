@@ -1,4 +1,4 @@
-//! Row objects (DESIGN.md §5-6) — serde shapes shared by server, clients, UIs.
+//! Row objects (D§5-6) — serde shapes shared by server, clients, UIs.
 
 use serde::{Deserialize, Serialize};
 

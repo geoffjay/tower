@@ -1,0 +1,6 @@
+#:schema https://pitchfork.jdx.dev/schema.json
+
+[daemons.tower-server]
+run = "exec cargo run -p tower-server -- serve"
+# Scoped to crates/ so build-script output under target/ can't trigger restart loops.
+watch = ["crates/**/*.rs"]

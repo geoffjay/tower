@@ -1,0 +1,44 @@
+---
+type: Concept
+title: Design §10 — Client CLI
+description: tower CLI verbs, all thin over /v1, with --json everywhere.
+tags:
+  - design
+  - design-s10
+  - cli
+status: draft
+sources:
+  - resource: git:340c189:DESIGN.md
+    title: tower design document §10 (original, removed from repo root after ingest)
+generated:
+  by: omp/claude-opus-5-5
+  at: "2026-09-26T22:59:25Z"
+---
+
+# 10. Client CLI
+
+`tower <verb>` (all thin over `/v1`):
+
+```
+tower ps [-m]                       # agents table w/ state glyphs
+tower spawn <name> --kind claude [--workdir .] [--worktree] [--prompt "..."]
+tower prompt <name> 'text' [--wait] # --wait blocks until settled state
+tower read <name> [--source visible] [--format ansi]
+tower stream <name>                 # attach to SSE output (like tail -f)
+tower stop <name> [--remove]
+tower inbox                         # pending questions/approvals addressed to me
+tower ask <name> ...                 # send question
+tower approve <msg-id> [--deny]      # answer approval
+tower send <to> --kind <kind> ...    # generic unified send
+tower task list [--state queued] [--tag x]   # pool + owned views
+tower task show <id>                          # detail incl. claim/lease trail
+tower task create 'title' [--tag x] [--assign name] [--priority N]
+tower task cancel <id> / task release <id>
+tower machines                      # machine inventory
+tower machines add <name>           # issue a node token (prints once)
+tower tui                           # launch TUI
+tower serve / node / doctor / schema
+```
+
+Output: human tables by default, `--json` everywhere (agentd lesson: the CLI is
+scriptable and agent-usable; MCP wraps the same surface).
