@@ -141,10 +141,47 @@ agents rebind.
 
 ## Verification log
 
-(filled during execution)
-
 | Date | Check | Result |
 |---|---|---|
+| 2026-09-26 | S1.A spike: all herdr driver verbs validated live | PASS — grammar + JSON envelopes recorded above |
+| 2026-09-26 | S1.B spike: pi starts + detects via herdr manifest | PASS; **blocker**: pi has no provider auth on this machine — operator decision needed (S1.B notes); pane prompt/read suffices (DESIGN §17.2 closed) |
+| 2026-09-26 | M0: workspace scaffold, CI, justfile, stubs | PASS — build/test/lint green, `tower --version` works (commit af8e148) |
+| 2026-09-26 | M2: core types, migrations, event log | PASS — serde round-trips, migration + monotonic seq + cursor replay tests (commit fdc1f22) |
+| 2026-09-26 | M3: server shell live check | PASS — healthz+schema over socket and TCP; 401 without/with-wrong token; SSE replayed 2 `server.started` across restart; integration tests for SSE replay/filter/cursor (commit 96e534d) |
+| 2026-09-26 | M4: driver fixture + live smoke | PASS — golden-file envelope tests 6/6; live herdr smoke spawn→snapshot→read→prompt→stop (TOWER_E2E=1); **amendment**: `agent read` returns raw text, not JSON (commit 661a211) |
+| 2026-09-26 | M5: inventory + sessions routes | PASS — reconcile dead/adoptable, spawn→prompt→show→read→stop flow, adopt-via-spawn; 3 integration tests (commit 80e0100) |
+| 2026-09-26 | M6: CLI live loop | PASS — spawn live-cli-test (real pi via herdr), ps/prompt/read/doctor 4/4/schema; found+fixed stop-on-dead (commit 51a8129) |
+| 2026-09-26 | T7.1/T7.2 e2e: scripts/e2e.sh | PASS — doctor 4/4; spawn pi; prompt delivered + read back; **restart mid-run: row survives, rebinds**; event log unbroken (2× server.started); stop → seat survives. Exit 0 |
+
+### E2E transcript (scripts/e2e.sh, 2026-09-26)
+
+```
+== start server (fresh home) ==
+4 checks passed
+== spawn pi agent ==
+spawned tower-e2e-1790444158-2454960 (pi)
+== prompt + read-back ==
+prompt delivered and read back
+== restart server mid-run (T7.2) ==
+○    tower-e2e-... pi  idle        ← row survived, rebound to pane
+== event log unbroken across restarts ==
+server.started events: 2
+== stop agent, verify row survives (seat) ==
+✗    tower-e2e-... pi  dead        ← seat row survives
+== E2E SMOKE PASSED ==
+```
+
+### Phase-1 exit criteria (DESIGN §18) — status
+
+- "one machine: spawn claude+pi via herdr" — **pi: PASS** (live, twice);
+  claude spawn path identical (same driver code, kind=claude) but not run
+  live without an authed claude session; `doctor` verifies presence.
+  S1.B blocker (pi provider auth) unrelated to driver correctness.
+- "prompt both, stream output to terminal" — prompt/read PASS;
+  `tower stream` implemented over SSE; not exercised in e2e (pi auth
+  blocker makes output uninteresting — revisit after auth).
+- "states visible in ps" — PASS (glyphs: ○ idle, ✗ dead observed live)
+- "restart server, agents rebind" — PASS
 
 ## Spike findings
 

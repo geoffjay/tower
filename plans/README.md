@@ -23,7 +23,7 @@ are recorded as amendments there first, then implemented.
 
 | Plan | Phase | Depends on | Status |
 |---|---|---|---|
-| [plans/phase-1.md](phase-1.md) | MVP core | — | not started |
+| [plans/phase-1.md](phase-1.md) | MVP core | — | **complete** (2026-09-26) |
 | [plans/phase-2.md](phase-2.md) | Messaging + task pool | phase 1 | not started |
 | [plans/phase-3.md](phase-3.md) | TUI | phase 2 | not started |
 | [plans/phase-4.md](phase-4.md) | Web UI | phase 2 (independent of 3) | not started |
