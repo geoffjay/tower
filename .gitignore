@@ -22,4 +22,4 @@ token
 
 # scratch
 /tmp/
-*.log
+*.logtarget/

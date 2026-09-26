@@ -126,7 +126,10 @@ agents rebind.
   authed): start server on temp HOME → spawn pi agent → prompt "print hello
   and exit" → assert `working` then `done` state events over `/v1/events`
   → read output via CLI → `ps` shows both. Optional claude leg when
-  `CLAUDE_AUTHED=1`. Verify: green run; recorded transcript in this file.
+  `CLAUDE_AUTHED=1`. **S1.B amendment**: until pi provider auth is sorted
+  (S1.B), the pi leg asserts prompt delivery + output read-back (error
+  text is still output); state-event assertions use a FakeHarness-driven
+  leg. Verify: green run; recorded transcript in this file.
 - **T7.2** Restart resilience: stop server mid-agent-run → restart → agents
   rebind (pane id match), states refresh, event log unbroken. Verify: part
   of `just e2e`.
@@ -145,6 +148,77 @@ agents rebind.
 
 ## Spike findings
 
-### S1.A — herdr CLI driver (filled during execution)
+### S1.A — herdr CLI driver (executed 2026-09-26)
 
-### S1.B — pi harness (filled during execution)
+All commands return single-line JSON: success `{"id":"cli:<verb>","result":{...,"type":"<snake_type>"}}`,
+error `{"error":{"code":"<code>","message":"..."},"id":"..."}` — one error shape
+to parse. herdr server must be running (it was; PID check via `herdr status`).
+Protocol 20, herdr 0.8.2.
+
+**Verb grammar validated (live):**
+
+| tower op | herdr command | notes |
+|---|---|---|
+| snapshot/inventory | `herdr api snapshot` | full tree: workspaces/tabs/panes/agents/layouts; panes carry `pane_id`, `cwd`, `agent_status`, `terminal_title`, `revision`, `state_change_seq` |
+| list panes | `herdr pane list` | same pane objects |
+| split pane (for spawn) | `herdr pane split --pane <id> --direction right` → `result.pane.pane_id` | new pane at fresh interactive shell |
+| start agent | `herdr agent start <NAME> --kind pi --pane <ID> --timeout 60000` → `result.agent` (has `interactive_ready: true`, `agent_status`, `name`, `pane_id`) | pane must be at shell prompt; timeout >3000, ≤300000 |
+| prompt | `herdr agent prompt <NAME> <TEXT> --wait --until <STATES...> --timeout <MS>` | `--wait` requires observed state change within 5000ms else `agent_prompt_stalled`; blocked agent → `agent_blocked` rejection **before** input sent; without `--timeout` wait is indefinite |
+| read | `herdr agent read <NAME> --source visible\|recent\|recent-unwrapped\|detection --lines N --format text\|ansi` | `--format ansi` preserves SGR |
+| send-keys | `herdr agent send-keys <NAME> '<key>'` → `{"type":"ok"}` | logical keys |
+| wait | `herdr agent wait <NAME> --until <STATES> --timeout <MS>` | default until: idle,done,blocked; timeout error code `timeout` |
+| close pane | `herdr pane close <pane_id>` → `ok` | cleanup works |
+| error shape | any bad target | `agent_not_found` observed; codes are stable-looking strings |
+
+**Key facts for the driver:**
+- `agent list` returns `agents: []` (empty when none started) — inventory
+  reconcile source is `api snapshot` (which embeds `agents` array too)
+- detection state lives on panes (`agent_status`), agents enrich with `name`;
+  `herdr agent explain <name>` shows which manifest rule fired — useful for
+  debugging blocked states later
+- pane `revision`/`state_change_seq` give change-detection keys for polling
+- `agent prompt --wait` semantics: it does NOT track turns; if agent already
+  `working`, completion of that active turn may match. Driver treats `--wait`
+  as "settled-state wait", not completion tracking
+- **pi has no provider auth on this machine** (S1.B blocker, below) — agent
+  started and detected `idle` fine, but any prompt errors inside pi with
+  "No API key found" (pi 0.87.1, no auth.json, no ANTHROPIC_API_KEY etc.).
+  Also noted: `agent_prompt_stalled` fired even for valid pi input because
+  the error screen didn't change `state_change_seq` — detection sees the
+  same idle state. Driver must not treat `agent_prompt_stalled` as fatal;
+  re-read output and surface the text instead.
+- `herdr pane run <PANE_ID> <CMD>...` exists (run command in pane) — could
+  replace split+start for direct CLI launching, untested here
+- Workspaces exist (`herdr workspace list`); tower should create/use a
+  dedicated workspace for its agents rather than polluting user's —
+  **new open question for DESIGN.md §17** (workspace management verb)
+
+**Decision**: driver verbs = snapshot, pane split/close, agent
+start/prompt/read/send-keys/wait/list. Output parsing: serde over the
+single-line JSON; error mapping via `error.code`. No socket work needed for
+phase 1 — CLI is sufficient and stable-looking. Latency: all verbs
+sub-second except start (detection wait ~2–10s expected) and prompt --wait.
+
+### S1.B — pi harness (executed 2026-09-26)
+
+- pi 0.87.1 (mise-managed) starts in herdr pane and detects as `idle`
+  via manifest `remote:/.../pi.toml 2026.09.14.1` — **pane prompt/read
+  suffices for driving; no RPC runner needed for phase 1**
+- Detection confirmed live: `agent explain spike-pi` → `state: idle`,
+  `fallback_reason: default_known_agent_idle_fallback` (prompt box idle
+  rule)
+- **Blocker found: pi has no provider credentials on this machine**
+  (`Error: No API key found for the selected model`; no auth.json, no
+  provider env vars). Any prompt to pi fails inside the harness with an
+  on-screen error; herdr detection stays `idle` (error screen not in
+  manifest rules) and `agent prompt --wait` returns `agent_prompt_stalled`
+- Resolution options (operator decision needed): (a) run `pi /login`
+  interactively once and store auth.json, (b) export a provider API key
+  in tower's agent env (pi reads ANTHROPIC_API_KEY etc.), (c) point pi at
+  a local/gateway provider (radius/pi.dev catalog in providers.md)
+- Until resolved, pi prompts in e2e smoke (T7.1) will show the error
+  screen; the smoke test can still verify prompt delivery + read-back
+  (text appears on screen) even without a working model
+
+**DESIGN.md §17.2 answer**: pane prompt/read is enough. pi's programmatic
+mode unnecessary for v1.

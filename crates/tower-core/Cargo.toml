@@ -1,0 +1,16 @@
+[package]
+name = "tower-core"
+description = "tower core types: agents, tasks, messages, events"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+ulid = { workspace = true }
+
+[lints]
+workspace = true

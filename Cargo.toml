@@ -1,0 +1,46 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tower-core",
+    "crates/tower-server",
+    "crates/tower-client",
+    "crates/tower-tui",
+    "crates/tower-web",
+    "crates/tower-driver",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/geoffjay/tower"
+
+[workspace.dependencies]
+tower-core = { path = "crates/tower-core" }
+tower-driver = { path = "crates/tower-driver" }
+tower-client = { path = "crates/tower-client" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+ulid = { version = "1", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+async-trait = "0.1"
+futures = "0.3"
+directories = "6"
+toml = "0.9"
+ratatui = "0.29"
+crossterm = "0.29"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = true
+strip = true
