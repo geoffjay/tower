@@ -20,7 +20,7 @@ Reference: D§9.5 (machine hub, node protocol), D§13 (node security), D§14
 
 - **S5.A** Node transport security: (a) plain WS + per-machine token over
   SSH tunnel (operator runs `ssh -L` or WireGuard), (b) TLS + token with
-  self-signed/pinned certs shipped by `agentos machines add`. Constraints:
+  self-signed/pinned certs shipped by `tower machines add`. Constraints:
   no inbound holes on nodes (nodes dial out, D§9.5); keep zero-config local
   case unaffected. Recommend (a) for v1 (herdr's machines model is SSH;
   the factory notes assume SSH between hosts), record decision + a migration
@@ -30,7 +30,7 @@ Reference: D§9.5 (machine hub, node protocol), D§13 (node security), D§14
 ## Milestone 1 — Machine registry + hub (D§9.5)
 
 - **T1.1** Machine registry: `machines` rows already exist (phase 1);
-  add lifecycle routes + CLI: `agentos machines add <name>` (issues
+  add lifecycle routes + CLI: `tower machines add <name>` (issues
   per-machine token, prints once, D§13), `machines remove`, `machines list`.
   Node token storage: hashed in db, raw shown once. Verify: integration
   tests for issue/remove; token-perms assertions.
@@ -43,7 +43,7 @@ Reference: D§9.5 (machine hub, node protocol), D§13 (node security), D§14
 
 ## Milestone 2 — Node agent (D§3, D§9.5)
 
-- **T2.1** `agentos node` command: loads `[node]` config (coordinator URL,
+- **T2.1** `tower node` command: loads `[node]` config (coordinator URL,
   token), runs a local HerdrDriver, registers on connect (machine name,
   capabilities), answers RPCs (spawn/prompt/read/stop against local
   herdr), forwards driver events upstream. Reconnect with exponential
@@ -76,7 +76,7 @@ Reference: D§9.5 (machine hub, node protocol), D§13 (node security), D§14
 
 - **T4.1** Two-real-machine run: coordinator on host A, node on host B
   (or second local user/namespace if hardware-poor): remote pi agent
-  spawned, appears in `agentos ps`, streams output locally over SSE,
+  spawned, appears in `tower ps`, streams output locally over SSE,
   claims a queued task, completes it. Record transcript.
 - **T4.2** Chaos pass: kill node mid-task (requeue path), kill coordinator
   mid-stream (nodes idle + reconnect), kill both (agents survive via

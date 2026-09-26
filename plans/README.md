@@ -1,4 +1,4 @@
-# agentos — Execution Plans
+# tower — Execution Plans
 
 Derived from [DESIGN.md](../DESIGN.md) §18. One plan per phase. Each plan is
 self-contained enough to be executed top-to-bottom by an agent or a human, with

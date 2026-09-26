@@ -15,10 +15,10 @@ Reference: D§11 (views, chrome), D§10 (verbs the TUI wraps where useful).
 
 ## Milestone 1 — TUI skeleton (D§2, D§11)
 
-- **T1.1** `agentos-tui` crate: ratatui + crossterm app loop, view router,
+- **T1.1** `tower-tui` crate: ratatui + crossterm app loop, view router,
   command palette (`:`), vim navigation, global keymap (q quit, tab/shift-tab
   cycle views, `?` help), graceful shutdown on terminal resize/hangup.
-  Client library reuse: talk to `/v1` with the same `agentos-client`
+  Client library reuse: talk to `/v1` with the same `tower-client`
   transport (socket preferred). Verify: snapshot UI tests (ratatui test
   backend) for the empty-state frame of each view.
 - **T1.2** Live data: SSE `/v1/events` subscription with cursor resume

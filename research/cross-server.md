@@ -29,7 +29,7 @@ should stay simple; execution is distributed.
 
 ### 1. Single coordinator + SSH remote execution (recommended)
 
-One agentos server on the primary host owns the DB (messages, tasks, inventory).
+One tower server on the primary host owns the DB (messages, tasks, inventory).
 Remote machines run a small **node agent** that:
 - connects out to the coordinator (no inbound firewall holes on workers)
 - executes agent operations locally (via herdr on that machine)
@@ -41,7 +41,7 @@ coordination state lives in exactly one place.
 
 ### 2. Mesh of peers (A2A-native)
 
-Every machine runs a full agentos server; servers find each other via Agent
+Every machine runs a full tower server; servers find each other via Agent
 Cards and talk A2A. Maximal fidelity to the protocol, but N databases means
 distributed-state problems (the exact pain agentd's rewrite is escaping).
 
@@ -54,9 +54,9 @@ one-binary spirit.
 
 **Option 1**, with option 2 as the protocol between *independent* parties:
 
-- Within an agentos deployment: coordinator + SSH-connected node agents
+- Within an tower deployment: coordinator + SSH-connected node agents
   (SSH already keys machines; herdr proves the UX)
-- Between agentos and the outside world (foreign agents, other people's
+- Between tower and the outside world (foreign agents, other people's
   servers): speak **A2A** — HTTP(S) + JSON-RPC + SSE works across any network
   boundary and is the emerging standard
 - Web UI and TUI connect to the coordinator only; it fans out to nodes
@@ -71,4 +71,4 @@ one-binary spirit.
 - Failure mode: node offline = its agents show as unreachable, work for it
   queues or reroutes. Coordinator down = nodes keep running (herdr keeps
   agents alive independently), reconnect on coordinator return. Local agent
-  state survives because herdr owns the PTYs, not agentos.
+  state survives because herdr owns the PTYs, not tower.

@@ -1,6 +1,6 @@
 # Phase 6 — A2A edge
 
-Goal: foreign agents (and other agentos deployments) can discover this
+Goal: foreign agents (and other tower deployments) can discover this
 deployment via its Agent Card, delegate work to named agents, and stream it to
 completion — without touching internal routes.
 
@@ -53,7 +53,7 @@ Reference: D§7 (A2A section), D§5 (state mappings), research/a2a.md.
 
 ## Milestone 3 — Interop + hardening (D§7, D§13)
 
-- **T3.1** Two-deployment test: agentos A ↔ agentos B over A2A only; a task
+- **T3.1** Two-deployment test: tower A ↔ tower B over A2A only; a task
   delegated from A lands in B's pool, B's agent claims it (A2A-origin tasks
   enter the shared pool like any other, D§5.2.1 — no special casing),
   completes, streams back to A. Verify: recorded transcript; both sides'
@@ -68,7 +68,7 @@ Reference: D§7 (A2A section), D§5 (state mappings), research/a2a.md.
 - **T4.1** Reference-client run: a2a-python or a2a-js sample client
   delegates "run <task> on agent X" to the deployment and streams to
   completion, using only the card + protocol. Record transcript.
-- **T4.2** Docs: docs/a2a.md — how to point any A2A client at agentos;
+- **T4.2** Docs: docs/a2a.md — how to point any A2A client at tower;
   update DESIGN.md §17 items closed; final plans/README status sweep.
 
 ## Backlog (post-1.0 seeds)
@@ -77,7 +77,7 @@ Reference: D§7 (A2A section), D§5 (state mappings), research/a2a.md.
   research/a2a.md — deliberately deferred, D§7)
 - Agent-card skills beyond the roster (capability advertising, task-type
   routing)
-- Outbound A2A client mode (agentos agents delegating to *foreign* A2A
+- Outbound A2A client mode (tower agents delegating to *foreign* A2A
   servers — the reverse direction)
 
 ## Verification log

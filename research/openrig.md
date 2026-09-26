@@ -19,7 +19,7 @@ Hono HTTP daemon
 ```
 
 - **Local daemon** (Hono HTTP) + CLI + TUI + MCP server, built on tmux
-- **Single SQLite database** for instance state — same single-server shape agentos wants
+- **Single SQLite database** for instance state — same single-server shape tower wants
 - **Runtimes are adapters**: native Claude Code and Codex sessions, terminal nodes,
   and a Pi adapter using an RPC runner inside a terminal pane (note: pi support
   exists upstream, useful for ohmypi)
@@ -27,7 +27,7 @@ Hono HTTP daemon
   `rig_chatroom_send`, ...) so agents manage their own topology — the daemon
   serves both humans (CLI/TUI) and agents (MCP) from one place
 - React web UI exists but is in maintenance mode — **the TUI is the primary
-  operator surface**, which matches agentos's "web is monitor-only" stance
+  operator surface**, which matches tower's "web is monitor-only" stance
 
 ## How it launches Claude Code and Codex
 
@@ -42,7 +42,7 @@ Hono HTTP daemon
 - Every agent runs in a **tmux session you can attach to directly** — tmux is
   the escape hatch and debugging surface
 - **Discovery/adoption**: `rig discover` fingerprints existing tmux sessions,
-  `rig adopt` brings them under management (nice pattern for agentos: adopt
+  `rig adopt` brings them under management (nice pattern for tower: adopt
   rather than require greenfield)
 - **Snapshot/restore**: `rig down --snapshot` captures topology; `rig up <name>`
   restores with per-node outcomes (resumed/fresh/failed)
@@ -52,7 +52,7 @@ Hono HTTP daemon
 
 ## How openrig supports herdr as a provider
 
-The key integration for agentos's TUI goal:
+The key integration for tower's TUI goal:
 
 - `rig terminal open <rig> --provider herdr` — opens a rig's team terminals
   together in a herdr workspace; `--provider cmux` also available
@@ -65,11 +65,11 @@ The key integration for agentos's TUI goal:
 
 So openrig does **not** embed herdr; it delegates terminal presentation to it
 while keeping ownership of topology, messaging, and queue state. That is exactly
-the layering agentos should copy: agentos TUI on top of herdr panes.
+the layering tower should copy: tower TUI on top of herdr panes.
 
 ## Concepts worth stealing
 
-| Concept | What it is | agentos analog |
+| Concept | What it is | tower analog |
 |---|---|---|
 | Seat | Stable role/address in a rig (`dev-owner@first-project`); the occupying conversation can change while identity/context remain | Agent identity decoupled from process |
 | Pod | Group of seats with shared guidance; each agent keeps its own context window | Grouping/namespace |
@@ -85,9 +85,9 @@ the layering agentos should copy: agentos TUI on top of herdr panes.
 
 - openrig writes a lot of provider config (trust settings, hooks in
   `~/.codex/config.toml`, `~/.claude.json`, `.claude/settings.local.json`) — heavy
-  machine footprint; agentos should be more conservative
+  machine footprint; tower should be more conservative
 - 3,026 commits and a very elaborate upgrade/migration story (telemetry state
-  migrations with preimage receipts) — signs of accreted complexity; agentos
+  migrations with preimage receipts) — signs of accreted complexity; tower
   should stay smaller
 - Its docs emphasize epistemics ("a delivered message is not a reviewed result")
   — the queue/artifact model is opinionated; adopt the ideas, not the weight

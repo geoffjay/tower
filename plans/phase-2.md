@@ -18,7 +18,7 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
 
 - **T1.1** Message kinds, parts (A2A Part shapes: text/data/raw/url,
   media_type, filename, metadata), statuses (`pending | delivered | answered |
-  expired | failed`), deadlines. Types in `agentos-core` with serde tests;
+  expired | failed`), deadlines. Types in `tower-core` with serde tests;
   `messages` DDL is already live from phase 1 T2.2. Verify: round-trip + a
   compile-fail test on invalid kind.
 - **T1.2** Messaging module + routes (D§7): `POST /v1/messages` (any
@@ -27,8 +27,8 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
   Delivery semantics per D§9.3: to-human = inbox row + event (UIs listen);
   to-agent = driver `prompt` on next settle. Verify: integration tests with
   FakeHarness for both delivery directions.
-- **T1.3** CLI: `agentos inbox`, `agentos ask <name>`, `agentos approve
-  <msg-id> [--deny]`, `agentos send`. Verify: inbox shape `--json` tests;
+- **T1.3** CLI: `tower inbox`, `tower ask <name>`, `tower approve
+  <msg-id> [--deny]`, `tower send`. Verify: inbox shape `--json` tests;
   approve path integration-tested against a mock blocked agent.
 
 ## Milestone 2 — Questions, approvals, blocked flow (D§5.3, D§9.3)
@@ -73,9 +73,9 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
 ## Milestone 4 — MCP endpoint (D§7 MCP)
 
 - **T4.1** Streamable-HTTP MCP server at `/mcp` (rmcp or hand-rolled per
-  D§2). Tools: `agentos_ps`, `agentos_spawn`, `agentos_prompt`, `agentos_send`,
-  `agentos_ask`, `agentos_approve`, `agentos_task_list/show/create/claim/
-  pull/heartbeat/status/release`, `agentos_machine_list` — thin wrappers over
+  D§2). Tools: `tower_ps`, `tower_spawn`, `tower_prompt`, `tower_send`,
+  `tower_ask`, `tower_approve`, `tower_task_list/show/create/claim/
+  pull/heartbeat/status/release`, `tower_machine_list` — thin wrappers over
   the same service calls as REST (one code path, D§7). Verify: MCP client
   integration test drives a full pool work-loop against FakeHarness.
 - **T4.2** Agent work-loop skill doc (docs/agent-loop.md): pull → heartbeat
@@ -86,7 +86,7 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
 ## Milestone 5 — Phase exit verification
 
 - **T5.1** Blocked→inbox→answered e2e with real herdr + pi (agent blocks on
-  a question), answered via `agentos approve`; replay via MCP tool.
+  a question), answered via `tower approve`; replay via MCP tool.
 - **T5.2** Pool race e2e: two real pi agents, one queued task, both pulling;
   winner completes, loser gets clean conflict. Kill winner mid-task
   (`kill -9` the pane process), task requeues within lease, survivor

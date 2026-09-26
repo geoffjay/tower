@@ -1,4 +1,4 @@
-# agentos
+# tower
 
 Project research for a multi-agent orchestration system: a single server managing
 coding agents (Claude Code, pi/ohmypi), with a thin client, a read-only monitoring
@@ -32,7 +32,7 @@ agents that is worth studying, plus a herdr terminal-provider integration.
 | [research/ipc.md](research/ipc.md) | IPC options for inter-agent and human-agent communication |
 | [research/cross-server.md](research/cross-server.md) | Communication across servers / machines |
 | [research/a2a.md](research/a2a.md) | A2A protocol findings and fit assessment |
-| [RECOMMENDATIONS.md](RECOMMENDATIONS.md) | Synthesis: proposed architecture for agentos |
+| [RECOMMENDATIONS.md](RECOMMENDATIONS.md) | Synthesis: proposed architecture for tower |
 | [DESIGN.md](DESIGN.md) | Full design: stack, data model, API, modules, phases |
 | [docs/getting-started.md](docs/getting-started.md) | Target-state CLI walkthrough — the UX contract |
 | [plans/](plans/) | Execution plans per phase with milestones and exit criteria |

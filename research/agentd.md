@@ -58,7 +58,7 @@ services before doing anything. Partial startup causes confusing partial failure
    conventions in communicate rooms, enforced by PreToolUse hook scripts
    (e.g. `check-coordination.py`). Convention, not type safety.
 
-## Simplification path for agentos
+## Simplification path for tower
 
 Collapse everything into **one server binary**:
 
@@ -68,7 +68,7 @@ Collapse everything into **one server binary**:
   `messages` table with different types; memory stays a table in the same DB
 - One socket/port: HTTP + streaming multiplexed on a single endpoint
 - One env var (or zero): the client and spawned agents learn the server address once
-  (e.g. `AGENTOS_URL` or a well-known socket path), not eight
+  (e.g. `TOWER_URL` or a well-known socket path), not eight
 - The `agent` CLI becomes the thin **client** in the client/server model
 
 This single-server shape is already proven locally by Hermes Agent

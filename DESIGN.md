@@ -1,13 +1,21 @@
-# agentos — Design Document
+# tower — Design Document
 
 Status: draft v0.1 (2026-09-26)
 Inputs: [README.md](README.md), [RECOMMENDATIONS.md](RECOMMENDATIONS.md), research/
+
+> **Naming note**: the metaphor is air traffic control — tower is the
+> control-and-visibility layer over the herd of agents (radar = agent cloud,
+> clearances = prompts, holding = blocked, squawks = inbox). `tower` is taken
+> on crates.io (the Tower middleware library); if this project is ever
+> published, the crates would need a qualifier (e.g. `tower-atc` or similar),
+> or the ecosystem conflict is accepted for private use. HTTP middleware in
+> this project is axum, unrelated to that crate.
 
 ---
 
 ## 1. Purpose and scope
 
-agentos is a single-server system for running and supervising multiple coding
+tower is a single-server system for running and supervising multiple coding
 agents. It provides one coordination point (server + database + event log), a
 thin client, a read-only web UI, a TUI layered on top of herdr, and standard
 agent-facing interfaces (MCP, A2A).
@@ -23,7 +31,7 @@ Target harnesses: **Claude Code** and **pi (ohmypi)**, executed in
 4. Human attention routed by blocked-state detection (questions/approvals)
 5. Interfaces: CLI (humans), MCP (agents), SSE (UIs), A2A (foreign agents)
 6. Everything durable: messages, tasks, and events are rows before delivery
-7. Agents survive server loss (herdr owns the PTYs, not agentos)
+7. Agents survive server loss (herdr owns the PTYs, not tower)
 8. Shared task pool: agents pick up unowned work, own it exclusively
    (atomic claim + lease + heartbeat), and report status themselves
 
@@ -59,25 +67,25 @@ wire types, mature async stack.
 
 ### Binary layout
 
-One binary, `agentos`, dispatched by subcommand (herdr's shape):
+One binary, `tower`, dispatched by subcommand (herdr's shape):
 
 ```
-agentos serve          # the server (foreground; systemd unit provided)
-agentos node           # remote-machine agent (dials coordinator)
-agentos tui            # interactive TUI (client)
-agentos <verbs>...     # CLI client verbs (see §13)
+tower serve          # the server (foreground; systemd unit provided)
+tower node           # remote-machine agent (dials coordinator)
+tower tui            # interactive TUI (client)
+tower <verbs>...     # CLI client verbs (see §13)
 ```
 
 Client and server share one crate workspace:
 
 ```
-agentos/
+tower/
   crates/
-    agentos-core      # types: Agent, Task, Message, Event, states, errors
-    agentos-server    # axum app, modules, herdr driver, node hub
-    agentos-client    # CLI verbs (thin over core + reqwest)
-    agentos-tui       # ratatui client
-    agentos-web       # Topcoat UI crate (agent cloud + widgets, §12)
+    tower-core      # types: Agent, Task, Message, Event, states, errors
+    tower-server    # axum app, modules, herdr driver, node hub
+    tower-client    # CLI verbs (thin over core + reqwest)
+    tower-tui       # ratatui client
+    tower-web       # Topcoat UI crate (agent cloud + widgets, §12)
 ```
 
 ---
@@ -85,7 +93,7 @@ agentos/
 ## 3. Process and deployment model
 
 ```
-                 ┌──────────────────────── agentos serve ────────────────────────┐
+                 ┌──────────────────────── tower serve ────────────────────────┐
                  │ axum router, single port                                       │
                  │  /v1/* control+query   /v1/events SSE   /mcp   /a2a   /ui     │
                  │ ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐ │
@@ -93,21 +101,21 @@ agentos/
                  │ │ module  │ │ module  │ │ module   │ │ module │ │ hub      │ │
                  │ └─────────┘ └─────────┘ └──────────┘ └────────┘ └──────────┘ │
                  │ ┌──────────────────┐  ┌──────────────────────────────────┐     │
-                 │ │ herdr driver(s)  │  │ SQLite (WAL): agentos.db        │     │
+                 │ │ herdr driver(s)  │  │ SQLite (WAL): tower.db        │     │
                  │ │ (local machine)  │  │ + monotonic event log           │     │
                  │ └──────────────────┘  └──────────────────────────────────┘     │
                  └─────────────────────────────────────────────────────────────────┘
                     ▲            ▲              ▲                ▲
-          agentos CLI│     agentos tui│    browser (UI)    agentos node ── herdr ── agents
+          tower CLI│     tower tui│    browser (UI)    tower node ── herdr ── agents
                 (HTTP)          (HTTP)       (HTTP+SSE)     on remote machines
 ```
 
-- `agentos serve` runs as a systemd user unit on the primary machine
-  (`agentos.service` ships with the project). It is the only stateful process.
+- `tower serve` runs as a systemd user unit on the primary machine
+  (`tower.service` ships with the project). It is the only stateful process.
 - Agents run inside herdr on the same machine (local herdr driver) or on remote
   machines (node agents relay through the hub).
 - Clients are stateless: CLI, TUI, browsers, MCP clients, A2A clients.
-- `agentos node` is a stateless relay: it holds no database, executes driver
+- `tower node` is a stateless relay: it holds no database, executes driver
   calls against its local herdr, and forwards events to the coordinator.
 
 ---
@@ -118,11 +126,11 @@ XDG layout, zero-config start:
 
 | Item | Path |
 |---|---|
-| Config | `~/.config/agentos/config.toml` |
-| Database | `~/.local/share/agentos/agentos.db` |
-| Artifacts | `~/.local/share/agentos/artifacts/` |
-| Auth token | `~/.local/share/agentos/token` (0600, generated on first run) |
-| Unix socket | `$XDG_RUNTIME_DIR/agentos.sock` (default bind) |
+| Config | `~/.config/tower/config.toml` |
+| Database | `~/.local/share/tower/tower.db` |
+| Artifacts | `~/.local/share/tower/artifacts/` |
+| Auth token | `~/.local/share/tower/token` (0600, generated on first run) |
+| Unix socket | `$XDG_RUNTIME_DIR/tower.sock` (default bind) |
 | TCP listen | `127.0.0.1:8266` (default; node deployments use `0.0.0.0` + token) |
 
 Config file (all keys optional; defaults in parentheses):
@@ -143,7 +151,7 @@ permission_mode = "acceptEdits"  # "acceptEdits" | "default"; yolo only per-agen
 [harness.pi]
 args          = []             # extra args appended to spawn
 
-[node]                        # only used by `agentos node`
+[node]                        # only used by `tower node`
 coordinator   = "wss://host:8266/nodes"
 token        = "<per-machine token>"
 
@@ -152,7 +160,7 @@ enabled      = true
 external_url = "https://agents.example.com"   # used in agent card
 ```
 
-`agentos doctor` validates: herdr reachable, socket/CLI, database writable,
+`tower doctor` validates: herdr reachable, socket/CLI, database writable,
 port free, claude/pi executables found.
 
 ---
@@ -456,14 +464,14 @@ to artifacts storage so replay is lossless for subscribed tasks.
 
 `POST /mcp` — streamable HTTP MCP server exposing the same operations:
 
-tools: `agentos_ps`, `agentos_spawn`, `agentos_prompt`, `agentos_send`,
-`agentos_ask`, `agentos_approve`, `agentos_task_list`, `agentos_task_show`,
-`agentos_task_create`, `agentos_task_claim`, `agentos_task_pull`,
-`agentos_task_heartbeat`, `agentos_task_status`, `agentos_task_release`,
-`agentos_machine_list`. One management surface for humans and agents
+tools: `tower_ps`, `tower_spawn`, `tower_prompt`, `tower_send`,
+`tower_ask`, `tower_approve`, `tower_task_list`, `tower_task_show`,
+`tower_task_create`, `tower_task_claim`, `tower_task_pull`,
+`tower_task_heartbeat`, `tower_task_status`, `tower_task_release`,
+`tower_machine_list`. One management surface for humans and agents
 (openrig-proven pattern). The claim/pull/heartbeat/status tools are what
 agents use in their work loop: pull work → do it → report status →
-complete. Server-side, MCP `agentos_task_claim` is the same code path as
+complete. Server-side, MCP `tower_task_claim` is the same code path as
 the REST route (one transaction, same CAS) — there is no second
 implementation to drift.
 
@@ -516,7 +524,7 @@ Two implementations:
   (config-overridable); `--dangerously-skip-permissions` only when the agent row
   has `permissions = "yolo"` (explicit, per-agent, recorded in events)
 - Classic renderer preferred (scrollback; openrig's finding)
-- agentos never writes to `~/.claude.json` or hooks by default — trust and
+- tower never writes to `~/.claude.json` or hooks by default — trust and
   permission prompts are surfaced via `blocked` state, answered through the
   inbox (send-keys `1`/`2` on approval messages). Claude hook integrations
   (activity relay) are opt-in later.
@@ -586,27 +594,27 @@ owns cursor semantics and heartbeats.
 
 ## 10. Client CLI
 
-`agentos <verb>` (all thin over `/v1`):
+`tower <verb>` (all thin over `/v1`):
 
 ```
-agentos ps [-m]                       # agents table w/ state glyphs
-agentos spawn <name> --kind claude [--workdir .] [--worktree] [--prompt "..."]
-agentos prompt <name> 'text' [--wait] # --wait blocks until settled state
-agentos read <name> [--source visible] [--format ansi]
-agentos stream <name>                 # attach to SSE output (like tail -f)
-agentos stop <name> [--remove]
-agentos inbox                         # pending questions/approvals addressed to me
-agentos ask <name> ...                 # send question
-agentos approve <msg-id> [--deny]      # answer approval
-agentos send <to> --kind <kind> ...    # generic unified send
-agentos task list [--state queued] [--tag x]   # pool + owned views
-agentos task show <id>                          # detail incl. claim/lease trail
-agentos task create 'title' [--tag x] [--assign name] [--priority N]
-agentos task cancel <id> / task release <id>
-agentos machines                      # machine inventory
-agentos machines add <name>           # issue a node token (prints once)
-agentos tui                           # launch TUI
-agentos serve / node / doctor / schema
+tower ps [-m]                       # agents table w/ state glyphs
+tower spawn <name> --kind claude [--workdir .] [--worktree] [--prompt "..."]
+tower prompt <name> 'text' [--wait] # --wait blocks until settled state
+tower read <name> [--source visible] [--format ansi]
+tower stream <name>                 # attach to SSE output (like tail -f)
+tower stop <name> [--remove]
+tower inbox                         # pending questions/approvals addressed to me
+tower ask <name> ...                 # send question
+tower approve <msg-id> [--deny]      # answer approval
+tower send <to> --kind <kind> ...    # generic unified send
+tower task list [--state queued] [--tag x]   # pool + owned views
+tower task show <id>                          # detail incl. claim/lease trail
+tower task create 'title' [--tag x] [--assign name] [--priority N]
+tower task cancel <id> / task release <id>
+tower machines                      # machine inventory
+tower machines add <name>           # issue a node token (prints once)
+tower tui                           # launch TUI
+tower serve / node / doctor / schema
 ```
 
 Output: human tables by default, `--json` everywhere (agentd lesson: the CLI is
@@ -617,7 +625,7 @@ scriptable and agent-usable; MCP wraps the same surface).
 ## 11. TUI
 
 ratatui client of `/v1` + local herdr shell-outs. Division of labor
-(openrig's split): agentos TUI shows **coordination state**; herdr shows
+(openrig's split): tower TUI shows **coordination state**; herdr shows
 **terminals**.
 
 Views:
@@ -687,7 +695,7 @@ full detail lives in the TUI, by design.
   the same SSE `/v1/events` stream every client uses (cursor resume on
   reconnect, D§7)
 - Risk accepted: Topcoat is explicitly early-stage ("expect breaking
-  changes") — pin the version; isolate UI code in `agentos-web` so framework
+  changes") — pin the version; isolate UI code in `tower-web` so framework
   churn is one crate's problem (D§2). Spike S4.B verifies canvas-scale
   reactivity (~50–100 points) before committing
 - Read-only enforced as before: UI data routes are GET-only; no mutation
@@ -707,7 +715,7 @@ full detail lives in the TUI, by design.
 - Unix socket: filesystem permissions (0600 dir) are the auth; no token needed
 - TCP: bearer token (generated first run, 0600); bind 127.0.0.1 by default
 - Nodes: per-machine tokens issued by the operator
-  (`agentos machines add <name>` prints a token); WS over TLS or SSH tunnel
+  (`tower machines add <name>` prints a token); WS over TLS or SSH tunnel
 - A2A endpoint: bearer token required (declared in agent card auth)
 - Never log/store secrets in events or message payloads; prompt text is stored
   (it is the work record) but not replicated to third parties
@@ -720,7 +728,7 @@ full detail lives in the TUI, by design.
 | Failure | Behavior |
 |---|---|
 | Server crash | Agents unaffected (herdr owns PTYs). On restart: snapshot reconcile, event log intact, agents re-bound by pane id. Lease sweeper resumes; surviving owners renew and keep work, dead owners' tasks requeue on expiry |
-| herdr crash | herdr restores layout/sessions (its own persistence). agentos reconciles on next snapshot/poll; agents marked `unknown` until then |
+| herdr crash | herdr restores layout/sessions (its own persistence). tower reconciles on next snapshot/poll; agents marked `unknown` until then |
 | Node offline | Its agents → `dead/unreachable` view state; queued prompts to it fail fast with `machine_offline` |
 | Coordinator offline (node view) | Node keeps agents alive via herdr; reconnects, resyncs snapshot |
 | Slow SSE client | Disconnect with resume cursor; lossless replay from event log + artifacts |
@@ -729,14 +737,14 @@ full detail lives in the TUI, by design.
 | Claim race (two agents, one task) | SQLite CAS loses exactly one bidder → clean `conflict`; no double-ownership window |
 | DB write failure | Server degrades read-only + logs loudly; driver calls paused (never silently drop) |
 
-Backups: the whole state is `~/.local/share/agentos/` — copy the directory.
+Backups: the whole state is `~/.local/share/tower/` — copy the directory.
 
 ---
 
 ## 15. Observability
 
 - `tracing` JSON logs to stderr (journald via systemd)
-- Event log is the primary audit surface (`agentos` CLI queries it;
+- Event log is the primary audit surface (`tower` CLI queries it;
   `events?filter=` in UI)
 - `/healthz` returns: db ok, driver ok (last snapshot age), node statuses
 - Prometheus metrics endpoint: optional phase 5 (`/metrics`, default off)
@@ -752,7 +760,7 @@ Backups: the whole state is `~/.local/share/agentos/` — copy the directory.
   race tests (N clients claim same task, exactly one wins; loser gets 409)
 - **E2E smoke**: temp `HOME`, real herdr, spawn `pi` (and `claude` when
   authed): prompt → working → done → events observed over SSE; recorded as
-  `agentos doctor --e2e`
+  `tower doctor --e2e`
 - **Contract**: `GET /v1/schema` output diffed in CI (route/event registry
   changes are deliberate)
 

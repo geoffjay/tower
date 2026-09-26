@@ -3,7 +3,7 @@
 herdr 0.8.2 is installed on this machine (`/usr/bin/herdr`, pacman package,
 https://herdr.dev, Apache 2.0, GitHub `herdrdev/herdr`). It is a tmux-like
 terminal workspace manager purpose-built for coding agents — the substrate the
-agentos TUI should build on.
+tower TUI should build on.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ subscription_event, success_response`) and typed methods (`AgentStartParams`,
 Responses look like `{"id":"cli:agent:list","result":{"agents":[],"type":"agent_list"}}`.
 
 This is a first-class automation surface — herdr's own docs call it "the CLI and
-the socket API are the same surface agents drive." **agentos should drive agents
+the socket API are the same surface agents drive." **tower should drive agents
 through this API rather than owning terminals itself.**
 
 ## How it launches agents (22 kinds)
@@ -55,7 +55,7 @@ terminal screen: regions like `osc_title`, `osc_progress`, `bottom_non_empty_lin
 prompt-box as idle, `esc to interrupt` as working, "do you want to proceed?" as
 blocked; codex uses "Action Required" OSC title as blocked.
 
-This gives agentos a **free agent-state model** (working/blocked/idle) for the
+This gives tower a **free agent-state model** (working/blocked/idle) for the
 monitoring UI, with zero instrumentation of the agents themselves.
 
 ## Driving agents
@@ -70,10 +70,10 @@ monitoring UI, with zero instrumentation of the agents themselves.
 - OSC 52/title/progress, SGR mouse, Kitty graphics, OSC 8 links all handled
 - Lifecycle events are pushed to subscribers over the socket (subscription events)
 
-## Implications for agentos
+## Implications for tower
 
 1. **Don't build a terminal multiplexer.** herdr already owns PTYs, persistence,
-   reattach, state detection, and remote machines. agentos's TUI should be a
+   reattach, state detection, and remote machines. tower's TUI should be a
    herdr *client/overlay* (like openrig's `--provider herdr`), not a competitor.
 2. **Consume the socket API**: snapshot for inventory, subscriptions for live
    state, `agent read` for streaming output, `agent prompt`/`send-keys` for input.

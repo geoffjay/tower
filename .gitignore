@@ -5,8 +5,8 @@
 # cargo
 Cargo.lock.orig
 
-# local state (agentos runtime, if run from repo)
-/.agentos/
+# local state (tower runtime, if run from repo)
+/.tower/
 *.db
 *.db-wal
 *.db-shm

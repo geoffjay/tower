@@ -15,7 +15,7 @@
 - Used by herdr for its client/server API (`herdr.sock`, `herdr-client.sock`)
 - Pros: zero setup, no ports, filesystem permissions as auth, fast
 - Cons: local-only — doesn't cross machines; the server needs more than this
-- **Verdict: right for herdr, too narrow for agentos's server API**
+- **Verdict: right for herdr, too narrow for tower's server API**
 
 ### 2. HTTP + JSON-RPC over a single port (agentd's mistake was N services, not HTTP)
 
@@ -59,7 +59,7 @@
 
 ```
                   ┌──────────────────────────────┐
-                  │        agentos server        │
+                  │        tower server        │
                   │  HTTP + JSON-RPC (1 port)    │
                   │  ├─ REST-ish control routes  │
                   │  ├─ SSE /events (bus)        │

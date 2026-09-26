@@ -40,7 +40,7 @@ Reference: D§12 (agent cloud, widgets, Topcoat choice, risks).
 
 ## Milestone 1 — Server-side groundwork (D§12.3)
 
-- **T1.1** Topcoat app scaffold in `agentos-web` crate, mounted under `/ui`
+- **T1.1** Topcoat app scaffold in `tower-web` crate, mounted under `/ui`
   (`/` redirect); server-rendered initial cloud from the DB roster.
   Isolation rule: no other crate imports topcoat types (framework churn
   stays local). Verify: roster fixture renders N points server-side.
@@ -72,7 +72,7 @@ Reference: D§12 (agent cloud, widgets, Topcoat choice, risks).
   while open. Verify: panel binds to a fixture agent and reflects scripted
   state changes; lease countdown ticks from `lease_expires_at`.
 - **T3.2** Read-only guard pass: UI client code exposes GET-only access;
-  no mutation routes referenced anywhere in `agentos-web` (grep test);
+  no mutation routes referenced anywhere in `tower-web` (grep test);
   token handling per S4.C outcome.
 
 ## Milestone 4 — Phase exit verification

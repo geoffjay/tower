@@ -1,4 +1,4 @@
-# agentos — recommendations
+# tower — recommendations
 
 Proposed architecture, synthesized from the research (agentd's failure mode,
 herdr's substrate, openrig's layering, A2A's protocol shapes).
@@ -14,7 +14,7 @@ edge for foreign agents and remote deployments.
 ## Architecture
 
 ```
-                    agentos server (single binary, Rust)
+                    tower server (single binary, Rust)
    ┌───────────────────────────────────────────────────────────────┐
    │ HTTP: control API · SSE /events · SSE /agents/:id/stream        │
    │      MCP endpoint · A2A endpoint (+ agent card)                 │
@@ -71,9 +71,9 @@ tmux panes — but keep detection rules herdr-shaped.
 
 ### 4. Client: one CLI for humans and agents
 
-- The `agent` CLI reimagined: `agentos ps`, `agentos prompt <agent> 'msg'`,
-  `agentos ask`, `agentos approve <id>`, `agentos stream <agent>`,
-  `agentos spawn --kind claude`
+- The `agent` CLI reimagined: `tower ps`, `tower prompt <agent> 'msg'`,
+  `tower ask`, `tower approve <id>`, `tower stream <agent>`,
+  `tower spawn --kind claude`
 - Same API surface exposed over MCP so agents self-organize (openrig pattern)
 - Interactive mode = the TUI
 
@@ -85,7 +85,7 @@ tmux panes — but keep detection rules herdr-shaped.
   herdr and cmux show the actual agent terminals"
 - Think `rig tui`-style topology/status views + message/queue panes, driving
   the same server API
-- Terminal presentation stays in herdr; agentos never re-implements PTYs
+- Terminal presentation stays in herdr; tower never re-implements PTYs
 
 ### 6. Web UI: monitoring only
 
@@ -131,7 +131,7 @@ tmux panes — but keep detection rules herdr-shaped.
 - Alternative if speed-to-first-demo matters: TypeScript monorepo (openrig-
   style, Hono + better-sqlite3 + MCP SDK), accepting a Node runtime
 - Web UI: server-rendered + htmx **or** tiny React/Vite SPA; read-only
-- TUI: ratatui over the herdr socket + agentos HTTP API
+- TUI: ratatui over the herdr socket + tower HTTP API
 
 ## Phasing
 

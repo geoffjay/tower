@@ -12,9 +12,9 @@ agents rebind.
 
 ## Milestone 0 — Scaffold (D§2)
 
-- **T0.1** Init cargo workspace, 6 crates per D§2 (`agentos-core`,
-  `agentos-server`, `agentos-client`, `agentos-tui`, `agentos-web`, plus
-  `agentos-driver` — extracted from server per M1 layout note below).
+- **T0.1** Init cargo workspace, 6 crates per D§2 (`tower-core`,
+  `tower-server`, `tower-client`, `tower-tui`, `tower-web`, plus
+  `tower-driver` — extracted from server per M1 layout note below).
   Workspace-level lints: `unsafe` forbidden, `deny(warnings)` in CI config only.
   Verify: `cargo build` green on empty crates.
 - **T0.2** CI (GitHub Actions or local justfile+script): fmt, clippy -D
@@ -46,7 +46,7 @@ agents rebind.
 
 ## Milestone 2 — Core types + storage (D§5, D§6)
 
-- **T2.1** `agentos-core`: ULID wrapper, ms-epoch time helpers, error enum
+- **T2.1** `tower-core`: ULID wrapper, ms-epoch time helpers, error enum
   (codes per D§7: `not_found | conflict | timeout | driver | invalid`),
   serde-JSON DTOs for all §5 objects (Agent, Task, Message, Event, Machine),
   state enums with `#[non_exhaustive]` (states evolve; phase 2 adds pool
@@ -75,12 +75,12 @@ agents rebind.
   comments, disconnect-with-resume-hint on slow client (D§7 backpressure:
   bounded channel per subscriber). Verify: scripted event appends while
   `curl -N` streams; reconnect replays from cursor; filter works.
-- **T3.4** Systemd user unit (`agentos.service`) + `agentos serve` daemon
-  flags. Verify: `systemctl --user start agentos` healthy on a dev box.
+- **T3.4** Systemd user unit (`tower.service`) + `tower serve` daemon
+  flags. Verify: `systemctl --user start tower` healthy on a dev box.
 
 ## Milestone 4 — HerdrDriver (D§8)
 
-- **T4.1** `agentos-driver` crate: `Harness` trait per D§8.1 +
+- **T4.1** `tower-driver` crate: `Harness` trait per D§8.1 +
   `ReadSource`/`ReadResult`/`HarnessEvent`/`AgentSpec` types. Trait stays
   object-safe; events via `BoxStream`. Verify: trait compiles with a mock
   harness used in tests.
@@ -89,7 +89,7 @@ agents rebind.
   error mapping to `driver` errors. No socket/SemanticFrame work in phase 1
   (D§17.1: CLI first). Verify: unit tests with recorded fixture JSON per verb
   (golden files), plus live smoke test against real herdr (`just e2e-smoke`,
-  gated on `AGENTOS_E2E=1` so CI without herdr still passes).
+  gated on `TOWER_E2E=1` so CI without herdr still passes).
 - **T4.3** Driver event pump: poll `snapshot` + `agent read` (rate per
   S1.A findings), diff, emit `agent.state` + `agent.output` events into the
   log; output chunks also written under `artifacts/` (D§7 replay note).
@@ -111,11 +111,11 @@ agents rebind.
 
 ## Milestone 6 — CLI client (D§10)
 
-- **T6.1** `agentos-client`: transport (socket preferred, TCP+token
+- **T6.1** `tower-client`: transport (socket preferred, TCP+token
   fallback), `--json` on every verb, table rendering (human output).
   Verbs: `ps`, `spawn`, `prompt --wait`, `read`, `stream`, `stop`, `doctor`,
   `schema`. Verify: `--json` output shape-tested; table snapshot tests.
-- **T6.2** `agentos doctor` (D§4): herdr reachable (socket + CLI), db
+- **T6.2** `tower doctor` (D§4): herdr reachable (socket + CLI), db
   writable, port free, claude/pi found on PATH. Exit non-zero on failures;
   `--json` mode. Verify: failure injection tests (unset PATH entry,
   unwritable XDG dir).
