@@ -189,6 +189,10 @@ Protocol 20, herdr 0.8.2.
   re-read output and surface the text instead.
 - `herdr pane run <PANE_ID> <CMD>...` exists (run command in pane) — could
   replace split+start for direct CLI launching, untested here
+- **S1.A amendment (found during T4.2)**: `herdr agent read` is the
+  exception to the JSON rule — it prints the pane's raw terminal text
+  (leading newline framing), not a `{"id":...,"result":...}` envelope.
+  Driver has `run_json` + `run_raw` paths accordingly.
 - Workspaces exist (`herdr workspace list`); tower should create/use a
   dedicated workspace for its agents rather than polluting user's —
   **new open question for DESIGN.md §17** (workspace management verb)

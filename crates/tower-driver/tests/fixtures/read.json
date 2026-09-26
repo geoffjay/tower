@@ -1,0 +1,8 @@
+{
+  "id": "cli:agent:read",
+  "result": {
+    "output": "● Reading the existing files first…\n+ Thought 412ms\n",
+    "source": "recent",
+    "type": "agent_read"
+  }
+}
