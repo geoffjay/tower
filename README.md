@@ -11,7 +11,8 @@ web UI, and a TUI layered on top of herdr.
 - Communicate with agents (human-to-agent and agent-to-agent)
 - Agents stream data out, possibly via SSE
 - Harnesses: **Claude Code** and **ohmypi** (the `pi` CLI, v0.87.1, installed via mise)
-- Web UI: visual monitoring only — not for configuration or control
+- Web UI: agent cloud — visual monitoring only (color/size/halo encodings),
+  not for configuration or control
 - TUI: adds on top of **herdr**, similar to how **openrig** does it
 
 ## Background

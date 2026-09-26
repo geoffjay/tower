@@ -1,77 +1,99 @@
-# Phase 4 — Web UI (read-only)
+# Phase 4 — Web UI (agent cloud, read-only)
 
-Goal: an embedded, read-only dashboard. Live states, pool, output tails,
-messages/tasks history. Zero config/control surface — by design and by route
-(D§12).
+Goal: a highly graphical, at-a-glance health view — agents as points in a
+cloud, metrics encoded visually, floating detail panel on selection.
+Drill-down stays minimal by design (D§12). Everything in Rust via Topcoat.
 
-Exit criteria (DESIGN.md §18): dashboard shows live states, pool
-(queued/working/blocked) and output tails with zero polling errors through an
-hour soak.
+Exit criteria (DESIGN.md §18): cloud shows all agents as colored points with
+live state changes for an hour soak: zero polling errors, blocked agents
+visibly pulse, selecting a point opens the side panel with live detail.
 
 Depends on: phase 2. Independent of phase 3.
 
+Reference: D§12 (agent cloud, widgets, Topcoat choice, risks).
+
 ---
 
-## Milestone 0 — Decision spike (D§17.3, D§17.5)
+## Milestone 0 — Spikes (D§17.3, D§17.5, D§17.7)
 
-- **S4.A** htmx + server-rendered partials vs minimal React/Vite SPA.
-  Constraints: embedded in binary (rust-embed, D§2), read-only, SSE-fed, no
-  Node toolchain at server runtime (build-time toolchain acceptable).
-  Evaluate: SSE wiring effort, output-tail ANSI rendering (does htmx swap
-  strategy handle a scrolling tail well?), dependency weight. Output:
-  decision + rationale appended to this file; update DESIGN.md §17.3/§17.5.
-- **S4.B** Read-token scoping (D§17.5): v1 single-operator — decide between
-  (a) same token as everything (simplest), (b) read-only token minted at
-  first run for the UI bundle only. Default recommendation: (b) if it costs
-  < half a day, else (a) with a tracking note for v2. Decision recorded same
-  way.
+- **S4.A** **Topcoat validation** (was htmx-vs-React; tech is now chosen,
+  this spike validates it). Build a throwaway Topcoat page with ~80
+  reactive points (mock data) and answer:
+  - Do Topcoat reactive expressions handle per-point updates at
+    state-change frequency (worst case: one update per agent per poll tick)?
+  - SVG nodes vs absolutely-positioned DOM divs — rendering cost at
+    50–100 points with color/size/halo transitions
+  - Where does the force-directed layout run: server-side (recomputed on
+    roster change, positions shipped in render) vs client-side in compiled
+    reactivity (continuous animation)? Recommend the simpler one that still
+    looks alive
+  - Pin the topcoat version; note any breaking-change risk for the roadmap
+  Output: findings appended here + DESIGN.md §17.3 closed. If Topcoat fails
+  the 80-point test, fallback decision recorded (plain axum + hand-rolled
+  SSE + vanilla JS canvas, still no build pipeline) and §12.3 amended.
+- **S4.B** **Metric semantics** (D§17.7): define exact formulas from the
+  event log for: activity volume (point size), health/quality (brightness),
+  message volume (edge thickness), blocked pulse. Window sizes (e.g. 5-min
+  rolling). Output: short spec table appended here; becomes tooltips in
+  the UI and stays out of the hot path (computed on event append, cached
+  per agent, not per render).
 
-## Milestone 1 — Serving + data contract (D§12)
+## Milestone 1 — Server-side groundwork (D§12.3)
 
-- **T1.1** `/ui` route serving embedded assets (rust-embed); redirect `/` →
-  `/ui`; cache headers; no mutation routes in the UI bundle's API client —
-  enforced by the client library only exposing GETs (verify by review +
-  grep test that no POST is referenced in web assets).
-- **T1.2** Read-only data endpoints the UI needs (reuse phase-2 routes,
-  no new ones unless a gap appears; if a gap appears, add GET-only routes
-  under `/v1/ui/*` and record why in DESIGN.md §7). Verify: gap analysis
-  written into this file before building views.
+- **T1.1** Topcoat app scaffold in `agentos-web` crate, mounted under `/ui`
+  (`/` redirect); server-rendered initial cloud from the DB roster.
+  Isolation rule: no other crate imports topcoat types (framework churn
+  stays local). Verify: roster fixture renders N points server-side.
+- **T1.2** Metrics queries (per S4.B): event-log rollups per agent —
+  activity rate, health score, edge volumes — computed incrementally and
+  cached; exposed only via the UI's render data (no new public API in v1;
+  if a route is needed, GET-only under `/v1/ui/*` per D§12 amendment rules).
+  Verify: fixture events produce expected cached values; staleness handled.
 
-## Milestone 2 — Dashboard + agent detail (D§12)
+## Milestone 2 — The cloud (D§12.1)
 
-- **T2.1** Dashboard: agent cards (name, machine, kind, state color/glyph),
-  blocked banner (inbox pending), pool summary (queued/working/blocked
-  counts), machine status strip. All fed by SSE `/v1/events` with cursor
-  resume; initial paint from GETs. Verify: deterministic render test with
-  fixture state; SSE-reconnect behavior in a scripted test.
-- **T2.2** Agent detail page: output tail (ANSI → HTML rendering decision from
-  S4.A), current task with lease countdown, recent messages. Verify: ANSI
-  passthrough visually checked against a recorded pane capture; countdown
-  renders from fixture.
+- **T2.1** Cloud view: points with the four channels — state color, size
+  from activity, halo/pulse on blocked-or-attention, brightness from health;
+  machine clustering (local only in this phase, but positions derive from
+  machine groups so phase 5 slots in). Layout per S4.A decision.
+  Verify: mixed-state fixture (10 agents, all states represented) renders
+  correctly; transitions animate on event arrival.
+- **T2.2** Live updates: SSE `/v1/events` consumer with cursor resume;
+  state color flips working↔blocked↔idle in < 2s of the event; pool bar,
+  machine strip, event ribbon widgets fed from the same stream.
+  Verify: scripted event bursts drive all widgets; reconnect-after-server-
+  restart resumes without duplicate points.
 
-## Milestone 3 — Tasks + messages pages (D§12)
+## Milestone 3 — Floating detail panel (D§12.1)
 
-- **T3.1** Tasks page: pool board (queued/working/input-required columns
-  conceptually — table is fine for v1), priority ordering, tags, claim trail
-  detail view. Verify: fixture-driven render test.
-- **T3.2** Messages/inbox page: history with kind/status badges; read-only
-  (respond only via CLI/TUI — the page links to the command, not a form).
-  Verify: history pagination over fixture messages.
+- **T3.1** Point selection → floating side panel: name, kind, machine,
+  state, current task + lease countdown, message rate, recent-event
+  sparkline, last output snippet. Closes on deselect/Esc. Updates live
+  while open. Verify: panel binds to a fixture agent and reflects scripted
+  state changes; lease countdown ticks from `lease_expires_at`.
+- **T3.2** Read-only guard pass: UI client code exposes GET-only access;
+  no mutation routes referenced anywhere in `agentos-web` (grep test);
+  token handling per S4.C outcome.
 
 ## Milestone 4 — Phase exit verification
 
-- **T4.1** Hour soak: dashboard open against live agents (real herdr + pi
-  doing real work), zero polling errors, SSE reconnects on server restart,
-  no unbounded DOM growth (output tails ring-buffered at ~500 lines
-  client-side). Record in Verification log.
-- **T4.2** Accessibility + keyboard pass: state glyphs have text labels,
-  tables navigable, no console errors. Record checks.
+- **T4.1** Hour soak: live agents (real herdr + pi) doing real work; cloud
+  must show state transitions with zero polling errors, no memory growth
+  (per-point DOM/SVG stable; metrics cache bounded), SSE reconnects
+  survive a server restart. Record in Verification log.
+- **T4.2** Glance test: show a 15-agent mixed-state cloud to the operator
+  for 10 seconds, hide it, ask: which agents need you? Correct answer must
+  be readable from color+halo alone (amber pulsing). Record result.
+- **T4.3** Update DESIGN.md §17 (S4 items closed), plans/README status,
+  CHANGELOG entry.
 
-## Backlog (v2 seeds)
+## Backlog (v2 seeds, D§12.4)
 
-- Historical charts (events/day, task throughput) from the event log
-- Read-only node dashboards per machine
-- WebSocket upgrade path if SSE ever proves limiting (not expected, D§7)
+- Full agent detail page (output tail + message history)
+- Task pool board view
+- Historical charts from the event log
+- Points ↔ table view toggle
+- Edges: message-volume lines between agents (defined in S4.B, v2 wiring)
 
 ## Verification log
 
@@ -82,6 +104,6 @@ Depends on: phase 2. Independent of phase 3.
 
 ## Spike findings
 
-### S4.A — UI tech (filled during execution)
+### S4.A — Topcoat validation (filled during execution)
 
-### S4.B — read token (filled during execution)
+### S4.B — metric semantics (filled during execution)

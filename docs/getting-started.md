@@ -246,9 +246,11 @@ $ agentos events --follow --filter task
 $ agentos schema            # every route and event type, introspectable
 ```
 
-The web UI (phase 4) is this page in a browser — read-only: states, pool,
-output tails, message history. Configuration and control stay in the CLI
-and TUI by design.
+The web UI (phase 4) is the **agent cloud** — a single highly graphical page:
+every agent a colored point in a drifting cloud (state = color, activity =
+size, attention = pulsing halo, health = brightness), with a floating panel
+for the agent you click. Read-only by design: it answers "who needs me right
+now?" at a glance; configuration and control stay in the CLI and TUI.
 
 ## 9. Later: more machines
 
@@ -292,6 +294,7 @@ leases expire, and the pool reabsorbs the work.
 | `agentos machines add/remove/list` | node registry |
 | `agentos schema` | route + event-type registry |
 | `agentos tui` | the TUI (phase 3) |
+| browser → `/ui` | the agent cloud (phase 4, read-only) |
 
 Everything above also exists as `--json` for scripting, as REST under
 `/v1` for tools, and as MCP tools for the agents themselves.

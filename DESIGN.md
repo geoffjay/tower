@@ -55,7 +55,7 @@ wire types, mature async stack.
 | MCP | rmcp (or hand-rolled streamable HTTP) |
 | A2A | a2a-rs types, custom axum routes |
 | Logs | tracing + tracing-subscriber (JSON) |
-| Static web assets | rust-embed (UI ships inside the binary) |
+| Static web assets | rust-embed for icons/fonts; UI itself is Topcoat server-rendered (§12.3) |
 
 ### Binary layout
 
@@ -77,7 +77,7 @@ agentos/
     agentos-server    # axum app, modules, herdr driver, node hub
     agentos-client    # CLI verbs (thin over core + reqwest)
     agentos-tui       # ratatui client
-    agentos-web       # static UI assets (embedded)
+    agentos-web       # Topcoat UI crate (agent cloud + widgets, §12)
 ```
 
 ---
@@ -640,16 +640,65 @@ Keybinding: `i` focuses prompt input on the agent detail view. A pool banner
 
 ---
 
-## 12. Web UI (read-only)
+## 12. Web UI (read-only monitoring)
 
-- Static assets embedded in the server binary (`rust-embed`), served at `/ui`
-- No mutation routes reachable from the UI bundle; UI token is the server token
-  (v1 single-operator; see open questions for a scoped read token)
-- Tech: server-rendered or htmx + SSE (decision deferred to phase 4; no React
-  build pipeline unless needed)
-- Pages: dashboard (agent cards with states, blocked banner), agent detail
-  (output tail, task, messages), tasks, machines
-- All data via SSE + the GET routes; no polling loops beyond reconnects
+The web UI is a **health-at-a-glance visualization**, not a management console.
+Glance first: the whole system's health readable in seconds without reading
+text. Drill-down is deliberately minimal and optional.
+
+### 12.1 The agent cloud (primary view)
+
+Agents rendered as **points in a 2D cloud** (force-directed layout; agents
+ drift toward their machine cluster, away from crowded neighbors, settle
+ under a light repulsion simulation):
+
+| Visual channel | Encodes |
+|---|---|
+| Point **color** (hue) | agent state: working=blue, blocked=amber, idle=gray, done=green, dead=red, launching=teal, unknown=violet |
+| Point **size** | activity volume — event/message/output rate over a rolling window (bigger = busier) |
+| Point **halo/pulse** | attention needed: blocked or expired items glow/pulse |
+| Point **brightness** | health/quality score (recency of heartbeats/stale detection = dim) |
+| Cluster position | machine grouping (local vs node machines, phase 5) |
+| Edge lines (optional) | message volume between agents in the last N minutes (thicker = more traffic); toggleable |
+
+A **floating side panel** appears when a point is selected: agent name, kind,
+machine, state, current task + lease countdown, message rate, recent event
+sparkline, last output snippet. That is the extent of drill-down in v1 —
+full detail lives in the TUI, by design.
+
+### 12.2 Supporting widgets
+
+- Pool bar: queued / working / blocked counts, live
+- Machine strip: one chip per machine with status dot (local + nodes)
+- Event ribbon: last ~10 events, fading ticker
+- No output tails in v1 cloud view (kept on the agent panel snippet only);
+  the old per-agent tail page is backlog (§12.4)
+
+### 12.3 Technology
+
+- **Topcoat** (tokio-rs/topcoat, v0.9): full-stack Rust, server-rendered
+  with client-side reactivity, no WASM/JS bundle, keeps the whole server +
+  UI in Rust and the single-binary story intact
+- Rendering: cloud points as absolutely-positioned DOM/SVG nodes updated
+  via Topcoat reactive expressions; layout simulation computed server-side
+  or client-side in Rust-compiled reactivity (Spike S4.B decides: SVG vs
+  DOM points, and where the force layout runs)
+- Data: initial render server-side from the DB; live updates by consuming
+  the same SSE `/v1/events` stream every client uses (cursor resume on
+  reconnect, D§7)
+- Risk accepted: Topcoat is explicitly early-stage ("expect breaking
+  changes") — pin the version; isolate UI code in `agentos-web` so framework
+  churn is one crate's problem (D§2). Spike S4.B verifies canvas-scale
+  reactivity (~50–100 points) before committing
+- Read-only enforced as before: UI data routes are GET-only; no mutation
+  routes in the UI bundle; token per D§13/§17.5
+
+### 12.4 Backlog (drill-down, later if ever)
+
+- Full agent detail page with output tail + message history
+- Task pool board and task trails
+- Historical charts (event rate, throughput) from the event log
+- Config: points vs table view toggle
 
 ---
 
@@ -715,10 +764,15 @@ Backups: the whole state is `~/.local/share/agentos/` — copy the directory.
    spike: validate CLI-driver first, socket later. (Owning risk.)
 2. pi RPC runner surface (0.87) — is pane prompt/read enough, or does the
    adapter need pi's programmatic mode? Phase 1 spike.
-3. Web UI tech: htmx vs minimal React — decide at phase 4.
+3. Web UI: Topcoat is chosen (§12.3); spike S4.B (phase 4) validates
+   cloud-scale reactivity + layout approach (SVG vs DOM, where the force
+   sim runs) before full build-out.
 4. Node transport security: TLS + token vs requiring SSH tunnel — phase 5.
 5. Scoped read-only UI token vs full token — phase 4.
 6. Event/artifact retention defaults and pruning UX — phase 3 tune.
+7. Cloud metrics semantics: exact formulas for "activity volume" (size),
+   "quality/health" (brightness), and message-volume edges — defined in
+   phase 2 as event-log queries; documented in the UI as tooltips.
 
 ---
 
@@ -729,7 +783,7 @@ Backups: the whole state is `~/.local/share/agentos/` — copy the directory.
 | 1. MVP core | core types, server shell (axum + SQLite + event log), HerdrDriver via CLI, agents spawn/prompt/read/wait, CLI verbs `ps/spawn/prompt/read/stream`, SSE `/v1/events` | one machine: spawn claude+pi via herdr, prompt both, stream output to terminal, states visible in `ps`; restart server, agents rebind |
 | 2. Messaging + task pool | messages table + kinds, inbox, questions/approvals + sweeper, MCP endpoint, `blocked`→inbox flow, task pool (claim/pull/heartbeat/release + lease sweeper + priorities/tags) | agent blocks on a question; it appears in inbox; answered via CLI or MCP; agent resumes; expiry path tested. Two agents pulling the same pool: exactly one claims each task (race tested), a killed owner's task requeues within one lease window, another agent picks it up and completes it |
 | 3. TUI | Fleet/Agent/Inbox/Tasks/Events views, herdr attach action, pool banner | daily monitoring driven entirely from TUI |
-| 4. Web UI | embedded read-only dashboard over SSE | dashboard shows live states, pool (queued/working/blocked) and output tails with zero polling errors through an hour soak |
+| 4. Web UI (agent cloud) | Topcoat UI, agent-cloud view (color/size/halo/brightness channels), floating detail panel, pool bar, machine strip, event ribbon; SSE-fed | cloud shows all agents as colored points with live state changes for an hour soak: zero polling errors, blocked agents visibly pulse, selecting a point opens the side panel with live detail |
 | 5. Multi-machine | node agent, machine hub, `/nodes` WS, machine registry, remote spawn, cross-machine pool pickup | agent runs on second machine, appears in local ps/TUI; node disconnect handles gracefully; a task queued on the coordinator is claimed by an agent on the remote machine; node loss mid-task requeues the lease |
 | 6. A2A edge | agent card, `/a2a` send/stream, task mapping, foreign delegation in | external A2A client delegates a task to a named agent and streams it to completion |
 
