@@ -30,7 +30,13 @@ async fn test_state() -> (AppState, tempdir::TempDir) {
     paths.ensure_dirs().unwrap();
     let pool = tower_server::open_db(&paths.db_file).await.unwrap();
     let events = tower_server::EventLog::attach(&pool).await.unwrap();
-    let state = AppState::new(pool, events, Config::default(), "test-token".into());
+    let state = AppState::new(
+        pool,
+        events,
+        Config::default(),
+        "test-token".into(),
+        std::sync::Arc::new(tower_driver::fake::FakeHarness::new()),
+    );
     (state, dir)
 }
 

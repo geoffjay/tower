@@ -19,7 +19,14 @@ pub async fn serve() -> anyhow::Result<()> {
     let pool = open_db(&paths.db_file).await?;
     let events = EventLog::attach(&pool).await?;
 
-    let state = AppState::new(pool, events, config.clone(), token.clone());
+    let driver = std::sync::Arc::new(tower_driver::herdr::HerdrDriver::new());
+    let state = AppState::new(pool, events, config.clone(), token.clone(), driver);
+
+    // boot: local machine + inventory reconcile (D§9.1)
+    crate::inventory::ensure_local_machine(&state).await?;
+    if let Err(e) = crate::inventory::reconcile(&state).await {
+        tracing::warn!(error = %e, "initial inventory reconcile failed (herdr down?)");
+    }
 
     let ev = state
         .events
@@ -33,6 +40,7 @@ pub async fn serve() -> anyhow::Result<()> {
     tracing::info!(seq = ev.seq, "server.started");
 
     let routes = api::router()
+        .merge(crate::agents_api::router())
         .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
         .with_state(state);
 

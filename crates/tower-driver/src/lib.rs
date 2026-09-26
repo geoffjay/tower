@@ -3,6 +3,7 @@
 //! One implementation in phase 1: HerdrDriver (CLI transport). TmuxDriver
 //! (fallback) and the remote node proxy arrive later; the trait is the seam.
 
+pub mod fake;
 pub mod herdr;
 
 use async_trait::async_trait;
