@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use tower_client::Client;
 
+mod service;
 mod task;
 
 #[derive(Debug, Parser)]
@@ -91,6 +92,11 @@ pub enum Command {
         #[command(subcommand)]
         cmd: task::TaskCmd,
     },
+    /// Run `tower serve` as a user service (launchd / systemd)
+    Service {
+        #[command(subcommand)]
+        cmd: service::ServiceCmd,
+    },
     /// Pending questions/approvals addressed to me
     Inbox,
     /// Send a question to an agent
@@ -140,6 +146,7 @@ async fn main_async() -> anyhow::Result<()> {
         Command::Doctor => doctor().await,
         Command::Schema => schema().await,
         Command::Inbox => inbox(cli.json).await,
+        Command::Service { cmd } => service::run(cmd).await,
         Command::Task { cmd } => task::run(&client(cli.token).await?, cmd, cli.json).await,
         Command::Ask {
             name,
