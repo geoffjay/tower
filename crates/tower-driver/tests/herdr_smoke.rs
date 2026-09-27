@@ -40,6 +40,7 @@ async fn herdr_snapshot_and_agent_lifecycle() {
         kind: "pi".into(),
         workdir: None,
         args: vec![],
+        env: vec![],
     };
     let pane = driver.start(&spec).await.expect("start pi");
     eprintln!("started {name} in pane {pane}");

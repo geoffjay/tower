@@ -13,6 +13,14 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/schema", get(schema))
+        .route("/v1/machines", get(machines))
+}
+
+async fn machines(State(state): State<AppState>) -> axum::response::Response {
+    match crate::inventory::list_machines(&state).await {
+        Ok(m) => Json(serde_json::json!({ "machines": m })).into_response(),
+        Err(e) => crate::http::error_response(e),
+    }
 }
 
 async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
@@ -38,6 +46,8 @@ async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
 async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
     let routes = [
         ("GET", "/healthz"),
+        ("GET", "/v1/schema"),
+        ("GET", "/v1/machines"),
         ("GET", "/v1/agents"),
         ("GET", "/v1/agents/{id}"),
         ("GET", "/v1/agents/adoptable"),
@@ -60,6 +70,7 @@ async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
         ("POST", "/v1/tasks/{id}/release"),
         ("POST", "/v1/tasks/{id}/cancel"),
         ("GET", "/v1/events"),
+        ("POST", "/mcp"),
     ];
     let event_types = [
         "server.started",

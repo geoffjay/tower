@@ -105,12 +105,22 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
   integration test drives a full work-loop against FakeHarness: agent is
   assigned a job via `tower_task_assign` (as operator), sees it with
   `tower_task_list --mine`, declares start, heartbeats, completes.
+  **Decision (2026-09-27)**: hand-rolled — JSON-RPC over `POST /mcp` with
+  `application/json` replies, tools only (~450 lines, no deps). rmcp 3.x
+  is a large macro/schemars dependency with frequent breaking releases;
+  a tools-only server needs none of its transports. Identity: `as` arg,
+  default `X-Tower-Agent` header; agent-identified callers can't assign
+  ([D§7](../concepts/design/07-server-api.md) amended). Validated with the official
+  `@modelcontextprotocol/inspector` CLI (tools/list, tools/call, isError).
 - **T4.2** Agent work-loop skill doc (docs/agent-loop.md): check my assigned
   jobs → declare start → heartbeat cadence (20s) → report status →
   complete; how to ask/approve through MCP; explicitly: never pull or
   claim — wait for assignment. This is the contract agents' prompts
   reference. Verify: a scripted FakeHarness "agent" follows the doc's loop
-  in a test.
+  in a test. **Finding**: pi has no MCP (extensions only) but has a shell,
+  so the loop is also CLI verbs (`tower task start|heartbeat|status|release`,
+  [D§10](../concepts/design/10-client-cli.md) amended); spawn exports `TOWER_AGENT` into the pane (herdr
+  `--env`, verified live) so `--as` defaults correctly.
 
 ## Milestone 5 — Phase exit verification
 

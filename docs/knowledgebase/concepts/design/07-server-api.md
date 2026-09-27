@@ -94,6 +94,19 @@ principals (phase 2: the operator; later the orchestrator role). Server-
 side, MCP tools are the same code paths as the REST routes (one
 transaction, same CAS) — there is no second implementation to drift.
 
+Transport (phase 2): hand-rolled streamable HTTP, tools only — JSON-RPC
+2.0 over `POST /mcp` answered with `application/json` (no server-initiated
+stream; `GET /mcp` → 405). Methods: `initialize`, `ping`, `tools/list`,
+`tools/call`. Tool failures return `isError: true` results carrying the
+D§7 error envelope; unknown tools/bad params are JSON-RPC errors.
+
+Agent identity: owner tools take `as` (agent name/id), defaulting to the
+`X-Tower-Agent` request header an agent's MCP config sets. A caller that
+identifies as an agent may not call `tower_task_assign` (phase-2 assign
+capability = operator). Agents without MCP (e.g. pi) run the same loop
+through the CLI (§10); spawn exports `TOWER_AGENT=<name>` into the
+agent's pane so the CLI knows who is calling.
+
 ## A2A (edge)
 
 - `GET /.well-known/agent-card.json` — card: skills derived from agent roster

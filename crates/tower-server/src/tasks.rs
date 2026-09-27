@@ -470,6 +470,38 @@ pub async fn sweep_leases(state: &AppState, now: i64) -> anyhow::Result<usize> {
     Ok(swept)
 }
 
+/// Agent removal (D§5.2.1 "reassign, not orphan"): release its open jobs
+/// back to the queue (no attempt bump) and detach its finished ones so the
+/// agent row can be deleted. History stays in the event log. Returns the
+/// number of jobs released.
+pub async fn detach_agent(state: &AppState, agent: &Agent, now: i64) -> anyhow::Result<usize> {
+    let open: Vec<String> = sqlx::query_scalar(&format!(
+        "SELECT id FROM tasks WHERE owner_id = ?1 AND state IN {OWNED}"
+    ))
+    .bind(agent.id.0.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    let mut released = 0;
+    for id in open {
+        let id = TaskId::from(id);
+        match release(state, &id, &agent.id.0, Some("agent removed".into()), now).await {
+            Ok(_) => released += 1,
+            // a concurrent sweep/cancel got there first — nothing to release
+            Err(e) if e.downcast_ref::<TowerError>().is_some() => {}
+            Err(e) => return Err(e),
+        }
+    }
+    sqlx::query("UPDATE tasks SET owner_id = NULL WHERE owner_id = ?1")
+        .bind(agent.id.0.as_str())
+        .execute(&state.pool)
+        .await?;
+    sqlx::query("UPDATE tasks SET agent_id = NULL WHERE agent_id = ?1")
+        .bind(agent.id.0.as_str())
+        .execute(&state.pool)
+        .await?;
+    Ok(released)
+}
+
 /// Agent-state → task-state mapping (D§5.2): an owner going `blocked` puts
 /// its working job in `input-required` (pausing lease expiry); leaving
 /// `blocked` for `working` resumes it with a fresh lease.
@@ -715,11 +747,13 @@ async fn notify_assignee(state: &AppState, agent: &Agent, task: &Task, by: &str)
         text.push_str(&format!("\n\n{d}"));
     }
     text.push_str(&format!(
-        "\n\nYou own this job exclusively. Declare start (tower_task_start), \
-         heartbeat at least every {}s (tower_task_heartbeat), and report the \
-         outcome (tower_task_status completed|failed). Use tower_task_release \
-         if you cannot do it.",
-        (task.lease_s / 3).max(1)
+        "\n\nYou own this job exclusively — never take other work from the queue. \
+         Declare start, heartbeat at least every {}s, and report the outcome \
+         (completed|failed); release it if you cannot do it. MCP: tower_task_start / \
+         tower_task_heartbeat / tower_task_status / tower_task_release. Shell: \
+         `tower task start|heartbeat|status|release {}`. Contract: docs/agent-loop.md.",
+        (task.lease_s / 3).max(1),
+        task.id
     ));
     let parts = [
         Part::text(text),

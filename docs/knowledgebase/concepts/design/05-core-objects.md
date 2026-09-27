@@ -130,7 +130,10 @@ assignment-only, and time-bound:
 - **Reassign, not orphan**: lease expiry is the crash story — an agent
   that dies mid-task has its task auto-requeued within one lease window.
   There is no "stuck forever" state; `agent.state=dead` + expired lease =
-  clean reassignment by the operator (or orchestrator).
+  clean reassignment by the operator (or orchestrator). Removing an agent
+  (`stop --remove`) stops its pane first, then releases its open jobs
+  back to the queue at once (no attempt bump — operator action) and
+  detaches its finished ones; their history stays in the event log.
 - **Orchestrator liveness checks**: an orchestrator may ask a
   `working`/`assigned` owner "still working on it?" — but rate-limited,
   and mostly unnecessary: the lease already answers the question

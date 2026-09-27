@@ -35,6 +35,9 @@ tower task show <id>                          # detail incl. assignment/lease tr
 tower task create 'title' [--tag x] [--assign name] [--priority N]
 tower task assign <id> <name>                 # dispatch (operator; orchestrator later)
 tower task cancel <id> / task release <id> [--as <agent>]
+tower task start|heartbeat <id> [--as <agent>]            # agent work loop
+tower task status <id> <working|input-required|completed|failed> [--result R] [--as <agent>]
+                                    # --as defaults to $TOWER_AGENT (set in spawned panes)
 tower machines                      # machine inventory
 tower machines add <name>           # issue a node token (prints once)
 tower tui                           # launch TUI

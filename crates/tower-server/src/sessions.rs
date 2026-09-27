@@ -59,12 +59,18 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
         anyhow::bail!("agent {} already exists", req.name);
     }
 
-    // spawn via driver (split pane + agent start)
+    // spawn via driver; the pane learns who it is (CLI `--as` default, D§7)
+    // and where this server's data dir is when non-default
+    let mut env = vec![("TOWER_AGENT".to_string(), req.name.clone())];
+    if let Ok(home) = std::env::var("TOWER_HOME") {
+        env.push(("TOWER_HOME".into(), home));
+    }
     let spec = AgentSpec {
         name: req.name.clone(),
         kind: kind.clone(),
         workdir: req.workdir.clone(),
         args: vec![],
+        env,
     };
     let pane = state.driver.start(&spec).await?;
 
@@ -198,9 +204,16 @@ pub async fn stop(state: &AppState, name: &str, remove: bool) -> anyhow::Result<
         .ok_or_else(|| anyhow::anyhow!("agent {name} not found"))?;
     let guard = lock_for(name);
     let _guard = guard.lock().await;
-    state.driver.stop(&agent.name).await?;
+    // pane first: an agent must be gone before its jobs are requeued, or it
+    // could keep working a job someone else is then assigned. A pane that's
+    // already gone counts as stopped (removing a dead agent must work).
+    match state.driver.stop(&agent.name).await {
+        Ok(()) | Err(tower_driver::DriverError::NotFound(_)) => {}
+        Err(e) => return Err(e.into()),
+    }
 
     if remove {
+        crate::tasks::detach_agent(state, &agent, tower_core::now_ms()).await?;
         sqlx::query("DELETE FROM agents WHERE id = ?1")
             .bind(agent.id.0.as_str())
             .execute(&state.pool)

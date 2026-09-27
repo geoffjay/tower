@@ -10,6 +10,18 @@ use crate::sse;
 use crate::state::AppState;
 use crate::storage::{open as open_db, EventLog};
 
+/// The full `/v1` + `/mcp` app (no auth layer) — serve and tests mount the
+/// same routes, so the schema registry can be checked against it.
+pub fn router(state: AppState) -> axum::Router {
+    api::router()
+        .merge(crate::agents_api::router())
+        .merge(crate::messaging::router())
+        .merge(crate::tasks::router())
+        .merge(crate::mcp::router())
+        .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
+        .with_state(state)
+}
+
 pub async fn serve() -> anyhow::Result<()> {
     let paths = Paths::resolve()?;
     paths.ensure_dirs()?;
@@ -40,12 +52,7 @@ pub async fn serve() -> anyhow::Result<()> {
     tracing::info!(seq = ev.seq, "server.started");
 
     let pump_state = state.clone();
-    let routes = api::router()
-        .merge(crate::agents_api::router())
-        .merge(crate::messaging::router())
-        .merge(crate::tasks::router())
-        .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
-        .with_state(state);
+    let routes = router(state);
 
     // TCP: bearer-token auth (D§13).
     let tcp_addr: std::net::SocketAddr = config

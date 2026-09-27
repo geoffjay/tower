@@ -55,6 +55,25 @@ pub async fn list_agents(state: &AppState) -> anyhow::Result<Vec<Agent>> {
     Ok(rows.iter().map(state_row_to_agent).collect())
 }
 
+/// Machine inventory (D§5.5); `local` is always present.
+pub async fn list_machines(state: &AppState) -> anyhow::Result<Vec<tower_core::Machine>> {
+    let rows = sqlx::query("SELECT * FROM machines ORDER BY created_at")
+        .fetch_all(&state.pool)
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| tower_core::Machine {
+            id: MachineId::from(r.get::<String, _>("id")),
+            name: r.get("name"),
+            role: r.get("role"),
+            address: r.get("address"),
+            status: r.get("status"),
+            last_seen_at: r.get("last_seen_at"),
+            created_at: r.get("created_at"),
+        })
+        .collect())
+}
+
 pub async fn get_agent(state: &AppState, name_or_id: &str) -> anyhow::Result<Option<Agent>> {
     let rows = sqlx::query("SELECT * FROM agents WHERE id = ?1 OR name = ?1")
         .bind(name_or_id)

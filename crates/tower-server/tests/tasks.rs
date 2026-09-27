@@ -601,3 +601,63 @@ async fn route_errors_use_the_envelope() {
     let (s, _) = ctx.req("GET", "/v1/tasks/t_missing", None).await;
     assert_eq!(s, StatusCode::NOT_FOUND);
 }
+
+// ---- agent removal ------------------------------------------------------
+
+#[tokio::test]
+async fn removing_an_agent_requeues_open_jobs_and_keeps_history() {
+    let ctx = common::boot().await;
+    ctx.spawn("a", "pi").await;
+    ctx.spawn("b", "pi").await;
+    let open = tasks::create(&ctx.state, job("open"), T0).await.unwrap();
+    let done = tasks::create(&ctx.state, job("done"), T0).await.unwrap();
+    for t in [&open, &done] {
+        tasks::assign(&ctx.state, &t.id, "a", None, "me", T0)
+            .await
+            .unwrap();
+    }
+    tasks::start(&ctx.state, &open.id, "a", T0).await.unwrap();
+    tasks::report(
+        &ctx.state,
+        &done.id,
+        "a",
+        Some(TaskState::Completed),
+        None,
+        T0,
+    )
+    .await
+    .unwrap();
+    ctx.harness.kill("a"); // pane already gone: removal must still work
+
+    tower_server::sessions::stop(&ctx.state, "a", true)
+        .await
+        .unwrap();
+
+    assert!(tower_server::inventory::get_agent(&ctx.state, "a")
+        .await
+        .unwrap()
+        .is_none());
+    let o = tasks::get_task(&ctx.state, &open.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(o.state, TaskState::Queued);
+    assert!(o.owner_id.is_none());
+    assert_eq!(
+        o.attempt_count, 0,
+        "operator removal is not a failed attempt"
+    );
+    let d = tasks::get_task(&ctx.state, &done.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(d.state, TaskState::Completed);
+    assert!(
+        tasks::trail(&ctx.state, &done.id).await.unwrap().len() >= 3,
+        "history kept"
+    );
+
+    tasks::assign(&ctx.state, &open.id, "b", None, "me", T0)
+        .await
+        .unwrap();
+}

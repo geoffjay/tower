@@ -38,10 +38,7 @@ pub async fn boot() -> Ctx {
     tower_server::inventory::ensure_local_machine(&state)
         .await
         .unwrap();
-    let router = tower_server::messaging::router()
-        .merge(tower_server::agents_api::router())
-        .merge(tower_server::tasks::router())
-        .with_state(state.clone());
+    let router = tower_server::serve::router(state.clone());
     Ctx {
         state,
         harness,
@@ -78,6 +75,56 @@ impl Ctx {
             serde_json::from_slice(&bytes).unwrap_or_default()
         };
         (status, v)
+    }
+
+    /// One MCP JSON-RPC call; `agent` sets the X-Tower-Agent identity.
+    pub async fn mcp(
+        &self,
+        agent: Option<&str>,
+        method: &str,
+        params: serde_json::Value,
+    ) -> serde_json::Value {
+        let mut b = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("content-type", "application/json");
+        if let Some(a) = agent {
+            b = b.header("x-tower-agent", a);
+        }
+        let body =
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        let resp = tower::ServiceExt::oneshot(
+            self.router.clone(),
+            b.body(Body::from(body.to_string())).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    /// `tools/call` → the tool result object (`content`, `structuredContent`, `isError`).
+    pub async fn tool(
+        &self,
+        agent: Option<&str>,
+        name: &str,
+        args: serde_json::Value,
+    ) -> serde_json::Value {
+        let v = self
+            .mcp(
+                agent,
+                "tools/call",
+                serde_json::json!({"name": name, "arguments": args}),
+            )
+            .await;
+        assert!(
+            v.get("error").is_none(),
+            "protocol error calling {name}: {v}"
+        );
+        v["result"].clone()
     }
 
     /// Spawn an agent row + fake pane.

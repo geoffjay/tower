@@ -46,13 +46,36 @@ pub enum TaskCmd {
     },
     /// Cancel a job (interrupts its owner)
     Cancel { id: String },
-    /// Give a job back to the queue (defaults to acting as its owner)
+    /// Give a job back to the queue (as $TOWER_AGENT, else as its owner)
     Release {
         id: String,
-        #[arg(long = "as")]
+        #[arg(long = "as", env = "TOWER_AGENT")]
         as_agent: Option<String>,
         #[arg(long)]
         reason: Option<String>,
+    },
+    /// Work loop: declare you started your assigned job
+    Start {
+        id: String,
+        #[arg(long = "as", env = "TOWER_AGENT")]
+        as_agent: String,
+    },
+    /// Work loop: renew your job lease (every lease_s/3 seconds)
+    Heartbeat {
+        id: String,
+        #[arg(long = "as", env = "TOWER_AGENT")]
+        as_agent: String,
+    },
+    /// Work loop: report progress or finish your job
+    Status {
+        id: String,
+        /// working | input-required | completed | failed
+        state: String,
+        /// Result summary (JSON, or plain text stored as {"summary": ...})
+        #[arg(long)]
+        result: Option<String>,
+        #[arg(long = "as", env = "TOWER_AGENT")]
+        as_agent: String,
     },
 }
 
@@ -149,6 +172,50 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
             }
             println!("{id}  released → queued");
         }
+        TaskCmd::Start { id, as_agent } => {
+            owner_call(c, &id, "start", json!({ "as": as_agent }), json_out).await?
+        }
+        TaskCmd::Heartbeat { id, as_agent } => {
+            owner_call(c, &id, "heartbeat", json!({ "as": as_agent }), json_out).await?
+        }
+        TaskCmd::Status {
+            id,
+            state,
+            result,
+            as_agent,
+        } => {
+            let result = result.map(|r| {
+                serde_json::from_str::<Value>(&r).unwrap_or_else(|_| json!({ "summary": r }))
+            });
+            let body = json!({ "as": as_agent, "state": state, "result": result });
+            owner_call(c, &id, "status", body, json_out).await?
+        }
+    }
+    Ok(())
+}
+
+/// An owner work-loop call; prints `<id>  <state> (lease …)`.
+async fn owner_call(
+    c: &Client,
+    id: &str,
+    verb: &str,
+    body: Value,
+    json_out: bool,
+) -> anyhow::Result<()> {
+    let v = c
+        .post(&format!("/v1/tasks/{id}/{verb}"), Some(body))
+        .await?;
+    if json_out {
+        return print_json(&v);
+    }
+    let t = &v["task"];
+    match t["lease_expires_at"].as_i64() {
+        Some(exp) => println!(
+            "{id}  {} (lease expires in {}s)",
+            t["state"].as_str().unwrap_or("?"),
+            (exp - tower_core::now_ms()).max(0) / 1000
+        ),
+        None => println!("{id}  {}", t["state"].as_str().unwrap_or("?")),
     }
     Ok(())
 }

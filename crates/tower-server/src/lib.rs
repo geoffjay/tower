@@ -4,6 +4,7 @@ pub mod auth;
 pub mod config;
 pub mod http;
 pub mod inventory;
+pub mod mcp;
 pub mod messaging;
 pub mod paths;
 pub mod pump;

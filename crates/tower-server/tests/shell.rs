@@ -12,7 +12,7 @@ use axum::http::{Request, StatusCode};
 use axum::Router;
 use futures::StreamExt;
 use tower_core::EventKind;
-use tower_server::{api, sse, AppState};
+use tower_server::AppState;
 use tower_server::{Config, Paths};
 
 static TEST_N: AtomicU32 = AtomicU32::new(0);
@@ -41,9 +41,7 @@ async fn test_state() -> (AppState, tempdir::TempDir) {
 }
 
 fn router(state: AppState) -> Router {
-    api::router()
-        .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
-        .with_state(state)
+    tower_server::serve::router(state)
 }
 
 async fn read_sse_bounded(router: &Router, uri: &str, secs: u64) -> String {

@@ -17,6 +17,8 @@ pub struct AgentSpec {
     pub workdir: Option<String>,
     /// Extra args appended after the harness executable.
     pub args: Vec<String>,
+    /// Environment for the agent's pane (e.g. `TOWER_AGENT`, D§7).
+    pub env: Vec<(String, String)>,
 }
 
 /// What a driver read from an agent's terminal.

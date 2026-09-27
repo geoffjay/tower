@@ -144,6 +144,10 @@ impl HerdrDriver {
         if let Some(dir) = &spec.workdir {
             args.extend(["--cwd", dir]);
         }
+        let env: Vec<String> = spec.env.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        for kv in &env {
+            args.extend(["--env", kv]);
+        }
         let res = self.run_json(&args).await?;
         let pane = res["root_pane"]["pane_id"]
             .as_str()

@@ -7,7 +7,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower_driver::fake::FakeHarness;
 use tower_driver::HarnessState;
-use tower_server::{agents_api, api, sse, AppState};
+use tower_server::AppState;
 use tower_server::{Config, Paths};
 
 fn temp_paths(n: &str) -> (Paths, tempdir::TempDir) {
@@ -43,10 +43,7 @@ async fn boot(harness: FakeHarness) -> (AppState, FakeHarness, tempdir::TempDir)
 }
 
 fn router(state: AppState) -> axum::Router {
-    api::router()
-        .merge(agents_api::router())
-        .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
-        .with_state(state)
+    tower_server::serve::router(state)
 }
 
 async fn json_req(
