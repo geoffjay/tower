@@ -3,7 +3,10 @@ type: Reference
 title: Open Knowledge Format (OKF) v0.2
 description: Pointer to the OKF specification this knowledge base conforms to.
 resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
-tags: [reference, okf, spec]
+tags:
+  - reference
+  - okf
+  - spec
 ---
 
 The tower knowledge base conforms to OKF v0.2.

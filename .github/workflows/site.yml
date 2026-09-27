@@ -1,0 +1,70 @@
+# Publish the compiled knowledge base site to GitHub Pages.
+#
+# `make deps` installs the `okf` CLI (pure Rust, from the geoffjay/okf
+# fork, okf-web branch) via cargo install, so the build runs in a rust
+# container. `make site` renders docs/knowledgebase -> docs/knowledgebase/site
+# (gitignored; built fresh here). The generated HTML uses relative links
+# throughout, so it serves correctly at geoffjay.github.io/tower.
+#
+# Pages must be configured with Source: GitHub Actions (already enabled).
+
+name: Publish knowledge base site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/knowledgebase/**"
+      - "Makefile.toml"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One Pages deployment at a time; a new push supersedes the in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # rust:1 is Debian bookworm + cargo/rustc (from buildpack-deps, which
+    # also ships git and make — both required by `make deps`/`make site`).
+    container:
+      image: rust:1
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Install okf (cargo install from git fork)
+        run: make deps
+
+      - name: Build site
+        run: make site
+
+      - name: Sanity-check the build
+        run: |
+          test -f docs/knowledgebase/site/index.html
+          test -f docs/knowledgebase/site/assets/search-index.js
+          echo "site pages: $(find docs/knowledgebase/site -name '*.html' | wc -l)"
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/knowledgebase/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

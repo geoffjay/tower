@@ -1,6 +1,6 @@
 ---
 name: ste
-description: Write and edit prose in ASD-STE100 Simplified Technical English (STE). Use whenever you author or rewrite content in this repo — docs/ entries, the index and log prose, AGENTS.md, other skills, and pull-request or commit text. Gives the controlled-language rules that apply to our content: short sentences, active voice, one idea per sentence, consistent terms, simple verbs, and no long noun clusters. Also states what STE does not restrict (code, identifiers, product names, quotations).
+description: Write and edit prose in ASD-STE100 Simplified Technical English (STE). Use whenever you author or rewrite content in this repo — docs/knowledgebase/ entries, the index and log prose, AGENTS.md, other skills, and pull-request or commit text. Gives the controlled-language rules that apply to our content: short sentences, active voice, one idea per sentence, consistent terms, simple verbs, and no long noun clusters. Also states what STE does not restrict (code, identifiers, product names, quotations).
 ---
 
 # Simplified Technical English (ASD-STE100)
@@ -21,7 +21,7 @@ so this skill gives the principles, not the word list.
 
 Apply STE to all prose that you author or materially rewrite in this repo:
 
-- `docs/` entries and their `index.md` and `log.md` prose
+- `docs/knowledgebase/` entries and their `index.md` and `log.md` prose
 - `AGENTS.md` and other Markdown guides
 - `SKILL.md` files, this one included
 - commit messages and pull-request text
@@ -59,7 +59,7 @@ Write each sentence to these limits:
 STE allows technical nouns and technical verbs that name real things in the
 domain, even when they are not approved words. These stay as they are:
 
-- product, team, and project names (Clio Manage, CBS, Corvum, Grow::Root)
+- product, team, and project names
 - code identifiers, file paths, commands, and API names
 - direct quotations and cited text — copy them exactly, do not change them to STE
 

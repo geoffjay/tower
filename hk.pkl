@@ -1,0 +1,45 @@
+amends "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Builtins.pkl"
+
+min_hk_version = "1.57.0"
+
+local linters = new Mapping<String, Step> {
+  ["cargo-fmt"] {
+    glob = List("**/*.rs")
+    check = "cargo fmt --check"
+    fix = "cargo fmt"
+  }
+  ["cargo-clippy"] {
+    glob = List("**/*.rs", "**/Cargo.toml")
+    check = "cargo clippy --workspace --all-targets -- -D warnings"
+    fix = "cargo clippy --workspace --all-targets --fix --allow-staged --allow-dirty"
+  }
+  ["cargo-audit"] {
+    glob = "Cargo.lock"
+    check = "cargo audit"
+  }
+  ["okf-fmt"] {
+    glob = List("docs/knowledgebase/**/*.md")
+    check = "okf fmt --check docs/knowledgebase/"
+    fix = "okf fmt --write docs/knowledgebase/"
+  }
+  ["okf-validate"] {
+    glob = List("docs/knowledgebase/**/*.md")
+    check = "okf validate docs/knowledgebase/"
+  }
+}
+
+hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+  ["fix"] {
+    fix = true
+    steps = linters
+  }
+  ["check"] {
+    steps = linters
+  }
+}

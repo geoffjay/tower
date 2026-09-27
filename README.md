@@ -1,4 +1,20 @@
-# tower
+[![CI][ci-badge]][ci-url]
+[![codecov][codecov-badge]][codecov-url]
+[![MIT licensed][mit-badge]][mit-url]
+[![Apache licensed][apache-badge]][apache-url]
+
+[ci-badge]: https://github.com/geoffjay/tower/actions/workflows/ci.yml/badge.svg
+[ci-url]: https://github.com/geoffjay/tower/actions/workflows/ci.yml
+[codecov-badge]: https://codecov.io/gh/geoffjay/tower/graph/badge.svg?token=knPW8TUmoJ
+[codecov-url]: https://codecov.io/gh/geoffjay/tower
+[mit-badge]: https://img.shields.io/badge/license-MIT-blue.svg
+[mit-url]: https://github.com/geoffjay/tower/blob/main/LICENSE-MIT
+[apache-badge]: https://img.shields.io/badge/License-Apache_2.0-yellowgreen.svg
+[apache-url]: https://github.com/geoffjay/tower/blob/main/LICENSE-APACHE
+
+---
+
+# Tower
 
 Control and visibility for herds of coding agents. One server, one database,
 one CLI; agents live in [herdr](https://herdr.dev) panes; harnesses: Claude
