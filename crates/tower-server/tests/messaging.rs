@@ -213,3 +213,117 @@ async fn respond_unknown_message_404s() {
     assert_eq!(status, StatusCode::NOT_FOUND, "{v}");
     assert_eq!(v["error"]["code"], "not_found");
 }
+
+/// Agent → operator approval; returns the message id.
+async fn approval_from(router: &axum::Router, agent: &str) -> String {
+    let (status, v) = json_req(
+        router,
+        "POST",
+        "/v1/messages",
+        Some(serde_json::json!({
+            "to": "me", "to_kind": "human",
+            "from": agent, "from_kind": "agent",
+            "kind": "approval",
+            "parts": [{"text": "Allow cargo publish?"}],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    v["message"]["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn approval_respond_sends_keys_once() {
+    let (router, harness, _d) = boot("approve").await;
+    spawn_agent(&router, "backend").await;
+    let id = approval_from(&router, "backend").await;
+
+    // approve → keys `1` (D§8.2), not a text prompt
+    let (status, v) = json_req(
+        &router,
+        "POST",
+        &format!("/v1/messages/{id}/respond"),
+        Some(serde_json::json!({"approve": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["message"]["status"], "answered");
+    assert_eq!(
+        harness.keys(),
+        vec![("backend".to_string(), vec!["1".to_string()])]
+    );
+    assert!(harness.prompts().is_empty());
+
+    // a second respond (e.g. deny racing approve) conflicts; no second key
+    let (status, _) = json_req(
+        &router,
+        "POST",
+        &format!("/v1/messages/{id}/respond"),
+        Some(serde_json::json!({"approve": false})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(harness.keys().len(), 1);
+}
+
+#[tokio::test]
+async fn approval_deny_sends_key_two() {
+    let (router, harness, _d) = boot("deny").await;
+    spawn_agent(&router, "backend").await;
+    let id = approval_from(&router, "backend").await;
+    let (status, v) = json_req(
+        &router,
+        "POST",
+        &format!("/v1/messages/{id}/respond"),
+        Some(serde_json::json!({"approve": false})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(
+        harness.keys(),
+        vec![("backend".to_string(), vec!["2".to_string()])]
+    );
+}
+
+#[tokio::test]
+async fn approval_without_decision_is_invalid_and_stays_pending() {
+    let (router, harness, _d) = boot("undecided").await;
+    spawn_agent(&router, "backend").await;
+    let id = approval_from(&router, "backend").await;
+    let (status, v) = json_req(
+        &router,
+        "POST",
+        &format!("/v1/messages/{id}/respond"),
+        Some(serde_json::json!({"parts": [{"text": "sure"}]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{v}");
+    assert_eq!(v["error"]["code"], "invalid");
+    assert!(harness.keys().is_empty());
+    let (_, v) = json_req(&router, "GET", "/v1/messages?to=me&status=pending", None).await;
+    assert_eq!(v["messages"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn failed_agent_delivery_marks_message_failed() {
+    let (router, harness, _d) = boot("fail").await;
+    spawn_agent(&router, "backend").await;
+    harness.kill("backend"); // row survives, pane gone → driver NotFound
+    let (status, v) = json_req(
+        &router,
+        "POST",
+        "/v1/messages",
+        Some(serde_json::json!({"to": "backend", "parts": [{"text": "hi"}]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{v}");
+    assert_eq!(v["error"]["code"], "driver");
+    let (_, v) = json_req(
+        &router,
+        "GET",
+        "/v1/messages?to=backend&status=failed",
+        None,
+    )
+    .await;
+    assert_eq!(v["messages"].as_array().unwrap().len(), 1);
+}

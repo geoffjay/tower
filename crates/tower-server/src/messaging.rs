@@ -1,13 +1,15 @@
-//! Messaging module (D§9.3, plan T1.2): unified message store + delivery.
+//! Messaging module (D§9.3, plan T1.2/T2.2): unified message store + delivery.
 //!
 //! "Delivery" to a human = the row is queryable by the inbox (`pending` for
 //! questions/approvals until responded; `delivered` otherwise) + a
 //! `message.created` event — UIs poll/SSE, no push channel in v1.
-//! "Delivery" to an agent = driver `prompt`; the row is marked `delivered`
-//! when the driver accepts it.
+//! "Delivery" to an agent = driver `prompt`; a driver failure marks the row
+//! `failed`.
 //!
-//! Deadline sweeper (T2.3) expires `pending` questions/approvals at
-//! `deadline_at`.
+//! Responding to an agent's question prompts the agent with the answer;
+//! responding to an agent's approval sends keys `1` (approve) / `2` (deny)
+//! (D§8.2). The pending → answered transition is a CAS, so a double respond
+//! can never deliver twice.
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -16,8 +18,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use sqlx::Row;
-use tower_core::{Message, MessageId, MessageKind, MessageStatus, Part, PartyKind, TaskId};
+use tower_core::{
+    Message, MessageId, MessageKind, MessageStatus, Part, PartyKind, TaskId, TowerError,
+};
 
+use crate::http::error_response;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -26,21 +31,8 @@ pub fn router() -> Router<AppState> {
         .route("/v1/messages/{id}/respond", post(respond_route))
 }
 
-fn tower_err(status: StatusCode, msg: &str) -> Response {
-    (
-        status,
-        Json(serde_json::json!({"error": {"code": code_for(status), "message": msg}})),
-    )
-        .into_response()
-}
-
-fn code_for(status: StatusCode) -> &'static str {
-    match status {
-        StatusCode::NOT_FOUND => "not_found",
-        StatusCode::CONFLICT => "conflict",
-        _ => "invalid",
-    }
-}
+/// Default question/approval deadline (D§5.3).
+pub const DEFAULT_DEADLINE_S: i64 = 5 * 60;
 
 // ---- request shapes ------------------------------------------------------
 
@@ -66,7 +58,12 @@ pub struct SendBody {
 
 #[derive(Deserialize)]
 pub struct RespondBody {
+    #[serde(default)]
     pub parts: Vec<Part>,
+    /// Required for approval messages: true = approve (keys `1`),
+    /// false = deny (keys `2`). Ignored for questions.
+    #[serde(default)]
+    pub approve: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -82,8 +79,6 @@ pub struct ListQuery {
 
 // ---- service -------------------------------------------------------------
 
-const DEFAULT_DEADLINE_MS: i64 = 5 * 60 * 1000;
-
 /// Insert one message row and deliver it (D§9.3).
 pub async fn send(state: &AppState, body: SendBody) -> anyhow::Result<Message> {
     let from_kind = body.from_kind.unwrap_or(PartyKind::Human);
@@ -93,57 +88,95 @@ pub async fn send(state: &AppState, body: SendBody) -> anyhow::Result<Message> {
     // Resolve recipient kind: explicit wins, else agent lookup, else human.
     let to_kind = match body.to_kind {
         Some(k) => k,
-        None => {
-            if crate::inventory::get_agent(state, &body.to)
-                .await?
-                .is_some()
-            {
-                PartyKind::Agent
-            } else {
-                PartyKind::Human
-            }
+        None if crate::inventory::get_agent(state, &body.to)
+            .await?
+            .is_some() =>
+        {
+            PartyKind::Agent
         }
+        None => PartyKind::Human,
     };
+    if to_kind == PartyKind::Agent
+        && crate::inventory::get_agent(state, &body.to)
+            .await?
+            .is_none()
+    {
+        return Err(TowerError::not_found(format!("agent {} not found", body.to)).into());
+    }
 
+    let id = insert(
+        state,
+        NewMessage {
+            task_id: body.task_id.as_ref(),
+            from_kind,
+            from_id: &from_id,
+            to_kind,
+            to_id: &body.to,
+            kind,
+            parts: &body.parts,
+            deadline_s: body.deadline_s,
+        },
+    )
+    .await?;
+
+    // To-agent delivery = driver prompt (D§9.3).
+    if to_kind == PartyKind::Agent {
+        if let Err(e) = deliver_prompt(state, &body.to, &body.parts).await {
+            set_status(state, &id, MessageStatus::Failed).await?;
+            return Err(e);
+        }
+    }
+    get_message(state, &id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("message {id} vanished after insert"))
+}
+
+/// Fields for a new message row.
+pub struct NewMessage<'a> {
+    pub task_id: Option<&'a TaskId>,
+    pub from_kind: PartyKind,
+    pub from_id: &'a str,
+    pub to_kind: PartyKind,
+    pub to_id: &'a str,
+    pub kind: MessageKind,
+    pub parts: &'a [Part],
+    pub deadline_s: Option<i64>,
+}
+
+/// Insert a message row + `message.created` event. Questions and approvals
+/// start `pending` with a deadline; everything else is `delivered`.
+pub async fn insert(state: &AppState, m: NewMessage<'_>) -> anyhow::Result<MessageId> {
     let now = tower_core::now_ms();
-    // Questions and approvals wait for a response (pending + deadline);
-    // everything else is considered delivered at write time.
-    let needs_answer = matches!(kind, MessageKind::Question | MessageKind::Approval);
+    let needs_answer = matches!(m.kind, MessageKind::Question | MessageKind::Approval);
     let deadline_at = if needs_answer {
-        Some(now + body.deadline_s.unwrap_or(DEFAULT_DEADLINE_MS / 1000) * 1000)
+        Some(now + m.deadline_s.unwrap_or(DEFAULT_DEADLINE_S) * 1000)
     } else {
-        body.deadline_s.map(|s| now + s * 1000)
+        m.deadline_s.map(|s| now + s * 1000)
     };
     let status = if needs_answer {
         MessageStatus::Pending
     } else {
         MessageStatus::Delivered
     };
-
-    let id = MessageId::from(tower_core::new_id().as_str());
-    let parts_json = serde_json::to_string(&body.parts)?;
+    let id = MessageId::new();
 
     sqlx::query(
         "INSERT INTO messages (id, task_id, from_kind, from_id, to_kind, to_id, kind, parts, status, deadline_at, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )
     .bind(id.0.as_str())
-    .bind(body.task_id.as_ref().map(|t| t.0.as_str()))
-    .bind(enum_str(from_kind))
-    .bind(&from_id)
-    .bind(enum_str(to_kind))
-    .bind(&body.to)
-    .bind(enum_str(kind))
-    .bind(&parts_json)
+    .bind(m.task_id.map(|t| t.0.as_str()))
+    .bind(enum_str(m.from_kind))
+    .bind(m.from_id)
+    .bind(enum_str(m.to_kind))
+    .bind(m.to_id)
+    .bind(enum_str(m.kind))
+    .bind(serde_json::to_string(m.parts)?)
     .bind(enum_str(status))
     .bind(deadline_at)
     .bind(now)
     .execute(&state.pool)
     .await?;
-
-    let msg = get_message(state, &id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("message {id} vanished after insert"))?;
 
     state
         .events
@@ -152,51 +185,67 @@ pub async fn send(state: &AppState, body: SendBody) -> anyhow::Result<Message> {
             Some("message"),
             Some(id.0.as_str()),
             serde_json::json!({
-                "kind": kind,
-                "from": {"kind": from_kind, "id": from_id},
-                "to": {"kind": to_kind, "id": body.to},
+                "kind": m.kind,
+                "from": {"kind": m.from_kind, "id": m.from_id},
+                "to": {"kind": m.to_kind, "id": m.to_id},
                 "status": status,
+                "task_id": m.task_id,
             }),
         )
         .await?;
-
-    // To-agent delivery = driver prompt (D§9.3).
-    if to_kind == PartyKind::Agent {
-        deliver_to_agent(state, &body.to, &body.parts).await?;
-    }
-    Ok(msg)
+    Ok(id)
 }
 
-/// Answer/respond: sets `responded_at`, flips `pending` → `answered`, and
-/// prompts the original sender when it is an agent (the unblock path, T2.2).
-pub async fn respond(state: &AppState, id: &MessageId, parts: &[Part]) -> anyhow::Result<Message> {
+/// Respond to a pending question/approval (D§7): CAS `pending` → `answered`,
+/// then deliver to the original sender when it is an agent (T2.2).
+pub async fn respond(
+    state: &AppState,
+    id: &MessageId,
+    parts: &[Part],
+    approve: Option<bool>,
+) -> anyhow::Result<Message> {
     let existing = get_message(state, id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("message {id} not found"))?;
+        .ok_or_else(|| TowerError::not_found(format!("message {id} not found")))?;
+    if existing.kind == MessageKind::Approval && approve.is_none() {
+        return Err(TowerError::invalid("approval responses need `approve: true|false`").into());
+    }
+    if existing.kind != MessageKind::Approval && !parts.iter().any(|p| p.text.is_some()) {
+        return Err(TowerError::invalid("question responses need a text part").into());
+    }
 
-    let now = tower_core::now_ms();
     let res = sqlx::query(
         "UPDATE messages SET status='answered', responded_at=?1 WHERE id=?2 AND status='pending'",
     )
-    .bind(now)
+    .bind(tower_core::now_ms())
     .bind(id.0.as_str())
     .execute(&state.pool)
     .await?;
     if res.rows_affected() == 0 {
-        anyhow::bail!("conflict: message {id} is not pending");
+        return Err(TowerError::conflict(format!("message {id} is not pending")).into());
     }
 
     if existing.from_kind == PartyKind::Agent {
-        deliver_to_agent(state, &existing.from_id, parts).await?;
+        let delivered = if existing.kind == MessageKind::Approval {
+            let key = if approve == Some(true) { "1" } else { "2" };
+            deliver_keys(state, &existing.from_id, &[key.to_string()]).await
+        } else {
+            deliver_prompt(state, &existing.from_id, parts).await
+        };
+        if let Err(e) = delivered {
+            set_status(state, id, MessageStatus::Failed).await?;
+            return Err(e);
+        }
     }
 
+    // the response itself is recorded in the event log (audit surface, D§15)
     state
         .events
         .append(
             tower_core::EventKind::MessageStatusChange,
             Some("message"),
             Some(id.0.as_str()),
-            serde_json::json!({"status": "answered"}),
+            serde_json::json!({"status": "answered", "response": parts, "approve": approve}),
         )
         .await?;
 
@@ -205,29 +254,62 @@ pub async fn respond(state: &AppState, id: &MessageId, parts: &[Part]) -> anyhow
         .ok_or_else(|| anyhow::anyhow!("message {id} vanished after respond"))
 }
 
-async fn deliver_to_agent(state: &AppState, to: &str, parts: &[Part]) -> anyhow::Result<()> {
-    let agent = crate::inventory::get_agent(state, to)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("agent {to} not found"))?;
+/// Set a message status + `message.status` event.
+pub async fn set_status(
+    state: &AppState,
+    id: &MessageId,
+    status: MessageStatus,
+) -> anyhow::Result<()> {
+    sqlx::query("UPDATE messages SET status=?1 WHERE id=?2")
+        .bind(enum_str(status))
+        .bind(id.0.as_str())
+        .execute(&state.pool)
+        .await?;
+    state
+        .events
+        .append(
+            tower_core::EventKind::MessageStatusChange,
+            Some("message"),
+            Some(id.0.as_str()),
+            serde_json::json!({ "status": status }),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Prompt an agent with the text parts (serialized per agent, D§9.2).
+pub async fn deliver_prompt(state: &AppState, to: &str, parts: &[Part]) -> anyhow::Result<()> {
     let text = parts
         .iter()
-        .filter_map(|p| p.text.clone())
+        .filter_map(|p| p.text.as_deref())
         .collect::<Vec<_>>()
         .join("\n");
+    let agent = crate::inventory::get_agent(state, to)
+        .await?
+        .ok_or_else(|| TowerError::not_found(format!("agent {to} not found")))?;
     let guard = crate::sessions::lock_for(&agent.name);
     let _guard = guard.lock().await;
     state.driver.prompt(&agent.name, &text, false).await?;
     Ok(())
 }
 
-/// Inbox query: `?to=&status=&since=` (D§7).
+async fn deliver_keys(state: &AppState, to: &str, keys: &[String]) -> anyhow::Result<()> {
+    let agent = crate::inventory::get_agent(state, to)
+        .await?
+        .ok_or_else(|| TowerError::not_found(format!("agent {to} not found")))?;
+    let guard = crate::sessions::lock_for(&agent.name);
+    let _guard = guard.lock().await;
+    state.driver.send_keys(&agent.name, keys).await?;
+    Ok(())
+}
+
+/// Inbox query: `?to=&status=&since=` (D§7), newest first.
 pub async fn list(
     state: &AppState,
     to: Option<&str>,
     status: Option<MessageStatus>,
     since: Option<i64>,
 ) -> anyhow::Result<Vec<Message>> {
-    let status_str = status.map(enum_str);
     let rows = sqlx::query(
         "SELECT * FROM messages
          WHERE (?1 IS NULL OR to_id = ?1)
@@ -236,7 +318,7 @@ pub async fn list(
          ORDER BY created_at DESC",
     )
     .bind(to)
-    .bind(status_str)
+    .bind(status.map(enum_str))
     .bind(since)
     .fetch_all(&state.pool)
     .await?;
@@ -251,56 +333,49 @@ pub async fn get_message(state: &AppState, id: &MessageId) -> anyhow::Result<Opt
     Ok(row.as_ref().map(row_to_message))
 }
 
-/// Row → Message for the messaging API responses.
+/// Row → Message.
 pub fn row_to_message(r: &sqlx::sqlite::SqliteRow) -> Message {
     let parts_json: String = r.get("parts");
-    let parts: Vec<Part> = serde_json::from_str(&parts_json).unwrap_or_default();
-    let id: String = r.get("id");
-    let from_id: String = r.get("from_id");
-    let to_id: String = r.get("to_id");
-    let from_kind: String = r.get("from_kind");
-    let to_kind: String = r.get("to_kind");
-    let kind: String = r.get("kind");
-    let status: String = r.get("status");
     let task_id: Option<String> = r.get("task_id");
-    let deadline_at: Option<i64> = r.get("deadline_at");
-    let responded_at: Option<i64> = r.get("responded_at");
-    let created_at: i64 = r.get("created_at");
     Message {
-        id: MessageId::from(id),
+        id: MessageId::from(r.get::<String, _>("id")),
         task_id: task_id.map(TaskId::from),
-        from_kind: parse_enum(from_kind),
-        from_id,
-        to_kind: parse_enum(to_kind),
-        to_id,
-        kind: parse_enum(kind),
-        parts,
-        status: parse_enum(status),
-        deadline_at,
-        responded_at,
-        created_at,
+        from_kind: parse_enum(r.get("from_kind")),
+        from_id: r.get("from_id"),
+        to_kind: parse_enum(r.get("to_kind")),
+        to_id: r.get("to_id"),
+        kind: parse_enum(r.get("kind")),
+        parts: serde_json::from_str(&parts_json).unwrap_or_default(),
+        status: parse_enum(r.get("status")),
+        deadline_at: r.get("deadline_at"),
+        responded_at: r.get("responded_at"),
+        created_at: r.get("created_at"),
     }
 }
 
-/// Enum columns are kebab-case strings; serialize via JSON trick.
-fn enum_str<T: serde::Serialize>(v: T) -> String {
+/// Enum columns are kebab-case strings (their serde form).
+pub fn enum_str<T: serde::Serialize>(v: T) -> String {
     serde_json::to_value(v)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_default()
 }
 
-/// Row columns are kebab-case enum strings; parse via JSON string trick.
-fn parse_enum<T: serde::de::DeserializeOwned>(s: String) -> T {
-    serde_json::from_value(serde_json::json!(s)).expect("valid enum column")
+/// Parse an enum column from its serde string form.
+pub fn parse_enum<T: serde::de::DeserializeOwned>(s: String) -> T {
+    serde_json::from_value(serde_json::Value::String(s)).expect("valid enum column")
 }
 
 // ---- route handlers ------------------------------------------------------
 
 async fn send_route(State(state): State<AppState>, Json(body): Json<SendBody>) -> Response {
     match send(&state, body).await {
-        Ok(m) => (StatusCode::CREATED, Json(serde_json::json!({"message": m}))).into_response(),
-        Err(e) => tower_err(StatusCode::BAD_REQUEST, &e.to_string()),
+        Ok(m) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({ "message": m })),
+        )
+            .into_response(),
+        Err(e) => error_response(e),
     }
 }
 
@@ -309,25 +384,15 @@ async fn respond_route(
     Path(id): Path<String>,
     Json(body): Json<RespondBody>,
 ) -> Response {
-    let mid = MessageId::from(id);
-    match respond(&state, &mid, &body.parts).await {
-        Ok(m) => Json(serde_json::json!({"message": m})).into_response(),
-        Err(e) => {
-            let status = if e.to_string().starts_with("conflict") {
-                StatusCode::CONFLICT
-            } else if e.to_string().contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-            tower_err(status, &e.to_string())
-        }
+    match respond(&state, &MessageId::from(id), &body.parts, body.approve).await {
+        Ok(m) => Json(serde_json::json!({ "message": m })).into_response(),
+        Err(e) => error_response(e),
     }
 }
 
 async fn list_route(State(state): State<AppState>, Query(q): Query<ListQuery>) -> Response {
     match list(&state, q.to.as_deref(), q.status, q.since).await {
-        Ok(msgs) => Json(serde_json::json!({"messages": msgs})).into_response(),
-        Err(e) => tower_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        Ok(msgs) => Json(serde_json::json!({ "messages": msgs })).into_response(),
+        Err(e) => error_response(e),
     }
 }

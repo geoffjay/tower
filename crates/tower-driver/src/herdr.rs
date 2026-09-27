@@ -218,6 +218,13 @@ impl Harness for HerdrDriver {
         Ok(())
     }
 
+    async fn send_keys(&self, name: &str, keys: &[String]) -> Result<(), DriverError> {
+        for key in keys {
+            self.run_json(&["agent", "send-keys", name, key]).await?;
+        }
+        Ok(())
+    }
+
     async fn read(
         &self,
         name: &str,

@@ -105,15 +105,12 @@ async fn send_keys(
     // power-user escape hatch: raw keys to the agent's pane
     match crate::inventory::get_agent(&state, &id).await {
         Ok(Some(agent)) => {
-            let name = agent.name;
-            for key in &body.keys {
-                let _ = state
-                    .driver
-                    .interrupt(&name) // v1: interrupt covers ctrl+c; extend Harness for raw keys in M6
-                    .await;
-                let _ = key;
+            let guard = crate::sessions::lock_for(&agent.name);
+            let _guard = guard.lock().await;
+            match state.driver.send_keys(&agent.name, &body.keys).await {
+                Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+                Err(e) => tower_err(StatusCode::BAD_GATEWAY, &e.to_string()),
             }
-            Json(serde_json::json!({ "ok": true })).into_response()
         }
         Ok(None) => tower_err(StatusCode::NOT_FOUND, &format!("agent {id} not found")),
         Err(e) => tower_err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),

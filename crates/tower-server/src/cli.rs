@@ -267,34 +267,23 @@ async fn ask(name: String, text: String, deadline_s: Option<i64>) -> anyhow::Res
 
 async fn approve(msg_id: String, deny: bool, answer: Option<String>) -> anyhow::Result<()> {
     let c = client(None).await?;
-    // Look up the message to decide approve-vs-answer semantics.
-    let v = c.get("/v1/messages?to=me").await?;
-    let msgs = v["messages"].as_array().cloned().unwrap_or_default();
-    let msg = msgs
-        .iter()
-        .find(|m| m["id"].as_str() == Some(msg_id.as_str()))
-        .ok_or_else(|| anyhow::anyhow!("message {msg_id} not found in inbox"))?;
-    let text = match answer {
-        Some(a) => a,
-        None => {
-            if msg["kind"] == "approval" {
-                if deny { "denied" } else { "approved" }.to_string()
-            } else {
-                // free-text questions need an answer argument
-                anyhow::bail!("question {msg_id} needs --answer '...'");
-            }
-        }
-    };
-    let _ = c
-        .post(
-            &format!("/v1/messages/{msg_id}/respond"),
-            Some(serde_json::json!({"parts": [{"text": text}]})),
-        )
+    // Approvals use `approve` (keys 1/2); questions use the answer text.
+    let mut body = serde_json::json!({ "approve": !deny });
+    if let Some(a) = answer {
+        body["parts"] = serde_json::json!([{ "text": a }]);
+    }
+    let v = c
+        .post(&format!("/v1/messages/{msg_id}/respond"), Some(body))
         .await?;
+    let m = &v["message"];
+    let verb = match (m["kind"].as_str(), deny) {
+        (Some("approval"), false) => "approved",
+        (Some("approval"), true) => "denied",
+        _ => "answered",
+    };
     println!(
-        "{} → delivered to {}",
-        if deny { "denied" } else { "answered" },
-        msg["from_id"].as_str().unwrap_or("?")
+        "{verb} → delivered to {}",
+        m["from_id"].as_str().unwrap_or("?")
     );
     Ok(())
 }

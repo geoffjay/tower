@@ -39,6 +39,7 @@ pub async fn serve() -> anyhow::Result<()> {
         .await?;
     tracing::info!(seq = ev.seq, "server.started");
 
+    let pump_state = state.clone();
     let routes = api::router()
         .merge(crate::agents_api::router())
         .merge(crate::messaging::router())
@@ -93,6 +94,9 @@ pub async fn serve() -> anyhow::Result<()> {
     println!("  tcp     {} (token required)", tcp_addr);
     println!("  db      {}", paths.db_file.display());
     println!("  token   {} (0600)", paths.token_file.display());
+
+    // driver event pump (T2.1): state changes, output events, blocked → question
+    tasks.push(crate::pump::spawn(pump_state));
 
     tasks.push(tokio::spawn(async move {
         if let Err(e) = axum::serve(tcp_listener, tcp_app).await {

@@ -145,6 +145,10 @@ pub trait Harness: Send + Sync {
     /// Interrupt (ctrl+c semantics).
     async fn interrupt(&self, name: &str) -> Result<(), DriverError>;
 
+    /// Send raw keys to the agent's pane, in order (approval answers `1`/`2`,
+    /// D§8.2; power-user escape hatch).
+    async fn send_keys(&self, name: &str, keys: &[String]) -> Result<(), DriverError>;
+
     /// Read terminal output.
     async fn read(
         &self,
