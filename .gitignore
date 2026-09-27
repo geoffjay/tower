@@ -23,3 +23,6 @@ token
 # scratch
 /tmp/
 *.logtarget/
+
+# okf
+docs/knowledgebase/site
