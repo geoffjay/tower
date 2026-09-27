@@ -17,6 +17,7 @@ pub fn router(state: AppState) -> axum::Router {
         .merge(crate::agents_api::router())
         .merge(crate::messaging::router())
         .merge(crate::tasks::router())
+        .merge(crate::schedules::router())
         .merge(crate::mcp::router())
         .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
         .with_state(state)

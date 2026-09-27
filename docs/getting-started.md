@@ -253,7 +253,7 @@ $ tower task assign t_01J9X8C backend --when-available
 t_01J9X8C  reserved for backend (delivered when available)
 
 $ tower task create 'nightly cleanup' --assign backend --at 22:00
-t_01J9X8D  reserved for backend (not before 22:00)
+t_01J9X8D  reserved for backend (not before 2026-09-28 22:00:00)
 ```
 
 Recurring work is a **schedule**: a job template that fires on a cron
@@ -261,11 +261,13 @@ cadence and creates an ordinary job each time.
 
 ```console
 $ tower schedule create 'dependency audit' --daily 09:00 --assign backend
-s_01J9X9A  daily 09:00 America/Los_Angeles → backend  next: 2026-09-28 09:00
+s_01J9X9A  daily 09:00 America/Los_Angeles → backend  next: 2026-09-28 09:00:00
 
 $ tower schedule list
-ID         CADENCE            TARGET   NEXT               LAST   TITLE
-s_01J9X9A  daily 09:00 (LA)   backend  2026-09-28 09:00   —      dependency audit
+ID         CADENCE      ZONE                 TARGET   NEXT                 LAST  TITLE
+s_01J9X9A  daily 09:00  America/Los_Angeles  backend  2026-09-28 09:00:00  —     dependency audit
+
+$ tower schedule show s_01J9X9A        # cadence, next/last run, recent jobs
 
 $ tower schedule run s_01J9X9A        # one extra run now
 $ tower schedule pause s_01J9X9A      # resume picks up from now; rm deletes

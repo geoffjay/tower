@@ -197,6 +197,111 @@ pub async fn create(state: &AppState, req: CreateTask, now: i64) -> anyhow::Resu
     }
 }
 
+/// Materialize one schedule occurrence as an ordinary job (D§5.2.2).
+/// Exactly-once: `(schedule_id, occurrence_at)` is unique, so a duplicate
+/// firing inserts nothing and returns `None`. Reserved for the schedule's
+/// target when it has one (and delivered right away if it's available).
+pub async fn create_occurrence(
+    state: &AppState,
+    s: &tower_core::Schedule,
+    occurrence_at: i64,
+    now: i64,
+) -> anyhow::Result<Option<Task>> {
+    let id = TaskId::new();
+    let res = sqlx::query(
+        "INSERT INTO tasks (id, title, description, state, priority, tags, max_attempts, lease_s,
+                            origin, target_agent_id, not_before, schedule_id, occurrence_at,
+                            created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, 'schedule', ?8, ?9, ?10, ?9, ?11, ?11)
+         ON CONFLICT(schedule_id, occurrence_at) DO NOTHING",
+    )
+    .bind(id.0.as_str())
+    .bind(&s.title)
+    .bind(&s.description)
+    .bind(s.priority)
+    .bind(serde_json::to_string(&s.tags)?)
+    .bind(s.max_attempts)
+    .bind(s.lease_s)
+    .bind(s.target_agent_id.as_ref().map(|a| a.0.as_str()))
+    .bind(occurrence_at)
+    .bind(s.id.0.as_str())
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Ok(None);
+    }
+    event(
+        state,
+        EventKind::TaskCreated,
+        &id,
+        serde_json::json!({
+            "task_id": id, "title": s.title, "priority": s.priority, "tags": s.tags,
+            "schedule_id": s.id, "occurrence_at": occurrence_at,
+        }),
+    )
+    .await?;
+    if let Some(target) = &s.target_agent_id {
+        event(
+            state,
+            EventKind::TaskReserved,
+            &id,
+            serde_json::json!({
+                "task_id": id, "target": target, "not_before": occurrence_at,
+                "by": format!("schedule:{}", s.id),
+            }),
+        )
+        .await?;
+        dispatch_for(state, target, now).await?;
+    }
+    Ok(Some(require(state, &id).await?))
+}
+
+/// The schedule's newest job that is still open, if any (at most one by
+/// the policies: skip while running, replace while undelivered).
+pub async fn open_occurrence(
+    state: &AppState,
+    schedule: &tower_core::ScheduleId,
+) -> anyhow::Result<Option<Task>> {
+    let row = sqlx::query(&format!(
+        "SELECT * FROM tasks WHERE schedule_id = ?1 AND state NOT IN {TERMINAL}
+         ORDER BY occurrence_at DESC LIMIT 1"
+    ))
+    .bind(schedule.0.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    Ok(row.as_ref().map(row_to_task))
+}
+
+/// Cancel an occurrence nobody picked up before the next one fired
+/// (decision: undelivered → `occurrence_expired`). CAS on still-queued, so
+/// a delivery racing the firing wins cleanly. Returns true when expired.
+pub async fn expire_occurrence(state: &AppState, id: &TaskId, now: i64) -> anyhow::Result<bool> {
+    let res = sqlx::query(
+        "UPDATE tasks SET state = 'canceled', result = '{\"error\":\"occurrence_expired\"}', updated_at = ?1
+         WHERE id = ?2 AND state = 'queued' AND owner_id IS NULL",
+    )
+    .bind(now)
+    .bind(id.0.as_str())
+    .execute(&state.pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Ok(false);
+    }
+    let task = require(state, id).await?;
+    event(
+        state,
+        EventKind::TaskStatus,
+        id,
+        serde_json::json!({
+            "task_id": id, "state": task.state, "result": task.result,
+            "reason": "occurrence_expired",
+        }),
+    )
+    .await?;
+    Ok(true)
+}
+
 /// Reserve a queued job for an agent (D§5.2.2): it stays `queued` and the
 /// dispatcher assigns it when the agent is available (and `not_before` has
 /// passed). Re-reserving re-targets. Delivery is attempted right away.
@@ -643,6 +748,8 @@ pub async fn sweep_leases(state: &AppState, now: i64) -> anyhow::Result<usize> {
 /// agent row can be deleted. History stays in the event log. Returns the
 /// number of jobs released.
 pub async fn detach_agent(state: &AppState, agent: &Agent, now: i64) -> anyhow::Result<usize> {
+    // schedules targeting it pause (and drop the target: the FK must go)
+    crate::schedules::on_target_removed(state, &agent.id, now).await?;
     // first: jobs reserved for it fall back to the general queue (decision
     // table) — before releasing, so a departing agent is never offered work
     let reserved: Vec<String> = sqlx::query_scalar(

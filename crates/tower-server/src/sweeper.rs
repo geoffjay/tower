@@ -1,5 +1,5 @@
-//! Periodic sweeper (D§9.3, D§9.4): message deadlines (T2.3) and task
-//! leases (T3.2).
+//! Periodic sweeper (D§9.3, D§9.4): message deadlines, task leases,
+//! schedule firing, and the reserved-job dispatcher backstop.
 //!
 //! Every sweep takes `now` explicitly so tests inject the clock; the tick
 //! loop passes `now_ms()`.
@@ -30,6 +30,9 @@ pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
             }
             if let Err(e) = crate::tasks::sweep_leases(&state, now).await {
                 tracing::warn!(error = %e, "sweeper: lease sweep failed");
+            }
+            if let Err(e) = crate::schedules::fire_due(&state, now).await {
+                tracing::warn!(error = %e, "sweeper: schedule firing failed");
             }
             if let Err(e) = crate::tasks::dispatch_all(&state, now).await {
                 tracing::warn!(error = %e, "sweeper: dispatch failed");

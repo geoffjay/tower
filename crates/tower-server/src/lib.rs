@@ -9,6 +9,7 @@ pub mod mcp;
 pub mod messaging;
 pub mod paths;
 pub mod pump;
+pub mod schedules;
 pub mod serve;
 pub mod sessions;
 pub mod sse;

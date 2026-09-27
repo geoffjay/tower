@@ -58,6 +58,16 @@ impl Client {
         Self::parse(resp).await
     }
 
+    pub async fn delete(&self, path: &str) -> anyhow::Result<serde_json::Value> {
+        let resp = self
+            .client()
+            .delete(self.url(path)?)
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        Self::parse(resp).await
+    }
+
     /// SSE stream: raw response for line iteration.
     pub async fn stream(&self, path: &str) -> anyhow::Result<reqwest::Response> {
         let resp = self

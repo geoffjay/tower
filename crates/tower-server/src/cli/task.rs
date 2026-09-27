@@ -241,13 +241,13 @@ async fn owner_call(
     Ok(())
 }
 
-fn print_json(v: &Value) -> anyhow::Result<()> {
+pub(super) fn print_json(v: &Value) -> anyhow::Result<()> {
     println!("{}", serde_json::to_string_pretty(v)?);
     Ok(())
 }
 
 /// Agent id → name, for human output.
-async fn agent_names(c: &Client) -> anyhow::Result<HashMap<String, String>> {
+pub(super) async fn agent_names(c: &Client) -> anyhow::Result<HashMap<String, String>> {
     let v = c.get("/v1/agents").await?;
     Ok(v["agents"]
         .as_array()
@@ -263,7 +263,7 @@ async fn agent_names(c: &Client) -> anyhow::Result<HashMap<String, String>> {
         .collect())
 }
 
-fn name<'a>(names: &'a HashMap<String, String>, id: &'a Value) -> &'a str {
+pub(super) fn name<'a>(names: &'a HashMap<String, String>, id: &'a Value) -> &'a str {
     match id.as_str() {
         Some(i) => names.get(i).map(String::as_str).unwrap_or(i),
         None => "—",
@@ -460,7 +460,7 @@ fn trail_line(e: &Value, names: &HashMap<String, String>) -> String {
 }
 
 /// Local wall-clock rendering of a ms timestamp.
-fn clock(ms: i64, with_date: bool) -> String {
+pub(super) fn clock(ms: i64, with_date: bool) -> String {
     use chrono::TimeZone;
     match chrono::Local.timestamp_millis_opt(ms).single() {
         Some(t) if with_date => t.format("%Y-%m-%d %H:%M:%S").to_string(),

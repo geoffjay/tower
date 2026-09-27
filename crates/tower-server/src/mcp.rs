@@ -300,6 +300,45 @@ async fn call_tool(
             let reason = arg(args, "reason")?;
             json!({ "task": crate::tasks::release(state, &id, &who, reason, now).await? })
         }
+        "tower_schedule_list" => json!({ "schedules": crate::schedules::list(state).await? }),
+        "tower_schedule_create" => {
+            operator_only(caller)?;
+            let req = crate::schedules::CreateSchedule {
+                title: req_arg(args, "title")?,
+                description: arg(args, "description")?,
+                tags: arg(args, "tags")?.unwrap_or_default(),
+                priority: arg(args, "priority")?,
+                lease_s: arg(args, "lease_s")?,
+                max_attempts: arg(args, "max_attempts")?,
+                target: arg(args, "target")?,
+                cron: arg(args, "cron")?,
+                daily: arg(args, "daily")?,
+                timezone: arg(args, "timezone")?,
+            };
+            json!({ "schedule": crate::schedules::create(state, req, now).await? })
+        }
+        "tower_schedule_pause"
+        | "tower_schedule_resume"
+        | "tower_schedule_run"
+        | "tower_schedule_remove" => {
+            operator_only(caller)?;
+            let id = tower_core::ScheduleId::from(req_arg::<String>(args, "schedule_id")?);
+            match name {
+                "tower_schedule_pause" => {
+                    json!({ "schedule": crate::schedules::pause(state, &id, "operator", now).await? })
+                }
+                "tower_schedule_resume" => {
+                    json!({ "schedule": crate::schedules::resume(state, &id, now).await? })
+                }
+                "tower_schedule_run" => {
+                    json!({ "fired": crate::schedules::run_now(state, &id, now).await? })
+                }
+                _ => {
+                    crate::schedules::remove(state, &id).await?;
+                    json!({ "ok": true })
+                }
+            }
+        }
         other => return Err(ToolError::Protocol(format!("unknown tool: {other}"))),
     })
 }
@@ -424,6 +463,24 @@ fn tool_list() -> Vec<Value> {
             }),
             &["task_id"],
         ),
+        tool("tower_schedule_list", "Recurring job schedules with next run.", json!({}), &[]),
+        tool(
+            "tower_schedule_create",
+            "Create a recurring job (operator only): `daily` HH:MM or `cron`, optional `target` agent.",
+            json!({
+                "title": {"type": "string"}, "description": {"type": "string"},
+                "daily": {"type": "string", "description": "HH:MM"},
+                "cron": {"type": "string"}, "timezone": {"type": "string"},
+                "target": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}},
+                "priority": {"type": "integer"}, "lease_s": {"type": "integer"},
+                "max_attempts": {"type": "integer"},
+            }),
+            &["title"],
+        ),
+        tool("tower_schedule_pause", "Stop a schedule firing (operator only).", json!({"schedule_id": {"type": "string"}}), &["schedule_id"]),
+        tool("tower_schedule_resume", "Resume a schedule from now (operator only).", json!({"schedule_id": {"type": "string"}}), &["schedule_id"]),
+        tool("tower_schedule_run", "Fire one extra occurrence now (operator only).", json!({"schedule_id": {"type": "string"}}), &["schedule_id"]),
+        tool("tower_schedule_remove", "Delete a schedule (operator only).", json!({"schedule_id": {"type": "string"}}), &["schedule_id"]),
         tool(
             "tower_task_release",
             "Give your job back to the queue.",

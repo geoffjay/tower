@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use tower_client::Client;
 
+mod schedule;
 mod service;
 mod task;
 
@@ -92,6 +93,11 @@ pub enum Command {
         #[command(subcommand)]
         cmd: task::TaskCmd,
     },
+    /// Recurring jobs: create, list, show, pause, resume, run, rm
+    Schedule {
+        #[command(subcommand)]
+        cmd: schedule::ScheduleCmd,
+    },
     /// Run `tower serve` as a user service (launchd / systemd)
     Service {
         #[command(subcommand)]
@@ -147,6 +153,7 @@ async fn main_async() -> anyhow::Result<()> {
         Command::Schema => schema().await,
         Command::Inbox => inbox(cli.json).await,
         Command::Service { cmd } => service::run(cmd).await,
+        Command::Schedule { cmd } => schedule::run(&client(cli.token).await?, cmd, cli.json).await,
         Command::Task { cmd } => task::run(&client(cli.token).await?, cmd, cli.json).await,
         Command::Ask {
             name,

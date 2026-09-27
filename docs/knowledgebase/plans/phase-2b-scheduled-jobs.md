@@ -7,7 +7,7 @@ tags:
   - phase-2b
   - job-queue
   - scheduling
-status: draft
+status: stable
 ---
 
 # Phase 2b — Scheduled and recurring jobs
@@ -74,3 +74,12 @@ Depends on: phase 2 (job queue, sweeper, pump transitions).
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-09-27 | T1.2 one job per agent: busy agent → `conflict` naming the open job; 16 concurrent assigns of different jobs to one agent → exactly 1 wins | pass (`tests/dispatch.rs`) |
+| 2026-09-27 | T1.3 dispatcher, clock-injected: busy target waits and gets it when its job closes (lease starts at delivery, `by: dispatch`); working → idle transition delivers; `not_before` boundary; priority order; dead target waits; release drops the releaser's own reservation; explicit assign overrides; removal returns reservations to the queue | pass (12 tests) |
+| 2026-09-27 | T1.3 found a deadlock: `stop --remove` held the agent lock while releasing jobs, dispatch then prompted the same agent; the lock map is global per name, so 4 tests hung. Also `spawn --prompt` held the lock across `prompt()` (would hang) | fixed: locks released before any call that can re-enter; `detach_agent` clears reservations first |
+| 2026-09-27 | T1.4 live CLI (:8277 via `config.toml`): busy assign refused with hint; `--when-available` → `→a1` in list; finishing A delivered B at once (`by dispatch`); `--at` job held until 10:18:00, delivered by the sweep at 10:18:05 | pass |
+| 2026-09-27 | T2.1 scheduler, clock-injected: fires once per occurrence + delivers to an idle target (`by: schedule:<id>`); 16 racing sweeps → 1 firing; coalesce (`missed: 3`, most recent occurrence); skip while running; undelivered → `occurrence_expired` + replaced; untargeted → general queue; target removed → paused + target cleared; pause/resume without catch-up; run-now keeps cadence and obeys skip; invalid cron/tz/daily/target rejected; MCP agent callers refused | pass (`tests/schedules.rs`, 12 tests) |
+| 2026-09-27 | DST (America/Los_Angeles 2026), croner behavior probed then pinned: daily 02:30 on 03-08 runs at 03:00 PDT; daily 01:30 on 11-01 runs once (first, PDT) | pass — matches the decision table |
+| 2026-09-27 | T3.1 `tower service` (real binary, test label, :8277 home): plist lints; install → loaded, running, healthz ok; `kill -9` → relaunched (new pid); uninstall removes plist + job, port closed; second uninstall a no-op. systemd path covered by unit tests only | pass |
+| 2026-09-27 | **T4.1 live** herdr + omp `b1`, every-minute schedule reserved for b1 (job: start → `sleep 75` → complete via the CLI): 10:30 fired → b1 completed it; 10:31 **skipped** (`previous_running`); 10:32 fired → completed; 10:33 skipped. Server down 10:33:49-10:36:39 → on restart **one** firing for 10:36 with `missed: 2`, delivered to b1 (trail: reserved → `assigned … by schedule:<id>` → working). CLI run (skipped while running), resume, rm (in-flight job left alone) | pass |
+| 2026-09-27 | Found along the way: CLI couldn't find a default install's token on macOS (read `~/.local/share` instead of `ProjectDirs`) and ignored `bind_tcp` | fixed `16e3033` |
