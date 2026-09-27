@@ -1,0 +1,18 @@
+---
+source: crates/tower-tui/tests/views.rs
+expression: "text(&mut a, 80, 14)"
+---
+ tower  1 Fleet  2 Inbox  3 Tasks  4 Events  5 Machines            ○ connecting
+no machines loaded
+
+
+
+
+
+
+
+
+
+
+
+j/k move · : command · ? help · q quit

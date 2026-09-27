@@ -1,0 +1,34 @@
+---
+source: crates/tower-tui/tests/views.rs
+expression: "text(&mut a, 120, 30)"
+---
+ tower  1 Fleet  2 Inbox (1)  3 Tasks  4 Events  5 Machines                                                ○ connecting
+┌ owned (3) ─────────────────────────────────────────────────────┐┌ job — esc closes ──────────────────────────────────┐
+│ID     OWNER        STATE          LEASE    TRY   TITLE         ││migrate schema                                      │
+│T2     backend      working        30s      0/3   migrate schema││T2                                                  │
+│T1     api          working        42s      0/3   implement CSV ││state    working  owner backend  lease 30s          │
+│T3     writer       input-required held     0/3   pick a license││attempts 0/3 · priority 0                           │
+│                                                                ││created  2026-09-27 09:55                           │
+│                                                                ││                                                    │
+└────────────────────────────────────────────────────────────────┘│trail                                               │
+┌ queue (1) ─────────────────────────────────────────────────────┐│  09:58:30  created                                 │
+│ID     PRI WAITING FOR              TAGS           AGE  TITLE   ││  09:58:31  assigned to api by me                   │
+│T4     0   —                        —              5m   write la││  09:58:32  lease expired (api) → queued, attempt   │
+│                                                                ││1/3                                                 │
+│                                                                ││  09:58:33  assigned to backend by dispatch         │
+│                                                                ││  09:58:34  working (backend)                       │
+│                                                                ││                                                    │
+│                                                                ││                                                    │
+└────────────────────────────────────────────────────────────────┘│                                                    │
+┌ recent (1) ────────────────────────────────────────────────────┐│                                                    │
+│ID     STATE      OWNER        WHEN  TITLE                      ││                                                    │
+│T5     completed  —            1m    old job                    ││                                                    │
+│                                                                ││                                                    │
+└────────────────────────────────────────────────────────────────┘│                                                    │
+┌ schedules (0) ─────────────────────────────────────────────────┐│                                                    │
+│no schedules                                                    ││                                                    │
+│                                                                ││                                                    │
+│                                                                ││                                                    │
+│                                                                ││                                                    │
+└────────────────────────────────────────────────────────────────┘└────────────────────────────────────────────────────┘
+esc close · a assign · x x cancel · : command · ? help · q quit

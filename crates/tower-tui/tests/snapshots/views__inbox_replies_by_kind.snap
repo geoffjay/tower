@@ -1,0 +1,20 @@
+---
+source: crates/tower-tui/tests/views.rs
+expression: "text(&mut a, 90, 16)"
+---
+ tower  1 Fleet  2 Inbox (2)  3 Tasks  4 Events  5 Machines                  ○ connecting
+FROM         KIND       AGE   EXPIRES  SUMMARY
+backend      approval   40s   4m00s    Allow `cargo publish`?
+api          question   40s   30s      Which approach?
+
+
+┌ y approve · n deny ────────────────────────────────────────────────────────────────────┐
+│M1  approval from backend · expires 4m00s                                               │
+│Allow `cargo publish`?                                                                  │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+y approve/yes · n deny/no · r reply · : command · ? help · q quit

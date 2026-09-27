@@ -38,9 +38,12 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 croner = "4.0.0"
 chrono-tz = "0.10.4"
 iana-time-zone = "0.1.65"
+tower-tui = { version = "0.1.0", path = "../tower-tui" }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+crossterm.workspace = true
+ratatui.workspace = true
 tempfile = "3.27.0"

@@ -134,12 +134,14 @@ pub enum Command {
         #[arg(long)]
         deadline_s: Option<i64>,
     },
+    /// Interactive terminal UI (fleet, inbox, jobs, events, machines)
+    Tui,
 }
 
 #[tokio::main]
-async fn main_async() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+async fn main_async(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
+        Command::Tui => tower_tui::run(client(cli.token).await?).await,
         Command::Serve => tower_server::serve::serve().await,
         Command::Node => anyhow::bail!("node agent arrives in phase 5"),
         Command::Ps { all } => ps(all, cli.json).await,
@@ -562,11 +564,16 @@ async fn schema() -> anyhow::Result<()> {
 }
 
 pub fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .json()
-        .init();
-    main_async()
+    let cli = Cli::parse();
+    // the TUI owns the terminal: log lines on stdout would corrupt it
+    if !matches!(cli.command, Command::Tui) {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "info".into()),
+            )
+            .json()
+            .init();
+    }
+    main_async(cli)
 }

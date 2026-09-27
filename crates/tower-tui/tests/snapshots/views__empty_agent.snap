@@ -1,0 +1,18 @@
+---
+source: crates/tower-tui/tests/views.rs
+expression: "text(&mut a, 80, 14)"
+---
+ tower  1 Fleet  Agent: api  2 Inbox  3 Tasks  4 Events  5 Machine ○ connecting
+○ api  claude · local · idle
+pane w1:api · workdir /src/example
+job  —
+┌ output ──────────────────────────────────────────────────────────────────────┐
+│reading…                                                                      │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ messages ────────────────────────────────────────────────────────────────────┐
+│no messages                                                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+i prompt · x interrupt · o herdr · j/k scroll · G follow · esc back · : command

@@ -1,0 +1,10 @@
+---
+source: crates/tower-tui/tests/views.rs
+expression: "text(&mut a, 90, 6)"
+---
+ tower  1 Fleet  2 Inbox (1)  3 Tasks  4 Events  5 Machines                  ○ connecting
+NAME           ROLE         STATUS    ADDRESS                LAST SEEN  AGENTS
+local          coordinator  online    —                      2s ago     3
+mini           node         offline   mini.lan:8266          2h ago     2
+
+j/k move · : command · ? help · q quit

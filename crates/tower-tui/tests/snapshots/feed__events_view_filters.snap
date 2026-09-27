@@ -1,0 +1,14 @@
+---
+source: crates/tower-tui/tests/feed.rs
+expression: "text(&mut a, 110, 10)"
+---
+ tower  1 Fleet  2 Inbox  3 Tasks  4 Events  5 Machines                                          ○ connecting
+● following   4 of 12 events  subject~f1  +output
+TIME     TYPE              SUBJECT          DETAIL
+20:22:40 agent.created     f1               f1 (omp)
+20:22:40 agent.state       f1               launching → idle
+20:22:48 agent.output      f1               296 bytes
+20:22:49 agent.output      f1               296 bytes
+
+
+f type filter · s subject filter · c clear · O output events · G follow · : command · ? help · q quit

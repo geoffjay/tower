@@ -12,6 +12,15 @@ tower-client = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 tokio = { workspace = true }
+anyhow.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+ansi-to-tui = "8"
+serde.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+insta = "1.48.0"
