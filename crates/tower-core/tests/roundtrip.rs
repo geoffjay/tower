@@ -29,7 +29,7 @@ fn agent_roundtrip() {
 }
 
 #[test]
-fn task_pool_fields_roundtrip() {
+fn task_queue_fields_roundtrip() {
     let t = Task {
         id: TaskId::from("t_1"),
         agent_id: None,
@@ -45,6 +45,7 @@ fn task_pool_fields_roundtrip() {
         attempt_count: 0,
         max_attempts: 3,
         lease_expires_at: Some(123),
+        lease_s: 60,
         result: None,
         created_at: 1,
         updated_at: 2,

@@ -13,6 +13,7 @@ pub mod sse;
 pub mod state;
 pub mod storage;
 pub mod sweeper;
+pub mod tasks;
 
 pub use config::Config;
 pub use paths::Paths;

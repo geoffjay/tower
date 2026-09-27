@@ -61,6 +61,7 @@ CREATE TABLE tasks (
   attempt_count     INTEGER NOT NULL DEFAULT 0,
   max_attempts      INTEGER NOT NULL DEFAULT 3,
   lease_expires_at  INTEGER,                      -- ownership deadline; NULL when unowned
+  lease_s           INTEGER NOT NULL DEFAULT 60,   -- renewal window per assign/heartbeat (migration 0002)
   result            TEXT,                          -- JSON summary
   created_at        INTEGER NOT NULL,
   updated_at        INTEGER NOT NULL

@@ -40,6 +40,7 @@ pub async fn boot() -> Ctx {
         .unwrap();
     let router = tower_server::messaging::router()
         .merge(tower_server::agents_api::router())
+        .merge(tower_server::tasks::router())
         .with_state(state.clone());
     Ctx {
         state,

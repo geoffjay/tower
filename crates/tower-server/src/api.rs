@@ -1,4 +1,5 @@
-//! Routes: /healthz, /v1/schema (D§7). Introspectable contract registry.
+//! Routes: /healthz, /v1/schema (D§7). Introspectable contract registry —
+//! must list exactly the mounted routes.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -46,12 +47,19 @@ async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
         ("POST", "/v1/agents/{id}/send-keys"),
         ("POST", "/v1/agents/{id}/stop"),
         ("GET", "/v1/agents/{id}/read"),
-        ("GET", "/v1/agents/{id}/stream"),
         ("GET", "/v1/messages"),
         ("POST", "/v1/messages"),
         ("POST", "/v1/messages/{id}/respond"),
+        ("GET", "/v1/tasks"),
+        ("POST", "/v1/tasks"),
+        ("GET", "/v1/tasks/{id}"),
+        ("POST", "/v1/tasks/{id}/assign"),
+        ("POST", "/v1/tasks/{id}/start"),
+        ("POST", "/v1/tasks/{id}/heartbeat"),
+        ("POST", "/v1/tasks/{id}/status"),
+        ("POST", "/v1/tasks/{id}/release"),
+        ("POST", "/v1/tasks/{id}/cancel"),
         ("GET", "/v1/events"),
-        ("GET", "/v1/events/heads"),
     ];
     let event_types = [
         "server.started",
@@ -88,6 +96,5 @@ async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
         },
         "error_codes": ["not_found", "conflict", "timeout", "driver", "invalid",
                         "unauthorized", "machine_offline"],
-        "note": "phase 1 routes only; more arrive with milestones 5-6",
     }))
 }

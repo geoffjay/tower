@@ -24,6 +24,7 @@ use tower_core::{
 
 use crate::http::error_response;
 use crate::state::AppState;
+use crate::storage::{enum_str, parse_enum};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -351,19 +352,6 @@ pub fn row_to_message(r: &sqlx::sqlite::SqliteRow) -> Message {
         responded_at: r.get("responded_at"),
         created_at: r.get("created_at"),
     }
-}
-
-/// Enum columns are kebab-case strings (their serde form).
-pub fn enum_str<T: serde::Serialize>(v: T) -> String {
-    serde_json::to_value(v)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_default()
-}
-
-/// Parse an enum column from its serde string form.
-pub fn parse_enum<T: serde::de::DeserializeOwned>(s: String) -> T {
-    serde_json::from_value(serde_json::Value::String(s)).expect("valid enum column")
 }
 
 // ---- route handlers ------------------------------------------------------

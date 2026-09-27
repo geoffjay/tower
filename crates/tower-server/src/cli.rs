@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use tower_client::Client;
 
+mod task;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "tower",
@@ -11,6 +13,10 @@ pub struct Cli {
     /// Override token (default: TOWER_TOKEN env or token file)
     #[arg(long, global = true)]
     pub token: Option<String>,
+
+    /// Print the raw API JSON instead of a table
+    #[arg(long, global = true)]
+    pub json: bool,
 
     #[command(subcommand)]
     pub command: Command,
@@ -80,6 +86,11 @@ pub enum Command {
     /// Route + event-type registry
     Schema,
 
+    /// Job queue: create, assign, list, show, cancel, release
+    Task {
+        #[command(subcommand)]
+        cmd: task::TaskCmd,
+    },
     /// Pending questions/approvals addressed to me
     Inbox,
     /// Send a question to an agent
@@ -119,7 +130,7 @@ async fn main_async() -> anyhow::Result<()> {
     match cli.command {
         Command::Serve => tower_server::serve::serve().await,
         Command::Node => anyhow::bail!("node agent arrives in phase 5"),
-        Command::Ps { all } => ps(all).await,
+        Command::Ps { all } => ps(all, cli.json).await,
         Command::Spawn { .. } => spawn(cli).await,
         Command::Prompt { .. } => prompt(cli).await,
         Command::Read { .. } => read(cli).await,
@@ -128,7 +139,8 @@ async fn main_async() -> anyhow::Result<()> {
         Command::Stop { .. } => stop(cli).await,
         Command::Doctor => doctor().await,
         Command::Schema => schema().await,
-        Command::Inbox => inbox().await,
+        Command::Inbox => inbox(cli.json).await,
+        Command::Task { cmd } => task::run(&client(cli.token).await?, cmd, cli.json).await,
         Command::Ask {
             name,
             text,
@@ -152,9 +164,13 @@ async fn client(token: Option<String>) -> anyhow::Result<Client> {
     Client::connect(token)
 }
 
-async fn ps(all: bool) -> anyhow::Result<()> {
+async fn ps(all: bool, json_out: bool) -> anyhow::Result<()> {
     let c = client(None).await?;
     let v = c.get("/v1/agents").await?;
+    if json_out {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
     let agents = v["agents"].as_array().cloned().unwrap_or_default();
     println!(
         "{:<4} {:<12} {:<8} {:<10} NOTE",
@@ -208,9 +224,13 @@ fn state_glyph(state: &str) -> &'static str {
     }
 }
 
-async fn inbox() -> anyhow::Result<()> {
+async fn inbox(json_out: bool) -> anyhow::Result<()> {
     let c = client(None).await?;
     let v = c.get("/v1/messages?to=me&status=pending").await?;
+    if json_out {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
     let msgs = v["messages"].as_array().cloned().unwrap_or_default();
     if msgs.is_empty() {
         println!("inbox empty");

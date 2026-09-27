@@ -86,20 +86,31 @@ assignment-only, and time-bound:
   Rust libraries; laya can run locally as a GGUF via ollama/llama.cpp).
   Router choice is deliberately deferred ([decision](../../decisions/job-queue.md)).
 - **Assignment protocol**: `POST /v1/tasks/{id}/assign {to: <agent>,
-  lease_s?}` — a single transaction: `UPDATE tasks SET owner = :agent,
-  state='assigned', lease_expires_at = now + lease WHERE id = :id AND
-  (owner IS NULL OR lease_expires_at < now)`. Affected-rows == 1 →
-  assigned; 0 → `conflict`. A job with a live owner can never be assigned
-  to another agent. No coordinator arbitration needed — SQLite row state
-  is the lock (the single-writer SQLite design from [§6](06-data-model.md)
-  makes the check-and-set atomic).
+  lease_s?}`. An expired lease on the task is first swept exactly as the
+  lease sweeper would (requeue + attempt bump, or `failed` when
+  exhausted), then: `UPDATE tasks SET owner = :agent, state='assigned',
+  lease_expires_at = now + lease WHERE id = :id AND owner IS NULL AND
+  state = 'queued'`. That is the `(owner IS NULL OR lease_expires_at <
+  now)` check with one code path for expiry accounting — an exhausted job
+  is never reassigned and a paused `input-required` lease is never
+  stolen. Affected-rows == 1 → assigned; 0 → `conflict`. A job with a
+  live owner can never be assigned to another agent. No coordinator
+  arbitration needed — SQLite row state is the lock (the single-writer
+  SQLite design from [§6](06-data-model.md) makes the check-and-set
+  atomic).
+- **Assignment notice**: a successful assign sends the owner a
+  `delegation` message (task id, title, description, the work-loop
+  reminder) — to-agent delivery is a prompt, so an idle agent learns it
+  has work. A failed notice does not undo the assignment; the lease
+  expires if the agent never starts.
 - **Start declaration**: the owner declares work started with
-  `POST /v1/tasks/{id}/status {state: working}` (or `task start`), →
+  `POST /v1/tasks/{id}/start` (or `status {state: working}`), →
   `working`. Until then, `assigned` + no heartbeat is the visible stall
   signal.
 - **`lease_expires_at`**: ownership expires if not renewed. Owner must
-  heartbeat via `POST /v1/tasks/{id}/heartbeat` (default window: 60s
-  lease, heartbeat at 20-30s; configurable per task and globally).
+  heartbeat via `POST /v1/tasks/{id}/heartbeat`; every renewal extends by
+  the task's `lease_s` (default 60s, set at create/assign; heartbeat at
+  20-30s).
 - **Lease expiry sweeper** (part of the tasks module, runs every ~10s):
   expired leases → `owner = NULL`, `state = 'queued'`, `attempt_count =
   attempt_count + 1`, emit `task.leased_out` event. The job returns to

@@ -214,27 +214,33 @@ t_01J9X8B  queued    —               0    writing       0/3       write launch
 
 $ tower task show t_01J9X8A
 task t_01J9X8A  implement CSV error column names
-  state    working (owner: backend, lease renews in 18s)
-  created  2026-09-26 10:12:03 by me
+  state    working (owner: backend, lease expires in 42s)
+  attempts 0/3
+  created  2026-09-26 10:12:03
   trail
+    10:12:03  created
     10:12:04  assigned to backend by me
-    10:12:09  started by backend — "reading csv module"
-    10:13:41  status: input-required — question m_01J9X7K to me
+    10:12:09  working (backend)
+    10:13:41  status: input-required
 ```
 
-How does the agent know it has work? Once assigned, the job appears in the
-agent's MCP view (`tower_task_list --mine`), and the agent runs the
-**work loop** — a documented contract (see `docs/agent-loop.md` in the
-phase-2 plan): see my assigned jobs → declare start → heartbeat → report
-status → complete. Agents never pull or claim: if two dispatchers race to
-assign one job, exactly one wins and the loser gets a clean conflict.
-If an owner dies, its lease expires and the job requeues itself — attempts
-are counted (`0/3`) so stuck work fails loudly instead of looping forever.
+How does the agent know it has work? Assignment sends it a **delegation**
+message (a prompt naming the job), the job appears in its MCP view
+(`tower_task_list --mine`), and the agent runs the **work loop** — a
+documented contract (`docs/agent-loop.md`): declare start → heartbeat →
+report status → complete. Agents never pull or claim: if two dispatchers
+race to assign one job, exactly one wins and the loser gets a clean
+conflict naming the owner. If an owner dies, its lease expires and the job
+requeues itself — attempts are counted (`0/3`) so stuck work fails loudly
+instead of looping forever. An owner blocked on your answer
+(`input-required`) never loses its job to lease expiry.
 
 ```console
-$ tower task cancel t_01J9X8B
-$ tower task release t_01J9X8A       # owner's voluntary give-back to the queue
+$ tower task cancel t_01J9X8B        # also interrupts the owner
+$ tower task release t_01J9X8A       # give it back to the queue (acts as the owner)
 ```
+
+Every command above takes `--json` to print the raw API response.
 
 ## 8. Watch the system
 

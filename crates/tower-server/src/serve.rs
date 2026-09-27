@@ -43,6 +43,7 @@ pub async fn serve() -> anyhow::Result<()> {
     let routes = api::router()
         .merge(crate::agents_api::router())
         .merge(crate::messaging::router())
+        .merge(crate::tasks::router())
         .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
         .with_state(state);
 
@@ -97,7 +98,7 @@ pub async fn serve() -> anyhow::Result<()> {
 
     // driver event pump (T2.1): state changes, output events, blocked → question
     tasks.push(crate::pump::spawn(pump_state.clone()));
-    // sweeper (T2.3): message deadlines
+    // sweeper (T2.3, T3.2): message deadlines + task leases
     tasks.push(crate::sweeper::spawn(pump_state));
 
     tasks.push(tokio::spawn(async move {

@@ -99,6 +99,8 @@ async fn upsert_state(
             serde_json::json!({"from": agent.state.as_str(), "to": new.as_str()}),
         )
         .await?;
+    // blocked ↔ input-required on the agent's owned job (D§5.2)
+    crate::tasks::sync_agent_state(state, &agent.id, new, tower_core::now_ms()).await?;
     Ok(())
 }
 

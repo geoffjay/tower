@@ -1,4 +1,5 @@
-//! Periodic sweeper (D§9.3, D§9.4): message deadlines (T2.3).
+//! Periodic sweeper (D§9.3, D§9.4): message deadlines (T2.3) and task
+//! leases (T3.2).
 //!
 //! Every sweep takes `now` explicitly so tests inject the clock; the tick
 //! loop passes `now_ms()`.
@@ -7,8 +8,9 @@ use std::time::Duration;
 
 use tower_core::{MessageId, MessageKind, MessageStatus, Part, PartyKind};
 
-use crate::messaging::{self, parse_enum};
+use crate::messaging;
 use crate::state::AppState;
+use crate::storage::parse_enum;
 
 /// Sweep cadence (D§9.4: ~10s).
 pub const TICK: Duration = Duration::from_secs(10);
@@ -22,8 +24,12 @@ pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
         let mut tick = tokio::time::interval(TICK);
         loop {
             tick.tick().await;
-            if let Err(e) = sweep_deadlines(&state, tower_core::now_ms()).await {
+            let now = tower_core::now_ms();
+            if let Err(e) = sweep_deadlines(&state, now).await {
                 tracing::warn!(error = %e, "sweeper: deadline sweep failed");
+            }
+            if let Err(e) = crate::tasks::sweep_leases(&state, now).await {
+                tracing::warn!(error = %e, "sweeper: lease sweep failed");
             }
         }
     })

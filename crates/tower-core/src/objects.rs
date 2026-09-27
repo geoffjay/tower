@@ -51,6 +51,8 @@ pub struct Task {
     pub max_attempts: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lease_expires_at: Option<i64>,
+    /// Renewal window in seconds for assign/start/heartbeat (D§5.2.1).
+    pub lease_s: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
     pub created_at: i64,
