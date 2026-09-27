@@ -138,8 +138,8 @@ $ tower ps --json | jq '.agents[] | {name, kind, worktree, permissions}'
 ```
 
 There is no agent YAML in v1. If you want repeatable fleets, that's a shell
-script — or spawn from code over `/v1` / MCP. (Declarative fleet files are a
-backlog item; see plans.)
+script, spawn from code over `/v1` / MCP, or let an agent build one with
+`/tower-deploy` (§10). (Declarative fleet files are a backlog item; see plans.)
 
 ## 5. Talk to agents
 
@@ -325,6 +325,37 @@ leases expire, and the queue reabsorbs the work.
 
 ---
 
+## 10. Let an agent run tower
+
+Tower ships agent skills for its own operation, in `.agents/skills/`
+(linked from `.claude/skills/`). Run your agent in the tower repo and call
+them by name. Each one drives the CLI, shows you its plan, and waits for
+your approval before it changes anything.
+
+| Skill | What it does |
+|---|---|
+| `/tower-queue-job [description]` | Turns a request into a job with done criteria; asks for what's missing; assigns, reserves, holds, or schedules it |
+| `/tower-agent-add [name] [kind] [role]` | Spawns an agent with a standing brief and checks that it can reach its model |
+| `/tower-agent-remove <name>` | Shows the jobs and schedules the removal affects, removes, and offers to reassign |
+| `/tower-status [stack]` | Read-only: what needs you first (inbox, blocked, stalled, failed), then the fleet |
+| `/tower-deploy [purpose \| update S \| teardown S]` | Interviews you, proposes a stack of agents, schedules, and starting jobs, deploys it, and verifies it |
+
+```console
+$ claude
+> /tower-deploy a docs stack: one writer, a nightly link check at 02:00
+```
+
+A stack is a naming convention, not a tower object: agents are
+`<stack>-<role>`, schedules are titled `<stack>: <title>`, and both jobs
+and schedules carry the tag `stack:<stack>`. So `tower ps`, `tower schedule
+list`, and `tower task list --tag stack:docs` show a stack's state, and
+`/tower-deploy update docs` or `teardown docs` can find it again. Keep the
+names when you change a stack by hand.
+
+Claude Code's sandbox blocks connections to `127.0.0.1`. The first tower
+command in a session fails with `Operation not permitted` until you allow
+it to run outside the sandbox.
+
 ## Command summary
 
 | Command | Purpose |
@@ -338,6 +369,8 @@ leases expire, and the queue reabsorbs the work.
 | `tower interrupt NAME` / `tower stop NAME` | ctrl+c / end session (seat survives) |
 | `tower inbox` / `tower ask` / `tower approve ID` | human ↔ agent loop |
 | `tower task create/list/assign/show/cancel/release` | job queue (you assign, agents own) |
+| `tower schedule create/list/show/pause/resume/run/rm` | recurring jobs |
+| `tower service install/uninstall/status` | keep `tower serve` running |
 | `tower events --follow [--filter ...]` | system event stream |
 | `tower machines add/remove/list` | node registry |
 | `tower schema` | route + event-type registry |

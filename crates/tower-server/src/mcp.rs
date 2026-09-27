@@ -14,7 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::{json, Value};
-use tower_core::{MessageId, MessageKind, Part, PartyKind, TaskId, TowerError};
+use tower_core::{MessageId, MessageKind, MessageStatus, Part, PartyKind, TaskId, TowerError};
 
 use crate::state::AppState;
 
@@ -141,12 +141,12 @@ fn acting(args: &Value, caller: Option<&str>) -> Result<String, ToolError> {
         })
 }
 
-fn operator_only(caller: Option<&str>) -> Result<(), ToolError> {
+fn operator_only(caller: Option<&str>, action: &str) -> Result<(), ToolError> {
     match caller {
         Some(agent) => Err(ToolError::Service(
             TowerError::new(
                 tower_core::ErrorCode::Unauthorized,
-                format!("{agent} is an agent; only the operator may assign jobs"),
+                format!("{agent} is an agent; only the operator may {action}"),
             )
             .into(),
         )),
@@ -170,6 +170,19 @@ async fn call_tool(
             let req: crate::sessions::SpawnRequest = serde_json::from_value(args.clone())
                 .map_err(|e| ToolError::Protocol(format!("tower_spawn arguments: {e}")))?;
             json!({ "agent": crate::sessions::spawn(state, req).await? })
+        }
+        "tower_stop" => {
+            operator_only(caller, "stop agents")?;
+            let target: String = req_arg(args, "name")?;
+            let remove = arg::<bool>(args, "remove")?.unwrap_or(false);
+            crate::sessions::stop(state, &target, remove).await?;
+            json!({ "ok": true })
+        }
+        "tower_inbox" => {
+            // an agent reads what was sent to it; the operator reads `me`
+            let to = caller.unwrap_or("me");
+            let status = arg::<MessageStatus>(args, "status")?.unwrap_or(MessageStatus::Pending);
+            json!({ "messages": crate::messaging::list(state, Some(to), Some(status), None).await? })
         }
         "tower_prompt" => {
             let target: String = req_arg(args, "name")?;
@@ -255,12 +268,12 @@ async fn call_tool(
                 not_before: arg(args, "not_before")?,
             };
             if req.assign.is_some() {
-                operator_only(caller)?;
+                operator_only(caller, "assign jobs")?;
             }
             json!({ "task": crate::tasks::create(state, req, now).await? })
         }
         "tower_task_assign" => {
-            operator_only(caller)?;
+            operator_only(caller, "assign jobs")?;
             let id = TaskId::from(req_arg::<String>(args, "task_id")?);
             let to: String = req_arg(args, "to")?;
             let task = if arg::<bool>(args, "when_available")?.unwrap_or(false) {
@@ -269,6 +282,11 @@ async fn call_tool(
                 crate::tasks::assign(state, &id, &to, arg(args, "lease_s")?, "me", now).await?
             };
             json!({ "task": task })
+        }
+        "tower_task_cancel" => {
+            operator_only(caller, "cancel jobs")?;
+            let id = TaskId::from(req_arg::<String>(args, "task_id")?);
+            json!({ "task": crate::tasks::cancel(state, &id, now).await? })
         }
         "tower_task_start" => {
             let id = TaskId::from(req_arg::<String>(args, "task_id")?);
@@ -301,8 +319,12 @@ async fn call_tool(
             json!({ "task": crate::tasks::release(state, &id, &who, reason, now).await? })
         }
         "tower_schedule_list" => json!({ "schedules": crate::schedules::list(state).await? }),
+        "tower_schedule_show" => {
+            let id = tower_core::ScheduleId::from(req_arg::<String>(args, "schedule_id")?);
+            crate::schedules::show(state, &id).await?
+        }
         "tower_schedule_create" => {
-            operator_only(caller)?;
+            operator_only(caller, "manage schedules")?;
             let req = crate::schedules::CreateSchedule {
                 title: req_arg(args, "title")?,
                 description: arg(args, "description")?,
@@ -321,7 +343,7 @@ async fn call_tool(
         | "tower_schedule_resume"
         | "tower_schedule_run"
         | "tower_schedule_remove" => {
-            operator_only(caller)?;
+            operator_only(caller, "manage schedules")?;
             let id = tower_core::ScheduleId::from(req_arg::<String>(args, "schedule_id")?);
             match name {
                 "tower_schedule_pause" => {
@@ -360,6 +382,18 @@ fn tool_list() -> Vec<Value> {
     vec![
         tool("tower_ps", "List agents with live states.", json!({}), &[]),
         tool("tower_machine_list", "List machines.", json!({}), &[]),
+        tool(
+            "tower_stop",
+            "Stop an agent's session (operator only). remove=true also deletes the agent: its open jobs go back to the queue and its reservations to the general queue.",
+            json!({"name": {"type": "string"}, "remove": {"type": "boolean"}}),
+            &["name"],
+        ),
+        tool(
+            "tower_inbox",
+            "Messages addressed to the caller (an agent) or to the operator. Default status: pending.",
+            json!({"status": {"type": "string", "enum": ["pending", "delivered", "answered", "expired", "failed"]}}),
+            &[],
+        ),
         tool(
             "tower_spawn",
             "Spawn an agent in a herdr pane.",
@@ -442,6 +476,12 @@ fn tool_list() -> Vec<Value> {
             &["task_id", "to"],
         ),
         tool(
+            "tower_task_cancel",
+            "Cancel a job (operator only); interrupts its owner if it is being worked.",
+            json!({"task_id": task_id.clone()}),
+            &["task_id"],
+        ),
+        tool(
             "tower_task_start",
             "Declare you started your assigned job (assigned → working).",
             json!({"task_id": task_id, "as": as_agent}),
@@ -464,6 +504,12 @@ fn tool_list() -> Vec<Value> {
             &["task_id"],
         ),
         tool("tower_schedule_list", "Recurring job schedules with next run.", json!({}), &[]),
+        tool(
+            "tower_schedule_show",
+            "One schedule with its 20 most recent jobs.",
+            json!({"schedule_id": {"type": "string"}}),
+            &["schedule_id"],
+        ),
         tool(
             "tower_schedule_create",
             "Create a recurring job (operator only): `daily` HH:MM or `cron`, optional `target` agent.",

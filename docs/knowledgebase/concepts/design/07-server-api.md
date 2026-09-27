@@ -84,13 +84,16 @@ to artifacts storage so replay is lossless for subscribed tasks.
 
 `POST /mcp` — streamable HTTP MCP server exposing the same operations:
 
-tools: `tower_ps`, `tower_spawn`, `tower_prompt`, `tower_send`,
-`tower_ask`, `tower_approve`, `tower_task_list`, `tower_task_show`,
-`tower_task_create`, `tower_task_assign`, `tower_task_start`,
+tools: `tower_ps`, `tower_spawn`, `tower_stop`, `tower_prompt`, `tower_send`,
+`tower_ask`, `tower_approve`, `tower_inbox`, `tower_task_list`, `tower_task_show`,
+`tower_task_create`, `tower_task_assign`, `tower_task_cancel`, `tower_task_start`,
 `tower_task_heartbeat`, `tower_task_status`, `tower_task_release`,
-`tower_machine_list`, `tower_schedule_list`, `tower_schedule_create`,
-`tower_schedule_pause`, `tower_schedule_resume`, `tower_schedule_run`,
-`tower_schedule_remove` (schedule mutations are operator-only). One management surface for humans and agents
+`tower_machine_list`, `tower_schedule_list`, `tower_schedule_show`,
+`tower_schedule_create`, `tower_schedule_pause`, `tower_schedule_resume`,
+`tower_schedule_run`, `tower_schedule_remove`. Operator-only: assign,
+`tower_stop`, `tower_task_cancel`, and schedule mutations. `tower_inbox`
+returns the caller's messages (an agent's own, or the operator's `me`).
+One management surface for humans and agents
 (openrig-proven pattern). Agents have no self-serve claim: `tower_task_list
 --mine` / `tower_task_show` / `tower_task_start` / `tower_task_heartbeat`
 / `tower_task_status` / `tower_task_release` are the work loop — find my

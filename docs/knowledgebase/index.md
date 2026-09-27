@@ -50,6 +50,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [IPC: inter-agent and human-agent communication](decisions/ipc.md) - one HTTP port, SSE streaming, MCP for agents, A2A shapes, unified messages table.
 * [Cross-server communication](decisions/cross-server.md) - single coordinator with dial-home node agents; A2A between independent deployments.
 * [Scheduled jobs](decisions/scheduled-jobs.md) - reserved delivery when an agent is free, `not_before`, cron schedules with skip / replace / coalesce / pause policies.
+* [Operator skills](decisions/operator-skills.md) - five repo-local skills drive the CLI so an agent can operate tower; a stack is a naming convention.
 * [Job queue dispatch](decisions/job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
 
 ## Patterns

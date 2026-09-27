@@ -513,6 +513,19 @@ async fn create_route(State(s): State<AppState>, Json(b): Json<CreateSchedule>) 
     }
 }
 
+/// One schedule plus its 20 most recent jobs, newest occurrence first.
+pub async fn show(state: &AppState, id: &ScheduleId) -> anyhow::Result<serde_json::Value> {
+    let sc = require(state, id).await?;
+    let rows = sqlx::query(
+        "SELECT * FROM tasks WHERE schedule_id = ?1 ORDER BY occurrence_at DESC LIMIT 20",
+    )
+    .bind(id.0.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    let jobs: Vec<tower_core::Task> = rows.iter().map(crate::tasks::row_to_task).collect();
+    Ok(serde_json::json!({ "schedule": sc, "jobs": jobs }))
+}
+
 async fn list_route(State(s): State<AppState>) -> Response {
     match list(&s).await {
         Ok(v) => Json(serde_json::json!({ "schedules": v })).into_response(),
@@ -522,18 +535,7 @@ async fn list_route(State(s): State<AppState>) -> Response {
 
 async fn show_route(State(s): State<AppState>, Path(id): Path<String>) -> Response {
     let id = ScheduleId::from(id);
-    let res = async {
-        let sc = require(&s, &id).await?;
-        let rows = sqlx::query(
-            "SELECT * FROM tasks WHERE schedule_id = ?1 ORDER BY occurrence_at DESC LIMIT 20",
-        )
-        .bind(id.0.as_str())
-        .fetch_all(&s.pool)
-        .await?;
-        let jobs: Vec<tower_core::Task> = rows.iter().map(crate::tasks::row_to_task).collect();
-        anyhow::Ok(serde_json::json!({ "schedule": sc, "jobs": jobs }))
-    };
-    match res.await {
+    match show(&s, &id).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => error_response(e),
     }

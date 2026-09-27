@@ -312,3 +312,122 @@ async fn schema_lists_only_mounted_routes() {
         );
     }
 }
+
+// ---- operator tools the skills rely on (stop, cancel, inbox, schedule show)
+
+#[tokio::test]
+async fn only_the_operator_stops_agents_and_cancels_jobs() {
+    let ctx = common::boot().await;
+    ctx.spawn("a", "pi").await;
+    ctx.spawn("b", "pi").await;
+    let r = ctx
+        .tool(
+            None,
+            "tower_task_create",
+            json!({"title": "x", "assign": "a"}),
+        )
+        .await;
+    let id = r["structuredContent"]["task"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    for (tool, args) in [
+        ("tower_stop", json!({"name": "a", "remove": true})),
+        ("tower_task_cancel", json!({"task_id": id})),
+    ] {
+        let r = ctx.tool(Some("b"), tool, args).await;
+        assert_eq!(r["isError"], true, "{tool}: {r}");
+        assert_eq!(r["structuredContent"]["error"]["code"], "unauthorized");
+    }
+
+    // removing the owner returns its open job to the queue
+    let r = ctx
+        .tool(None, "tower_stop", json!({"name": "a", "remove": true}))
+        .await;
+    assert_eq!(r["isError"], false, "{r}");
+    let r = ctx.tool(None, "tower_ps", json!({})).await;
+    let names: Vec<&str> = r["structuredContent"]["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["b"]);
+    let r = ctx
+        .tool(None, "tower_task_show", json!({"task_id": id}))
+        .await;
+    assert_eq!(r["structuredContent"]["task"]["state"], "queued");
+    assert!(r["structuredContent"]["task"]["owner_id"].is_null());
+
+    let r = ctx
+        .tool(None, "tower_task_cancel", json!({"task_id": id}))
+        .await;
+    assert_eq!(r["structuredContent"]["task"]["state"], "canceled", "{r}");
+    let r = ctx
+        .tool(None, "tower_task_cancel", json!({"task_id": id}))
+        .await;
+    assert_eq!(r["structuredContent"]["error"]["code"], "conflict", "{r}");
+}
+
+#[tokio::test]
+async fn inbox_is_scoped_to_the_caller() {
+    let ctx = common::boot().await;
+    ctx.spawn("a", "pi").await;
+    ctx.spawn("b", "pi").await;
+    ctx.tool(Some("a"), "tower_ask", json!({"text": "which db?"}))
+        .await;
+
+    let r = ctx.tool(None, "tower_inbox", json!({})).await;
+    let msgs = r["structuredContent"]["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 1, "{r}");
+    assert_eq!(msgs[0]["from_id"], "a");
+    assert_eq!(msgs[0]["status"], "pending");
+
+    let r = ctx.tool(Some("b"), "tower_inbox", json!({})).await;
+    assert!(r["structuredContent"]["messages"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let r = ctx
+        .tool(None, "tower_inbox", json!({"status": "answered"}))
+        .await;
+    assert!(r["structuredContent"]["messages"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn schedule_show_includes_its_jobs() {
+    let ctx = common::boot().await;
+    let r = ctx
+        .tool(
+            None,
+            "tower_schedule_create",
+            json!({"title": "audit", "daily": "09:00", "timezone": "UTC"}),
+        )
+        .await;
+    let sid = r["structuredContent"]["schedule"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ctx.tool(None, "tower_schedule_run", json!({"schedule_id": sid}))
+        .await;
+    let r = ctx
+        .tool(None, "tower_schedule_show", json!({"schedule_id": sid}))
+        .await;
+    assert_eq!(r["structuredContent"]["schedule"]["title"], "audit", "{r}");
+    let jobs = r["structuredContent"]["jobs"].as_array().unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0]["title"], "audit");
+
+    let r = ctx
+        .tool(
+            None,
+            "tower_schedule_show",
+            json!({"schedule_id": "s_missing"}),
+        )
+        .await;
+    assert_eq!(r["structuredContent"]["error"]["code"], "not_found", "{r}");
+}
