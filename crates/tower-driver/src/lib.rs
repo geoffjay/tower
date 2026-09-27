@@ -168,7 +168,9 @@ pub trait Harness: Send + Sync {
     ) -> Result<(), DriverError>;
 
     /// Stop the agent's pane (session ends; herdr keeps workspace layout).
-    async fn stop(&self, name: &str) -> Result<(), DriverError>;
+    /// `pane_id` is the last known pane: used when the harness no longer
+    /// lists the agent (crashed), so its leftover shell pane still closes.
+    async fn stop(&self, name: &str, pane_id: Option<&str>) -> Result<(), DriverError>;
 
     /// Event pump (state changes + output); driver-owned polling.
     fn events(&self) -> BoxStream<'static, HarnessEvent>;

@@ -68,7 +68,7 @@ async fn herdr_snapshot_and_agent_lifecycle() {
     assert!(prompted.is_ok(), "prompt delivery: {prompted:?}");
 
     // stop: pane closes, agent disappears (allow brief snapshot lag)
-    driver.stop(&name).await.expect("stop");
+    driver.stop(&name, None).await.expect("stop");
     let mut gone = false;
     for _ in 0..10 {
         let snap = driver.snapshot().await.expect("snapshot after stop");

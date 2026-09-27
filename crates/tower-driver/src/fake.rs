@@ -195,7 +195,7 @@ impl Harness for FakeHarness {
         }
     }
 
-    async fn stop(&self, name: &str) -> Result<(), DriverError> {
+    async fn stop(&self, name: &str, _pane_id: Option<&str>) -> Result<(), DriverError> {
         self.kill(name);
         Ok(())
     }

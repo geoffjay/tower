@@ -207,7 +207,11 @@ pub async fn stop(state: &AppState, name: &str, remove: bool) -> anyhow::Result<
     // pane first: an agent must be gone before its jobs are requeued, or it
     // could keep working a job someone else is then assigned. A pane that's
     // already gone counts as stopped (removing a dead agent must work).
-    match state.driver.stop(&agent.name).await {
+    match state
+        .driver
+        .stop(&agent.name, agent.pane_id.as_deref())
+        .await
+    {
         Ok(()) | Err(tower_driver::DriverError::NotFound(_)) => {}
         Err(e) => return Err(e.into()),
     }

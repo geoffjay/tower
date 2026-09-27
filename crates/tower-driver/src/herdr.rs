@@ -334,12 +334,14 @@ impl Harness for HerdrDriver {
         Ok(())
     }
 
-    async fn stop(&self, name: &str) -> Result<(), DriverError> {
-        // find the agent's pane, close it
+    async fn stop(&self, name: &str, pane_id: Option<&str>) -> Result<(), DriverError> {
+        // the agent's live pane, else the last known one (a crashed agent
+        // leaves its shell pane behind); neither → NotFound
         let pane = parse_snapshot(&self.run_json(&["api", "snapshot"]).await?)?
             .into_iter()
             .find(|a| a.name == name)
             .map(|a| a.pane_id)
+            .or_else(|| pane_id.map(str::to_string))
             .ok_or_else(|| DriverError::NotFound(format!("agent {name}")))?;
         self.run_json(&["pane", "close", &pane]).await?;
         Ok(())

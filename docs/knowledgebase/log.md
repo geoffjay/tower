@@ -1,5 +1,7 @@
 # Knowledge Base Update Log
 
+## 2026-09-27
+* **Phase 2 complete** ([plan](plans/phase-2-messaging-task-pool.md), verification log filled): messaging + blocked inbox, deadline sweeper, assignment-only job queue, MCP, `docs/agent-loop.md`. Design amended as built: D§5.2.1 (assign sweeps an expired lease first; delegation notice; per-task `lease_s`; agent removal releases jobs), D§6 (`lease_s`, migration 0002), D§7 (MCP transport + `X-Tower-Agent` identity), D§8 (placement in a `tower-agents` workspace; unnamed agents skipped; **approval answers never use fixed digits**: deny = `esc`, approve = first plain "Yes"), D§9.3 (expiry semantics), D§10 (agent work-loop verbs, `--json`), D§17.7 (metrics → phase 4). `docs/getting-started.md` §7 aligned with real output.
 * **Reframe**: Tasks → assignment-only job queue ([decision](decisions/job-queue.md)): removed agent claim/pull, added `assigned` state + `start` declaration + assign capability; lease+heartbeat kept as liveness; orchestrator role + jev/laya router deferred (new [design §17.8](concepts/design/17-open-questions.md)). Updated design §1/5/6/7/9/10/11/12/14/16/18, phase 2/3/4/5 plans, `docs/getting-started.md`; code: `TaskState::Assigned`, `task.assigned` event (replaces `task.claimed`), schema registry. Lint + tests green.
 
 ## 2026-09-26

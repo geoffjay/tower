@@ -59,7 +59,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 
 * [Execution plans overview](plans/overview.md) - plan structure, dependency graph, cross-cutting rules, status table.
 * [Phase 1 — MVP core](plans/phase-1-mvp-core.md) - complete; herdr driver, server, CLI, restart rebind.
-* [Phase 2 — Messaging + job queue](plans/phase-2-messaging-task-pool.md) - messages, blocked inbox, assignment-only job queue, MCP.
+* [Phase 2 — Messaging + job queue](plans/phase-2-messaging-task-pool.md) - complete; messages, blocked inbox, assignment-only job queue, MCP.
 * [Phase 3 — TUI](plans/phase-3-tui.md) - daily monitoring from the TUI.
 * [Phase 4 — Web UI](plans/phase-4-web-ui.md) - read-only agent cloud via Topcoat.
 * [Phase 5 — Multi-machine](plans/phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.

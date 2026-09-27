@@ -8,7 +8,7 @@ tags:
   - messaging
   - job-queue
   - mcp
-status: draft
+status: stable
 sources:
   - resource: git:340c189:plans/phase-2.md
     title: Original plan (removed from repo; full text in git history)
@@ -126,11 +126,17 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
 
 - **T5.1** Blocked→inbox→answered e2e with real herdr + pi (agent blocks on
   a question), answered via `tower approve`; replay via MCP tool.
+  **Ran with claude** (2026-09-27): pi's provider auth fails in every shell
+  (`401`), independent of tower; operator chose claude. claude's block is a
+  permission dialog, so this exercised the approval path.
 - **T5.2** Queue exclusivity e2e: two real pi agents, one queued job;
   operator assigns to agent A (success), then to agent B → clean `conflict`.
   A declares start, heartbeats, completes. Kill A mid-task
   (`kill -9` the pane process), job requeues within lease, operator
-  reassigns, survivor B completes it.
+  reassigns, survivor B completes it. **Ran with omp** (2026-09-27): claude
+  can't authenticate from a fresh shell on this machine (the operator's
+  shell rc forces `CLAUDE_CODE_USE_FOUNDRY` without a Foundry URL); omp
+  can, and runs the loop through the tower CLI like pi would.
 - **T5.3** Record all runs in Verification log; update [design open
   questions](../concepts/design/17-open-questions.md) resolved by this phase (none blocking — S1 spikes resolved in
   phase 1; the orchestrator/router question [#17.8](../concepts/design/17-open-questions.md) stays open by design).
@@ -159,4 +165,10 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
 | 2026-09-27 | M4: MCP protocol (version negotiation, notifications 202, JSON-RPC errors), work loop over MCP, agents can't assign, `/v1/schema` lists only mounted routes (phantom-route mutation caught) | pass (`tests/mcp.rs`) |
 | 2026-09-27 | M4 live: official `@modelcontextprotocol/inspector` CLI — `tools/list`, `tools/call` (create, start via `X-Tower-Agent`), agent assign → `isError` `unauthorized`; herdr `--env` propagation probe (workspace + tab); CLI loop with `$TOWER_AGENT` (impostor → `not_found`, no identity → usage error) | pass |
 | 2026-09-27 | `stop --remove` on an agent that had owned a job → FK error after the pane was closed | fixed `65f223d` (regression test fails before, passes after) |
-| 2026-09-27 | T5.1 / T5.2 real-pi e2e | **blocked**: pi's provider auth fails in any shell (`401 Invalid bearer token`), independent of tower |
+| 2026-09-27 | T5.1 prep: pi's provider auth fails in any shell (`401`), independent of tower → claude for T5.1 (operator's choice) | env finding |
+| 2026-09-27 | T5.1 live exposed: claude blocked on its folder-trust dialog failed `spawn` (`agent_not_ready`) and closed the pane; a block first seen by reconcile/`AgentUp` never reached the inbox | fixed `a0b5538` (regression: `blocked_first_seen_by_reconcile_then_pump_opens_one_item`) |
+| 2026-09-27 | **T5.1 live exposed a safety bug**: approvals sent fixed keys `1`/`2`. The trust dialog lists "No, exit" first; claude's tool prompt has option 2 = "Yes, and don't ask again", so *deny* (and the sweeper's expired-approval deny) would have granted a permanent permission. Caught before any real permission prompt was answered | fixed `a0b5538`: deny = `esc`, approve = navigate to the first plain "Yes" or fail (`dialog.rs`, captured-screen fixtures) |
+| 2026-09-27 | **T5.1** real herdr + claude: c1 blocked (trust dialog) → approval in inbox within 4s → `tower approve` → `down`,`enter` selected "Yes, I trust this folder" → idle; c2 (second untrusted dir) → approval answered via the MCP `tower_approve` tool (official inspector CLI) → idle; inbox empty | pass |
+| 2026-09-27 | T5.2 prep: claude fails from a fresh shell (operator rc forces `CLAUDE_CODE_USE_FOUNDRY` with no Foundry URL; verified in a plain `zsh -i`, no tower) → omp (operator's choice) | env finding |
+| 2026-09-27 | **T5.2** real herdr + 2 omp agents: J1 assigned to o1, second assign to o2 → `conflict` naming o1 (exit 1); o1 ran start → heartbeat → `completed` via the tower CLI unprompted (12s). J2 (lease 40s): o1 started 22:19:55, `kill -9` 22:20:04 → o1 `dead` within 4s; lease swept 22:20:36 → `queued` 1/3; assign to dead o1 refused; reassigned to o2 22:20:37 → o2 heartbeated mid-job and completed 22:21:35 (47s run on a 40s lease) | pass |
+| 2026-09-27 | T5.2 cleanup exposed: `stop --remove` on a crashed agent left its shell pane (lookup by name; herdr no longer lists it) | fixed: `Harness::stop` falls back to the row's `pane_id`; re-run live → no pane left |
