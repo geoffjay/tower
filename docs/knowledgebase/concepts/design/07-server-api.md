@@ -63,7 +63,7 @@ Conventions:
 | `GET /v1/agents/{id}/read` | `?source=visible\|recent\|detection&format=text\|ansi` — proxied herdr read |
 | `GET /v1/tasks` | `?state=queued&tags=&owner=&since=&mine=<agent>` queue/inventory queries (agents use `mine`) |
 | `GET /v1/tasks/{id}` | task detail + message trail + assignment/lease history |
-| `GET /v1/messages` | `?to=&status=&since=` inbox queries |
+| `GET /v1/messages` | `?to=&status=&since=` inbox queries; `?agent=<name\|id>` — messages sent by or addressed to that agent (history, [D§11.1](11-tui.md)) |
 | `GET /v1/machines` | inventory |
 | `GET /v1/schedules` · `GET /v1/schedules/{id}` | schedules with next run; detail adds the jobs it created |
 | `GET /healthz`, `GET /v1/schema` | health, contract |

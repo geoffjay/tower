@@ -53,6 +53,36 @@ async fn to_agent_message_prompts_the_agent() {
 }
 
 #[tokio::test]
+async fn agent_filter_is_the_agents_history_both_directions() {
+    let ctx = common::boot().await;
+    ctx.spawn("backend", "pi").await;
+    ctx.spawn("writer", "pi").await;
+    let send = |to: &'static str, text: &'static str| serde_json::json!({"to": to, "parts": [{"text": text}]});
+    ctx.req("POST", "/v1/messages", Some(send("backend", "to backend")))
+        .await;
+    ctx.req("POST", "/v1/messages", Some(send("writer", "to writer")))
+        .await;
+    let asked = ctx.ask_operator("backend", "question", 300).await;
+
+    let (_, agent) = ctx.req("GET", "/v1/agents/backend", None).await;
+    let id = agent["agent"]["id"].as_str().unwrap().to_string();
+    for who in ["backend".to_string(), id] {
+        let (status, v) = ctx
+            .req("GET", &format!("/v1/messages?agent={who}"), None)
+            .await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        let msgs = v["messages"].as_array().unwrap();
+        let texts: Vec<_> = msgs
+            .iter()
+            .map(|m| m["parts"][0]["text"].as_str().unwrap())
+            .collect();
+        // newest first: its question to me, then the prompt it received
+        assert_eq!(texts, ["need input", "to backend"], "agent={who}");
+        assert_eq!(msgs[0]["id"], asked);
+    }
+}
+
+#[tokio::test]
 async fn explicit_agent_recipient_must_exist() {
     let ctx = common::boot().await;
     let (status, v) = ctx

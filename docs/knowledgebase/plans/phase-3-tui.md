@@ -49,10 +49,15 @@ Reference: [D§11](../concepts/design/11-tui.md) (views, chrome), [D§10](../con
   queue banner (`N queued · M working · K blocked`) above the table.
   Sort/filter (state, machine). Verify: snapshot tests for mixed-state
   fixtures; filter keymap behavior.
-- **T2.2** Agent detail view: live output tail from `/v1/agents/{id}/stream`,
-  message history, prompt input (`i` focuses), interrupt key, `o` shells out
-  to `herdr` attach ([D§11](../concepts/design/11-tui.md) division of labor). Verify: output-tail rendering
-  with ANSI passthrough; prompt input posts to `/v1/agents/{id}/prompt`.
+- **T2.2** Agent detail view: live output tail (re-read
+  `/v1/agents/{id}/read?format=ansi` on each `agent.output` for the agent —
+  amendment, [D§11.1](../concepts/design/11-tui.md): output payloads can be
+  whole-buffer rewrites, so appending them duplicates), message history
+  (`GET /v1/messages?agent=`, new filter), prompt input (`i` focuses),
+  interrupt key, `o` shells out to `herdr agent attach <pane>`
+  ([D§11](../concepts/design/11-tui.md) division of labor). Verify:
+  output-tail rendering with ANSI passthrough; prompt input posts to
+  `/v1/agents/{id}/prompt`.
 
 ## Milestone 3 — Inbox + tasks ([D§11](../concepts/design/11-tui.md))
 

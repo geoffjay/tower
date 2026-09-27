@@ -26,9 +26,9 @@ Views:
 - **Fleet**: agents table — name, machine, kind, state glyph
   (`●` working, `○` idle, `◉` blocked, `✓` done, `✗` dead), current task,
   context note
-- **Agent detail**: live output tail (`/v1/agents/{id}/stream`), prompt input
-  line, message history; `o` opens the actual pane in herdr (shell out to
-  `herdr` client attach)
+- **Agent detail**: live output tail, prompt input line, message history;
+  `o` opens the actual pane in herdr (shell out to `herdr agent attach
+  <pane>`)
 - **Inbox**: pending questions/approvals; reply inline (`y`/`n`/text)
 - **Tasks**: task list + state (queue/owned split, lease countdowns on owned
   tasks, reserved-for target on waiting jobs); schedules with next run;
@@ -38,4 +38,29 @@ Views:
 
 Chrome: command palette (`:`), vim-style navigation, state filter/sort.
 Keybinding: `i` focuses prompt input on the agent detail view. A queue banner
-(`N queued · M working · K blocked`) sits above the fleet table.
+(`N queued · M working · K blocked`) sits above the fleet table: open jobs
+by state — `queued` (incl. reserved), `assigned`/`working`, and blocked =
+`input-required` or owned by a `blocked` agent (the jobs waiting on you).
+
+## 11.1 Data flow (phase 3 amendment)
+
+One SSE subscription to `/v1/events` feeds everything; the TUI never polls
+except a 10s `GET /v1/tasks?since=` sweep (heartbeats renew leases without
+an event, and lease countdowns must stay true).
+
+- Startup: open the SSE stream first (no cursor → live head), then load
+  agents, tasks, schedules, inbox, machines. Events racing the snapshot
+  only trigger idempotent refetches.
+- Events are reduced per view: `agent.state` patches the row from its
+  payload; other kinds name the object to refetch (task by id, inbox,
+  agents, schedules, machines).
+- Reconnect: resume with the last seen `id` as cursor (the log replays the
+  gap), then resync the snapshot anyway.
+- Output tail: `agent.output` payloads are deltas *or* whole-buffer rewrites
+  (the driver re-emits the buffer when the screen reshapes), so appending
+  them is wrong. The detail view re-reads `/v1/agents/{id}/read?format=ansi`
+  (ANSI passthrough) whenever that agent's `agent.output` arrives —
+  exact screen, no reassembly. `GET /v1/agents/{id}/stream` ([D§7](07-server-api.md))
+  is not needed by the TUI.
+- Message history: `GET /v1/messages?agent=<name>` — rows sent or addressed
+  to the agent (by name or id).

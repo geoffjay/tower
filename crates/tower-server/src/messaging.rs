@@ -67,7 +67,7 @@ pub struct RespondBody {
     pub approve: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct ListQuery {
     #[serde(default)]
     pub to: Option<String>,
@@ -76,6 +76,9 @@ pub struct ListQuery {
     /// `created_at > since` (ms epoch).
     #[serde(default)]
     pub since: Option<i64>,
+    /// Sent by or addressed to this agent (name or id) — its history.
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 // ---- service -------------------------------------------------------------
@@ -381,23 +384,31 @@ pub async fn answer_dialog(state: &AppState, to: &str, approve: bool) -> anyhow:
     Ok(())
 }
 
-/// Inbox query: `?to=&status=&since=` (D§7), newest first.
-pub async fn list(
-    state: &AppState,
-    to: Option<&str>,
-    status: Option<MessageStatus>,
-    since: Option<i64>,
-) -> anyhow::Result<Vec<Message>> {
+/// Inbox / history query: `?to=&status=&since=&agent=` (D§7), newest first.
+/// `agent` matches either side by the agent's name or id (addresses are
+/// stored as given); an unknown agent matches the raw value.
+pub async fn list(state: &AppState, q: &ListQuery) -> anyhow::Result<Vec<Message>> {
+    let party = match q.agent.as_deref() {
+        Some(a) => match crate::inventory::get_agent(state, a).await? {
+            Some(agent) => Some((agent.name, agent.id.0)),
+            None => Some((a.to_string(), a.to_string())),
+        },
+        None => None,
+    };
+    let (party_name, party_id) = party.unzip();
     let rows = sqlx::query(
         "SELECT * FROM messages
          WHERE (?1 IS NULL OR to_id = ?1)
            AND (?2 IS NULL OR status = ?2)
            AND (?3 IS NULL OR created_at > ?3)
+           AND (?4 IS NULL OR to_id IN (?4, ?5) OR from_id IN (?4, ?5))
          ORDER BY created_at DESC",
     )
-    .bind(to)
-    .bind(status.map(enum_str))
-    .bind(since)
+    .bind(q.to.as_deref())
+    .bind(q.status.map(enum_str))
+    .bind(q.since)
+    .bind(party_name)
+    .bind(party_id)
     .fetch_all(&state.pool)
     .await?;
     Ok(rows.iter().map(row_to_message).collect())
@@ -456,7 +467,7 @@ async fn respond_route(
 }
 
 async fn list_route(State(state): State<AppState>, Query(q): Query<ListQuery>) -> Response {
-    match list(&state, q.to.as_deref(), q.status, q.since).await {
+    match list(&state, &q).await {
         Ok(msgs) => Json(serde_json::json!({ "messages": msgs })).into_response(),
         Err(e) => error_response(e),
     }

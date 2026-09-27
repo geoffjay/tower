@@ -180,9 +180,14 @@ async fn call_tool(
         }
         "tower_inbox" => {
             // an agent reads what was sent to it; the operator reads `me`
-            let to = caller.unwrap_or("me");
-            let status = arg::<MessageStatus>(args, "status")?.unwrap_or(MessageStatus::Pending);
-            json!({ "messages": crate::messaging::list(state, Some(to), Some(status), None).await? })
+            let q = crate::messaging::ListQuery {
+                to: Some(caller.unwrap_or("me").to_string()),
+                status: Some(
+                    arg::<MessageStatus>(args, "status")?.unwrap_or(MessageStatus::Pending),
+                ),
+                ..Default::default()
+            };
+            json!({ "messages": crate::messaging::list(state, &q).await? })
         }
         "tower_prompt" => {
             let target: String = req_arg(args, "name")?;
