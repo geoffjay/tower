@@ -17,11 +17,12 @@ generated:
 
 # 16. Testing
 
-- **Unit**: state machines, claim/pull CAS + lease sweeper + max-attempts,
+- **Unit**: state machines, assign/start CAS + lease sweeper + max-attempts,
   message/timeout sweeper, event cursor math
 - **Integration**: `FakeHarness` implementing the trait — scripted state
-  transitions; full API + SSE flow against in-memory SQLite; concurrent-claim
-  race tests (N clients claim same task, exactly one wins; loser gets 409)
+  transitions; full API + SSE flow against in-memory SQLite; concurrent-assign
+  race tests (N assigners target one queued job, exactly one wins; losers get
+  409); owner-only enforcement (non-owner start/status/release → 409)
 - **E2E smoke**: temp `HOME`, real herdr, spawn `pi` (and `claude` when
   authed): prompt → working → done → events observed over SSE; recorded as
   `tower doctor --e2e`

@@ -77,7 +77,7 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
   Verify: mixed-state fixture (10 agents, all states represented) renders
   correctly; transitions animate on event arrival.
 - **T2.2** Live updates: SSE `/v1/events` consumer with cursor resume;
-  state color flips working↔blocked↔idle in < 2s of the event; pool bar,
+  state color flips working↔blocked↔idle in < 2s of the event; queue bar,
   machine strip, event ribbon widgets fed from the same stream.
   Verify: scripted event bursts drive all widgets; reconnect-after-server-
   restart resumes without duplicate points.
@@ -108,7 +108,7 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
 ## Backlog (v2 seeds, [D§12.4](../concepts/design/12-web-ui.md))
 
 - Full agent detail page (output tail + message history)
-- Task pool board view
+- Job queue board view
 - Historical charts from the event log
 - Points ↔ table view toggle
 - Edges: message-volume lines between agents (defined in S4.B, v2 wiring)

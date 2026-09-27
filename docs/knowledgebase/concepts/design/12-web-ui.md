@@ -72,6 +72,6 @@ full detail lives in the TUI, by design.
 ## 12.4 Backlog (drill-down, later if ever)
 
 - Full agent detail page with output tail + message history
-- Task pool board and task trails
+- Job queue board and task trails
 - Historical charts (event rate, throughput) from the event log
 - Config: points vs table view toggle

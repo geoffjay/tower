@@ -70,7 +70,7 @@ agents rebind.
   state enums with `#[non_exhaustive]` (states evolve; phase 2 adds pool
   fields). Verify: round-trip serde tests.
 - **T2.2** DDL migrations (sqlx migrate): machines, agents, tasks, messages,
-  artifacts, events per [D§6](../concepts/design/06-data-model.md) (full schema now — phase 2 needs the task-pool
+  artifacts, events per [D§6](../concepts/design/06-data-model.md) (full schema now — phase 2 needs the job-queue
   columns already present, avoiding a later migration churn on hot tables).
   XDG paths ([D§4](../concepts/design/04-paths-and-configuration.md)): config/db/artifact dir resolution, first-run token
   generation (0600). Verify: migration test against tmpdir; token perms
@@ -155,7 +155,7 @@ agents rebind.
 ## Backlog (phase 2 seeds, do not do now)
 
 - herdr socket (SemanticFrame v20) transport behind the same trait
-- Messages/inbox, MCP endpoint, task pool (phase 2 scope)
+- Messages/inbox, MCP endpoint, job queue (phase 2 scope)
 
 ## Verification log
 

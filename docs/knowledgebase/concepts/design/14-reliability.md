@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: Design §14 — Reliability and failure modes
-description: Behavior under server, herdr, node, coordinator, SSE, lease, claim-race, and DB-write failures.
+description: Behavior under server, herdr, node, coordinator, SSE, lease, assign-race, and DB-write failures.
 tags:
   - design
   - design-s14
@@ -26,8 +26,8 @@ generated:
 | Coordinator offline (node view) | Node keeps agents alive via herdr; reconnects, resyncs snapshot |
 | Slow SSE client | Disconnect with resume cursor; lossless replay from event log + artifacts |
 | Approval timeout | Sweeper expires it; agent notified; event emitted |
-| Task lease expiry | Owner crashed/quiet → requeue within one lease window; next `task.leased_out` event; max-attempts → `failed` |
-| Claim race (two agents, one task) | SQLite CAS loses exactly one bidder → clean `conflict`; no double-ownership window |
+| Task lease expiry | Owner crashed/quiet → requeue within one lease window; `task.leased_out` event; max-attempts → `failed` |
+| Assignment race (two assigns, one job) | SQLite CAS loses exactly one bidder → clean `conflict`; a job with a live owner can never be double-assigned |
 | DB write failure | Server degrades read-only + logs loudly; driver calls paused (never silently drop) |
 
 Backups: the whole state is `~/.local/share/tower/` — copy the directory.

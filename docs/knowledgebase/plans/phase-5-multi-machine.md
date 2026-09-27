@@ -1,7 +1,7 @@
 ---
 type: Plan
 title: Phase 5 — Multi-machine
-description: Remote nodes beside local agents under a single coordinator, with cross-machine task claiming.
+description: Remote nodes beside local agents under a single coordinator, with cross-machine job assignment.
 tags:
   - plan
   - phase-5
@@ -19,15 +19,15 @@ generated:
 # Phase 5 — Multi-machine
 
 Goal: agents on a second machine appear beside local ones; the coordinator
-stays single (one database); tasks are claimed across machines; node loss
+stays single (one database); jobs are assigned across machines; node loss
 requeues work and coordinator loss idles nodes without killing agents.
 
 Exit criteria ([design §18](../concepts/design/18-phase-mapping.md)): agent runs on second machine, appears in
-local ps/TUI; node disconnect handles gracefully; a task queued on the
-coordinator is claimed by an agent on the remote machine; node loss mid-task
+local ps/TUI; node disconnect handles gracefully; a job queued on the
+coordinator is assigned to an agent on the remote machine; node loss mid-job
 requeues the lease.
 
-Depends on: phase 2 (task pool must be coordinator-owned, [D§5.2.1](../concepts/design/05-core-objects.md) rationale).
+Depends on: phase 2 (job queue must be coordinator-owned, [D§5.2.1](../concepts/design/05-core-objects.md) rationale).
 
 Reference: [D§9.5](../concepts/design/09-server-modules.md) (machine hub, node protocol), [D§13](../concepts/design/13-security.md) (node security), [D§14](../concepts/design/14-reliability.md)
 (node/coordinator failure modes), [cross-server research](../decisions/cross-server.md).
@@ -75,16 +75,16 @@ Reference: [D§9.5](../concepts/design/09-server-modules.md) (machine hub, node 
   integration test spawning an agent "on" a fixture node via `POST
   /v1/agents {machine: ...}`; events arrive tagged.
 
-## Milestone 3 — Cross-machine pool ([D§5.2.1](../concepts/design/05-core-objects.md))
+## Milestone 3 — Cross-machine queue ([D§5.2.1](../concepts/design/05-core-objects.md))
 
-- **T3.1** Pool already coordinator-owned; nothing structural changes.
+- **T3.1** Queue already coordinator-owned; nothing structural changes.
   Add: machine awareness in `ps`/TUI (already in schemas), and lease
   behavior under node loss — node disconnect marks its agents unreachable;
-  sweeper requeues their owned tasks after lease expiry (this falls out of
+  sweeper requeues their owned jobs after lease expiry (this falls out of
   T1/T2 + the phase-2 sweeper, but must be verified end-to-end, not
-  assumed). Verify: scripted test — remote owner claims task, node killed,
-  task requeues within lease + `task.leased_out` event, local agent picks
-  it up and completes.
+  assumed). Verify: scripted test — remote owner's job, node killed,
+  job requeues within lease + `task.leased_out` event, operator
+  reassigns to a local agent and it completes.
 - **T3.2** `machines` view surfaces in TUI (phase 3 built the view with
   fixture nodes; wire real node rows) and web UI machine strip gets live
   last_seen/status. Verify: TUI snapshot + UI render with one online and
@@ -95,7 +95,7 @@ Reference: [D§9.5](../concepts/design/09-server-modules.md) (machine hub, node 
 - **T4.1** Two-real-machine run: coordinator on host A, node on host B
   (or second local user/namespace if hardware-poor): remote pi agent
   spawned, appears in `tower ps`, streams output locally over SSE,
-  claims a queued task, completes it. Record transcript.
+  is assigned a queued job, completes it. Record transcript.
 - **T4.2** Chaos pass: kill node mid-task (requeue path), kill coordinator
   mid-stream (nodes idle + reconnect), kill both (agents survive via
   herdr, full resync on restart). Record all three.

@@ -38,8 +38,9 @@ Target harnesses: **Claude Code** and **pi (ohmypi)**, executed in
 5. Interfaces: CLI (humans), MCP (agents), SSE (UIs), A2A (foreign agents)
 6. Everything durable: messages, tasks, and events are rows before delivery
 7. Agents survive server loss (herdr owns the PTYs, not tower)
-8. Shared task pool: agents pick up unowned work, own it exclusively
-   (atomic claim + lease + heartbeat), and report status themselves
+8. Job queue: agents receive assigned work, own it exclusively (atomic
+   assignment + lease + heartbeat), and report status themselves — no
+   agent self-serves from the queue
 
 ## Non-goals
 

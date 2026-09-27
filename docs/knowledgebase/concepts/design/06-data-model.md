@@ -49,7 +49,7 @@ CREATE TABLE agents (
 CREATE TABLE tasks (
   id                TEXT PRIMARY KEY,
   agent_id          TEXT REFERENCES agents(id),   -- creator/responsible agent (optional)
-  owner_id          TEXT REFERENCES agents(id),  -- current exclusive owner (NULL = in pool)
+  owner_id          TEXT REFERENCES agents(id),  -- current exclusive owner (NULL = in queue, awaiting assignment)
   origin            TEXT NOT NULL DEFAULT 'local',  -- local | a2a | node:<machine>
   external_ref      TEXT,                          -- A2A task id when origin=a2a
   context_id        TEXT,                          -- A2A context grouping

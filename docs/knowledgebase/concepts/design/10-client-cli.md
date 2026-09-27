@@ -30,9 +30,10 @@ tower inbox                         # pending questions/approvals addressed to m
 tower ask <name> ...                 # send question
 tower approve <msg-id> [--deny]      # answer approval
 tower send <to> --kind <kind> ...    # generic unified send
-tower task list [--state queued] [--tag x]   # pool + owned views
-tower task show <id>                          # detail incl. claim/lease trail
+tower task list [--state queued] [--tag x] [--mine <name>]   # queue + owned views
+tower task show <id>                          # detail incl. assignment/lease trail
 tower task create 'title' [--tag x] [--assign name] [--priority N]
+tower task assign <id> <name>                 # dispatch (operator; orchestrator later)
 tower task cancel <id> / task release <id>
 tower machines                      # machine inventory
 tower machines add <name>           # issue a node token (prints once)

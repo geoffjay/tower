@@ -5,3 +5,4 @@ Decisions for the tower project.
 * [Architecture recommendations](architecture-recommendations.md) - synthesis: single Rust server over herdr, SQLite, SSE, CLI/TUI/web/MCP, A2A edge; rejected alternatives.
 * [IPC: inter-agent and human-agent communication](ipc.md) - one HTTP port, SSE streaming, MCP for agents, A2A shapes, unified messages table.
 * [Cross-server communication](cross-server.md) - single coordinator with dial-home node agents; A2A between independent deployments.
+* [Job queue dispatch](job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.

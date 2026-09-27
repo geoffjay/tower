@@ -49,7 +49,7 @@ async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
         "agent.output",
         "task.created",
         "task.status",
-        "task.claimed",
+        "task.assigned",
         "task.leased_out",
         "task.completed",
         "task.failed",

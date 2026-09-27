@@ -1,4 +1,4 @@
--- Initial schema (DESIGN.md §6, full task-pool columns included up front)
+-- Initial schema (DESIGN.md §6, full job-queue columns included up front)
 
 CREATE TABLE IF NOT EXISTS machines (
   id          TEXT PRIMARY KEY,

@@ -49,6 +49,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [Architecture recommendations](decisions/architecture-recommendations.md) - synthesis: single Rust server over herdr, SQLite, SSE, CLI/TUI/web/MCP, A2A edge; rejected alternatives.
 * [IPC: inter-agent and human-agent communication](decisions/ipc.md) - one HTTP port, SSE streaming, MCP for agents, A2A shapes, unified messages table.
 * [Cross-server communication](decisions/cross-server.md) - single coordinator with dial-home node agents; A2A between independent deployments.
+* [Job queue dispatch](decisions/job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
 
 ## Patterns
 
@@ -58,10 +59,10 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 
 * [Execution plans overview](plans/overview.md) - plan structure, dependency graph, cross-cutting rules, status table.
 * [Phase 1 — MVP core](plans/phase-1-mvp-core.md) - complete; herdr driver, server, CLI, restart rebind.
-* [Phase 2 — Messaging + task pool](plans/phase-2-messaging-task-pool.md) - messages, blocked inbox, leased task pool, MCP.
+* [Phase 2 — Messaging + job queue](plans/phase-2-messaging-task-pool.md) - messages, blocked inbox, assignment-only job queue, MCP.
 * [Phase 3 — TUI](plans/phase-3-tui.md) - daily monitoring from the TUI.
 * [Phase 4 — Web UI](plans/phase-4-web-ui.md) - read-only agent cloud via Topcoat.
-* [Phase 5 — Multi-machine](plans/phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine pool.
+* [Phase 5 — Multi-machine](plans/phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.
 * [Phase 6 — A2A edge](plans/phase-6-a2a-edge.md) - Agent Card + A2A delegation.
 
 ## References

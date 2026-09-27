@@ -79,12 +79,14 @@ pub enum Permissions {
     Yolo,
 }
 
-/// Task lifecycle (A2A-shaped, D§5.2).
+/// Task lifecycle (A2A-shaped + explicit `assigned`, D§5.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum TaskState {
     #[serde(rename = "queued")]
     Queued,
+    #[serde(rename = "assigned")]
+    Assigned,
     #[serde(rename = "working")]
     Working,
     #[serde(rename = "input-required")]
@@ -237,8 +239,8 @@ pub enum EventKind {
     TaskCreated,
     #[serde(rename = "task.status")]
     TaskStatus,
-    #[serde(rename = "task.claimed")]
-    TaskClaimed,
+    #[serde(rename = "task.assigned")]
+    TaskAssigned,
     #[serde(rename = "task.leased_out")]
     TaskLeasedOut,
     #[serde(rename = "task.completed")]

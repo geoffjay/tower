@@ -30,11 +30,11 @@ Views:
   line, message history; `o` opens the actual pane in herdr (shell out to
   `herdr` client attach)
 - **Inbox**: pending questions/approvals; reply inline (`y`/`n`/text)
-- **Tasks**: task list + state (pool/owned split, lease countdowns on owned
-  tasks); detail shows trail + claim history
+- **Tasks**: task list + state (queue/owned split, lease countdowns on owned
+  tasks); detail shows trail + assignment history
 - **Events**: filtered feed of `/v1/events`
 - **Machines**: inventory + node status
 
 Chrome: command palette (`:`), vim-style navigation, state filter/sort.
-Keybinding: `i` focuses prompt input on the agent detail view. A pool banner
+Keybinding: `i` focuses prompt input on the agent detail view. A queue banner
 (`N queued · M working · K blocked`) sits above the fleet table.

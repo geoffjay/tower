@@ -39,9 +39,10 @@ questions/approvals `expired` at `deadline_at` and notifies the agent with an
 
 ## 9.4 tasks
 
-Task rows + pool semantics ([§5.2.1](05-core-objects.md)): claim/pull (atomic CAS), lease sweeper
-(10s tick: expiry → requeue + `task.leased_out`, max-attempts → `failed`),
-heartbeat handling, owner-only terminal writes. Emits `task.*` events.
+Task rows + job-queue semantics ([§5.2.1](05-core-objects.md)): assign
+(atomic CAS, assign-capable principals only), start/heartbeat/status
+(owner-only), lease sweeper (10s tick: expiry → requeue +
+`task.leased_out`, max-attempts → `failed`). Emits `task.*` events.
 Task completion is owner-reported (prompt response or detection `done`) —
 never inferred from a delivered message alone (openrig's epistemics rule).
 The sweeper also pauses lease expiry during `input-required` (see [§5.2](05-core-objects.md)

@@ -191,10 +191,10 @@ Questions work the same way: `tower ask <name> 'which approach?'`, reply
 from the inbox. Unanswered items expire on their deadline (default 5 min) and
 the agent is told to proceed with its fallback.
 
-## 7. The shared task pool
+## 7. The job queue
 
-Agents don't just wait for you — they pull work. Create tasks, agents claim
-them exclusively:
+Agents don't pick their own work — you assign it. Jobs wait in a queue
+until dispatched to an agent, which then owns them exclusively:
 
 ```console
 $ tower task create 'implement CSV error column names' \
@@ -203,6 +203,9 @@ t_01J9X8A  queued
 
 $ tower task create 'write launch blog post' --tag writing
 t_01J9X8B  queued
+
+$ tower task assign t_01J9X8A backend
+t_01J9X8A  assigned to backend (lease 60s)
 
 $ tower task list
 ID         STATE     OWNER     PRIORITY  TAGS          ATTEMPTS  TITLE
@@ -214,23 +217,23 @@ task t_01J9X8A  implement CSV error column names
   state    working (owner: backend, lease renews in 18s)
   created  2026-09-26 10:12:03 by me
   trail
-    10:12:04  claimed by backend
-    10:12:09  status: working — "reading csv module"
+    10:12:04  assigned to backend by me
+    10:12:09  started by backend — "reading csv module"
     10:13:41  status: input-required — question m_01J9X7K to me
 ```
 
-How does the agent know to pull work? Agents run the **work loop** — a
-documented contract they follow via MCP tools (`tower_task_pull`,
-heartbeat, status, complete — see `docs/agent-loop.md` in the phase-2
-plan). Each agent's prompt tells it to keep pulling tasks matching its
-tags. Ownership is exclusive: if two agents race for one task, exactly one
-wins. If an owner dies, its lease expires and the task requeues itself —
-attempts are counted (`0/3`) so stuck work fails loudly instead of looping
-forever.
+How does the agent know it has work? Once assigned, the job appears in the
+agent's MCP view (`tower_task_list --mine`), and the agent runs the
+**work loop** — a documented contract (see `docs/agent-loop.md` in the
+phase-2 plan): see my assigned jobs → declare start → heartbeat → report
+status → complete. Agents never pull or claim: if two dispatchers race to
+assign one job, exactly one wins and the loser gets a clean conflict.
+If an owner dies, its lease expires and the job requeues itself — attempts
+are counted (`0/3`) so stuck work fails loudly instead of looping forever.
 
 ```console
 $ tower task cancel t_01J9X8B
-$ tower task release t_01J9X8A       # voluntary give-back to the pool
+$ tower task release t_01J9X8A       # owner's voluntary give-back to the queue
 ```
 
 ## 8. Watch the system
@@ -238,7 +241,7 @@ $ tower task release t_01J9X8A       # voluntary give-back to the pool
 ```console
 $ tower events --follow --filter task
 10:12:03 task.created    t_01J9X8A  by me
-10:12:04 task.claimed    t_01J9X8A  backend (lease 60s)
+10:12:04 task.assigned   t_01J9X8A  backend (lease 60s, by me)
 10:12:09 task.status     t_01J9X8A  working
 10:12:11 agent.state     backend    idle → working
 ...
@@ -271,9 +274,9 @@ backend   claude   local     idle   —     worktree
 indexer   pi       workbox   idle   —
 ```
 
-One database, one coordinator; tasks are claimable across machines. If
-`workbox` goes dark, its agents keep running (herdr owns them), its task
-leases expire, and the pool reabsorbs the work.
+One database, one coordinator; jobs are assignable across machines. If
+`workbox` goes dark, its agents keep running (herdr owns them), their job
+leases expire, and the queue reabsorbs the work.
 
 ---
 
@@ -289,7 +292,7 @@ leases expire, and the pool reabsorbs the work.
 | `tower stream NAME` / `tower read NAME` | live output / snapshot read |
 | `tower interrupt NAME` / `tower stop NAME` | ctrl+c / end session (seat survives) |
 | `tower inbox` / `tower ask` / `tower approve ID` | human ↔ agent loop |
-| `tower task create/list/show/cancel/release` | shared pool |
+| `tower task create/list/assign/show/cancel/release` | job queue (you assign, agents own) |
 | `tower events --follow [--filter ...]` | system event stream |
 | `tower machines add/remove/list` | node registry |
 | `tower schema` | route + event-type registry |

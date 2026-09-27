@@ -1,5 +1,7 @@
 # Knowledge Base Update Log
 
+* **Reframe**: Tasks → assignment-only job queue ([decision](decisions/job-queue.md)): removed agent claim/pull, added `assigned` state + `start` declaration + assign capability; lease+heartbeat kept as liveness; orchestrator role + jev/laya router deferred (new [design §17.8](concepts/design/17-open-questions.md)). Updated design §1/5/6/7/9/10/11/12/14/16/18, phase 2/3/4/5 plans, `docs/getting-started.md`; code: `TaskState::Assigned`, `task.assigned` event (replaces `task.claimed`), schema registry. Lint + tests green.
+
 ## 2026-09-26
 * **Restore**: Replaced the plan summaries in `plans/` with the full original text of `plans/README.md` and `plans/phase-1..6.md` (from git `340c189`): milestones, tasks, backlogs, verification logs, spike findings. Only links changed (design `§`/`D§` refs, phase cross-links, getting-started, cross-server research).
 * **Relink**: Original `plans/` removed; `docs/knowledgebase/plans/` is now canonical. Plan docs' `resource` → `sources` git provenance; `AGENTS.md`, `README.md`, `docs/getting-started.md` links repointed to the KB.

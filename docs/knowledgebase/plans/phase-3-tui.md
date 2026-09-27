@@ -23,7 +23,7 @@ delegates terminal presentation to herdr.
 
 Exit criteria ([design §18](../concepts/design/18-phase-mapping.md)): daily monitoring driven entirely from TUI.
 
-Depends on: phase 2 (messaging + pool APIs to render). Independent of
+Depends on: phase 2 (messaging + queue APIs to render). Independent of
 phase 4; both consume the same SSE feeds.
 
 Reference: [D§11](../concepts/design/11-tui.md) (views, chrome), [D§10](../concepts/design/10-client-cli.md) (verbs the TUI wraps where useful).
@@ -46,7 +46,7 @@ Reference: [D§11](../concepts/design/11-tui.md) (views, chrome), [D§10](../con
 
 - **T2.1** Fleet view: agents table — name, machine, kind, state glyph
   (`●` working, `○` idle, `◉` blocked, `✓` done, `✗` dead), current task,
-  pool banner (`N queued · M working · K blocked`) above the table.
+  queue banner (`N queued · M working · K blocked`) above the table.
   Sort/filter (state, machine). Verify: snapshot tests for mixed-state
   fixtures; filter keymap behavior.
 - **T2.2** Agent detail view: live output tail from `/v1/agents/{id}/stream`,
@@ -59,9 +59,10 @@ Reference: [D§11](../concepts/design/11-tui.md) (views, chrome), [D§10](../con
 - **T3.1** Inbox view: pending questions/approvals with deadlines; inline
   reply (`y`/`n`/text respond via `/v1/messages/{id}/respond`). Verify:
   integration against a scripted FakeHarness server; approve flow tested.
-- **T3.2** Tasks view: pool/owned split, states, lease countdowns on owned
-  tasks (live seconds from `lease_expires_at`), claim trail in detail.
-  Verify: countdown rendering under clock-injected fixtures; trail rendering.
+- **T3.2** Tasks view: queue/owned split, states (`assigned` distinct from
+  `working`), lease countdowns on owned tasks (live seconds from
+  `lease_expires_at`), assignment trail in detail. Verify: countdown
+  rendering under clock-injected fixtures; trail rendering.
 
 ## Milestone 4 — Events + machines views ([D§11](../concepts/design/11-tui.md))
 

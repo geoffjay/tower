@@ -30,3 +30,8 @@ generated:
 7. Cloud metrics semantics: exact formulas for "activity volume" (size),
    "quality/health" (brightness), and message-volume edges — defined in
    phase 2 as event-log queries; documented in the UI as tooltips.
+8. Orchestrator agent + agent router: which decision model dispatches jobs
+   (jev vs laya — both have Rust libraries; laya can run locally as a GGUF
+   via ollama/llama.cpp), and how the orchestrator's still-working checks
+   are rate-limited — after the job-queue primitive is proven (phase 2);
+   see the [job-queue decision](../../decisions/job-queue.md).
