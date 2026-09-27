@@ -247,6 +247,20 @@ pub enum EventKind {
     TaskCompleted,
     #[serde(rename = "task.failed")]
     TaskFailed,
+    #[serde(rename = "task.reserved")]
+    TaskReserved,
+    #[serde(rename = "schedule.created")]
+    ScheduleCreated,
+    #[serde(rename = "schedule.fired")]
+    ScheduleFired,
+    #[serde(rename = "schedule.skipped")]
+    ScheduleSkipped,
+    #[serde(rename = "schedule.paused")]
+    SchedulePaused,
+    #[serde(rename = "schedule.resumed")]
+    ScheduleResumed,
+    #[serde(rename = "schedule.removed")]
+    ScheduleRemoved,
     #[serde(rename = "message.created")]
     MessageCreated,
     #[serde(rename = "message.status")]

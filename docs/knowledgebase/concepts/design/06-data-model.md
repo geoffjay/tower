@@ -64,7 +64,7 @@ CREATE TABLE tasks (
   lease_s           INTEGER NOT NULL DEFAULT 60,   -- renewal window per assign/heartbeat (migration 0002)
   target_agent_id   TEXT REFERENCES agents(id),    -- reserved for this agent; dispatcher delivers when available (0003)
   not_before        INTEGER,                       -- dispatcher holds the job until this time (0003)
-  schedule_id       TEXT REFERENCES schedules(id), -- set on jobs a schedule materialized (0003)
+  schedule_id       TEXT,                          -- schedule that materialized it; no FK: history survives schedule removal (0003)
   occurrence_at     INTEGER,                       -- the schedule time this job is for (0003)
   result            TEXT,                          -- JSON summary
   created_at        INTEGER NOT NULL,

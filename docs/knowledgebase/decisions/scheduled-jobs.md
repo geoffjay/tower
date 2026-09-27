@@ -83,7 +83,7 @@ once, and nothing refuses an agent that is already busy. A job assigned at
 | Previous occurrence **still being worked** (assigned / working / input-required) when the next fires | **skip** the new occurrence | `schedule.skipped` `{reason: "previous_running"}` |
 | Previous occurrence **never delivered** (still queued) when the next fires | the stale one is **canceled** (`result: {"error":"occurrence_expired"}`) and the new one is created — at most one pending occurrence per schedule | `task.status` canceled, `schedule.fired` |
 | tower was down / machine asleep across firings | **coalesce**: fire **once**, for the most recent missed time; `next_run_at` = next time after now | `schedule.fired` `{missed: N}` |
-| Target agent **removed** (`stop --remove`) | schedule **pauses**; its reserved jobs lose the target and fall back to the general queue for the operator | `schedule.paused` `{reason: "target_removed"}` |
+| Target agent **removed** (`stop --remove`) | schedule **pauses** and its target is cleared (resuming it sends jobs to the general queue — recreate it to pick a new agent); its reserved jobs lose the target and fall back to the general queue for the operator | `schedule.paused` `{reason: "target_removed"}` |
 | Target agent **dead / blocked / busy** | the reserved job **waits**; queue views show it as waiting for the target | — |
 | Schedule **paused**, later resumed | no firings while paused; resume computes `next_run_at` from now (no catch-up for the paused span) | `schedule.paused` / `schedule.resumed` |
 | **run-now** | one extra occurrence at now, same overlap/expiry rules; `next_run_at` unchanged | `schedule.fired` `{manual: true}` |

@@ -251,6 +251,8 @@ async fn call_tool(
                 assign: arg(args, "assign")?,
                 lease_s: arg(args, "lease_s")?,
                 max_attempts: arg(args, "max_attempts")?,
+                when_available: arg(args, "when_available")?.unwrap_or(false),
+                not_before: arg(args, "not_before")?,
             };
             if req.assign.is_some() {
                 operator_only(caller)?;
@@ -261,8 +263,12 @@ async fn call_tool(
             operator_only(caller)?;
             let id = TaskId::from(req_arg::<String>(args, "task_id")?);
             let to: String = req_arg(args, "to")?;
-            let lease_s = arg(args, "lease_s")?;
-            json!({ "task": crate::tasks::assign(state, &id, &to, lease_s, "me", now).await? })
+            let task = if arg::<bool>(args, "when_available")?.unwrap_or(false) {
+                crate::tasks::reserve(state, &id, &to, None, "me", now).await?
+            } else {
+                crate::tasks::assign(state, &id, &to, arg(args, "lease_s")?, "me", now).await?
+            };
+            json!({ "task": task })
         }
         "tower_task_start" => {
             let id = TaskId::from(req_arg::<String>(args, "task_id")?);
@@ -383,13 +389,17 @@ fn tool_list() -> Vec<Value> {
                 "priority": {"type": "integer"}, "tags": {"type": "array", "items": {"type": "string"}},
                 "assign": {"type": "string"}, "lease_s": {"type": "integer"},
                 "max_attempts": {"type": "integer"},
+                "when_available": {"type": "boolean"}, "not_before": {"type": "integer", "description": "ms epoch"},
             }),
             &["title"],
         ),
         tool(
             "tower_task_assign",
             "Assign a queued job to an agent (operator only).",
-            json!({"task_id": task_id, "to": {"type": "string"}, "lease_s": {"type": "integer"}}),
+            json!({
+                "task_id": task_id, "to": {"type": "string"}, "lease_s": {"type": "integer"},
+                "when_available": {"type": "boolean", "description": "reserve: deliver when the agent is free"},
+            }),
             &["task_id", "to"],
         ),
         tool(

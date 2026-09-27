@@ -50,7 +50,7 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
     let kind = req.kind.clone().unwrap_or_else(|| "pi".into());
 
     let guard = lock_for(&req.name);
-    let _guard = guard.lock().await;
+    let creating = guard.lock().await;
 
     if crate::inventory::get_agent(state, &req.name)
         .await?
@@ -120,6 +120,10 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
         )
         .await?;
 
+    // release before anything that locks this agent again (the first prompt,
+    // and reconcile → dispatch → delivery prompt): tokio locks don't re-enter
+    drop(creating);
+
     // first prompt, if requested
     if let Some(text) = req.prompt {
         let _ = prompt(state, &req.name, &text, false).await;
@@ -178,12 +182,15 @@ pub async fn prompt(
         .await?
         .ok_or_else(|| TowerError::not_found(format!("agent {name} not found")))?;
     let guard = lock_for(name);
-    let _guard = guard.lock().await;
+    let prompting = guard.lock().await;
     let stalled = match state.driver.prompt(&agent.name, text, wait).await {
         Ok(()) => false,
         Err(tower_driver::DriverError::PromptStalled(_)) => true,
         Err(e) => return Err(e.into()),
     };
+    // reconcile below can dispatch a reserved job to this agent, which
+    // prompts it — that takes this lock again
+    drop(prompting);
     state
         .events
         .append(
@@ -230,7 +237,7 @@ pub async fn stop(state: &AppState, name: &str, remove: bool) -> anyhow::Result<
         .await?
         .ok_or_else(|| TowerError::not_found(format!("agent {name} not found")))?;
     let guard = lock_for(name);
-    let _guard = guard.lock().await;
+    let stopping = guard.lock().await;
     // pane first: an agent must be gone before its jobs are requeued, or it
     // could keep working a job someone else is then assigned. A pane that's
     // already gone counts as stopped (removing a dead agent must work).
@@ -242,6 +249,9 @@ pub async fn stop(state: &AppState, name: &str, remove: bool) -> anyhow::Result<
         Ok(()) | Err(tower_driver::DriverError::NotFound(_)) => {}
         Err(e) => return Err(e.into()),
     }
+    // the lock serializes driver calls; the DB cleanup below must not hold
+    // it (releasing jobs can dispatch → prompt, which takes this lock)
+    drop(stopping);
 
     if remove {
         crate::tasks::detach_agent(state, &agent, tower_core::now_ms()).await?;

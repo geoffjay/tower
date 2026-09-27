@@ -33,16 +33,26 @@ pub enum TaskCmd {
         /// Pre-assign to this agent
         #[arg(long)]
         assign: Option<String>,
+        /// With --assign: reserve it — delivered when the agent is free
+        #[arg(long)]
+        when_available: bool,
+        /// With --assign: reserve it and hold it until this time
+        /// (HH:MM today/tomorrow, "YYYY-MM-DD HH:MM" local, or RFC 3339)
+        #[arg(long)]
+        at: Option<String>,
         /// Lease window in seconds (default 60)
         #[arg(long)]
         lease_s: Option<i64>,
     },
-    /// Dispatch a queued job to an agent
+    /// Dispatch a queued job to an agent (one job per agent at a time)
     Assign {
         id: String,
         name: String,
         #[arg(long)]
         lease_s: Option<i64>,
+        /// Reserve instead: deliver when the agent is free
+        #[arg(long)]
+        when_available: bool,
     },
     /// Cancel a job (interrupts its owner)
     Cancel { id: String },
@@ -116,11 +126,15 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
             tags,
             priority,
             assign,
+            when_available,
+            at,
             lease_s,
         } => {
+            let not_before = at.as_deref().map(parse_local_time).transpose()?;
             let body = json!({
                 "title": title, "description": description, "tags": tags,
                 "priority": priority, "assign": assign, "lease_s": lease_s,
+                "when_available": when_available, "not_before": not_before,
             });
             let v = c.post("/v1/tasks", Some(body)).await?;
             if json_out {
@@ -129,11 +143,18 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
             let names = agent_names(c).await?;
             println!("{}", summary(&v["task"], &names));
         }
-        TaskCmd::Assign { id, name, lease_s } => {
+        TaskCmd::Assign {
+            id,
+            name,
+            lease_s,
+            when_available,
+        } => {
             let v = c
                 .post(
                     &format!("/v1/tasks/{id}/assign"),
-                    Some(json!({ "to": name, "lease_s": lease_s })),
+                    Some(
+                        json!({ "to": name, "lease_s": lease_s, "when_available": when_available }),
+                    ),
                 )
                 .await?;
             if json_out {
@@ -258,8 +279,56 @@ fn summary(t: &Value, names: &HashMap<String, String>) -> String {
             name(names, &t["owner_id"]),
             t["lease_s"].as_i64().unwrap_or(0)
         ),
+        Some("queued") if t["target_agent_id"].is_string() => {
+            let who = name(names, &t["target_agent_id"]);
+            match t["not_before"].as_i64() {
+                Some(nb) if nb > tower_core::now_ms() => {
+                    format!("{id}  reserved for {who} (not before {})", clock(nb, true))
+                }
+                _ => format!("{id}  reserved for {who} (delivered when available)"),
+            }
+        }
         Some(s) => format!("{id}  {s}"),
         None => id.to_string(),
+    }
+}
+
+/// `--at`: `HH:MM` (today, or tomorrow if already past), `YYYY-MM-DD HH:MM`
+/// in local time, or RFC 3339. Returns ms epoch.
+pub fn parse_local_time(s: &str) -> anyhow::Result<i64> {
+    use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
+    let s = s.trim();
+    if let Ok(t) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Ok(t.timestamp_millis());
+    }
+    let local = |naive: NaiveDateTime| {
+        Local
+            .from_local_datetime(&naive)
+            .earliest()
+            .map(|t| t.timestamp_millis())
+            .ok_or_else(|| anyhow::anyhow!("{s}: not a valid local time (DST gap?)"))
+    };
+    if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
+        return local(naive);
+    }
+    if let Ok(time) = NaiveTime::parse_from_str(s, "%H:%M") {
+        let today: NaiveDate = Local::now().date_naive();
+        let at = local(today.and_time(time))?;
+        return if at > tower_core::now_ms() {
+            Ok(at)
+        } else {
+            local(today.succ_opt().unwrap_or(today).and_time(time))
+        };
+    }
+    anyhow::bail!("--at {s}: use HH:MM, \"YYYY-MM-DD HH:MM\", or RFC 3339")
+}
+
+/// Owner, or `→name` for a job reserved for an agent.
+fn owner_cell(t: &Value, names: &HashMap<String, String>) -> String {
+    match (t["owner_id"].is_string(), t["target_agent_id"].is_string()) {
+        (true, _) => name(names, &t["owner_id"]).to_string(),
+        (false, true) => format!("→{}", name(names, &t["target_agent_id"])),
+        _ => "—".to_string(),
     }
 }
 
@@ -288,7 +357,7 @@ fn print_list(tasks: &[Value], names: &HashMap<String, String>) {
             "{:<28} {:<15} {:<10} {:>8}  {:<14} {:<9} {title}",
             t["id"].as_str().unwrap_or("?"),
             t["state"].as_str().unwrap_or("?"),
-            name(names, &t["owner_id"]),
+            owner_cell(t, names),
             t["priority"].as_i64().unwrap_or(0),
             if tags.is_empty() { "—".into() } else { tags },
             format!(
@@ -316,6 +385,10 @@ fn print_show(v: &Value, names: &HashMap<String, String>, now: i64) {
         ),
         Some(_) => format!(" (owner: {owner}, lease expired — requeues on next sweep)"),
         None if t["owner_id"].is_string() => format!(" (owner: {owner})"),
+        None if t["target_agent_id"].is_string() => format!(
+            " (reserved for {}: delivered when available)",
+            name(names, &t["target_agent_id"])
+        ),
         None => String::new(),
     };
     println!("  state    {state}{detail}");
@@ -353,6 +426,14 @@ fn trail_line(e: &Value, names: &HashMap<String, String>) -> String {
             name(names, &p["owner_id"]),
             p["by"].as_str().unwrap_or("?")
         ),
+        "task.reserved" if p["target"].is_null() => "reservation dropped (target removed)".into(),
+        "task.reserved" => {
+            let mut s = format!("reserved for {}", name(names, &p["target"]));
+            if let Some(nb) = p["not_before"].as_i64() {
+                s.push_str(&format!(", not before {}", clock(nb, true)));
+            }
+            s
+        }
         "task.status" if p["released_by"].is_string() => {
             let mut s = format!("released by {}", name(names, &p["released_by"]));
             if let Some(r) = p["reason"].as_str() {

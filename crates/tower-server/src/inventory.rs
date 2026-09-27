@@ -223,6 +223,10 @@ pub async fn transition(state: &AppState, agent: &Agent, new: AgentState) -> any
         )
         .await?;
     crate::tasks::sync_agent_state(state, &agent.id, new, now).await?;
+    // an agent that just became free takes its next reserved job (D§5.2.2)
+    if matches!(new, AgentState::Idle | AgentState::Done) {
+        crate::tasks::dispatch_for(state, &agent.id, now).await?;
+    }
     if new == AgentState::Blocked {
         if let Err(e) = crate::messaging::inbox_for_blocked(state, agent).await {
             tracing::warn!(error = %e, agent = %agent.name, "blocked → inbox failed");

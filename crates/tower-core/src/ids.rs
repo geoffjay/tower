@@ -52,5 +52,6 @@ id_type!(AgentId, "Agent identity (seat; stable across sessions)");
 id_type!(TaskId, "Task identity");
 id_type!(MessageId, "Message identity");
 id_type!(MachineId, "Machine identity");
+id_type!(ScheduleId, "Recurring job schedule identity");
 
 pub type EventSeq = i64;

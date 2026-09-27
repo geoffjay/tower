@@ -31,6 +31,9 @@ pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
             if let Err(e) = crate::tasks::sweep_leases(&state, now).await {
                 tracing::warn!(error = %e, "sweeper: lease sweep failed");
             }
+            if let Err(e) = crate::tasks::dispatch_all(&state, now).await {
+                tracing::warn!(error = %e, "sweeper: dispatch failed");
+            }
         }
     })
 }

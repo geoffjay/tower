@@ -6,8 +6,8 @@ pub mod objects;
 pub mod states;
 
 pub use error::{ErrorCode, TowerError};
-pub use ids::{AgentId, EventSeq, MachineId, MessageId, TaskId};
-pub use objects::{Agent, Artifact, Event, Machine, Message, Task};
+pub use ids::{AgentId, EventSeq, MachineId, MessageId, ScheduleId, TaskId};
+pub use objects::{Agent, Artifact, Event, Machine, Message, Schedule, Task};
 pub use states::{
     AgentState, DesiredState, EventKind, MessageKind, MessageStatus, Part, PartyKind, Permissions,
     TaskState,

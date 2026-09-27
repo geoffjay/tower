@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{AgentId, MachineId, MessageId, TaskId};
+use crate::ids::{AgentId, MachineId, MessageId, ScheduleId, TaskId};
 use crate::states::{
     AgentState, DesiredState, EventKind, MessageKind, MessageStatus, PartyKind, Permissions,
     TaskState,
@@ -53,8 +53,45 @@ pub struct Task {
     pub lease_expires_at: Option<i64>,
     /// Renewal window in seconds for assign/start/heartbeat (D§5.2.1).
     pub lease_s: i64,
+    /// Reserved for this agent: delivered when it is available (D§5.2.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_agent_id: Option<AgentId>,
+    /// The dispatcher holds the job until this time (ms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_before: Option<i64>,
+    /// Schedule that materialized this job, and the occurrence it is for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule_id: Option<ScheduleId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub occurrence_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// A recurring job template (D§5.2.2): fires on `cron` in `timezone`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Schedule {
+    pub id: ScheduleId,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub priority: i64,
+    pub lease_s: i64,
+    pub max_attempts: i64,
+    /// Jobs are reserved for this agent; `None` → general queue.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_agent_id: Option<AgentId>,
+    pub cron: String,
+    /// IANA zone name, fixed at creation.
+    pub timezone: String,
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_run_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
 }

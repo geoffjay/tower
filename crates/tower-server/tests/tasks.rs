@@ -14,6 +14,8 @@ fn job(title: &str) -> CreateTask {
         priority: None,
         tags: vec![],
         assign: None,
+        when_available: false,
+        not_before: None,
         lease_s: None,
         max_attempts: None,
     }
@@ -193,11 +195,10 @@ async fn mine_lists_only_open_owned_jobs() {
     let open = tasks::create(&ctx.state, job("open"), T0).await.unwrap();
     let done = tasks::create(&ctx.state, job("done"), T0).await.unwrap();
     tasks::create(&ctx.state, job("unowned"), T0).await.unwrap();
-    for t in [&open, &done] {
-        tasks::assign(&ctx.state, &t.id, "a", None, "me", T0)
-            .await
-            .unwrap();
-    }
+    // one job at a time: finish `done` before `open` can be assigned
+    tasks::assign(&ctx.state, &done.id, "a", None, "me", T0)
+        .await
+        .unwrap();
     tasks::report(
         &ctx.state,
         &done.id,
@@ -208,6 +209,9 @@ async fn mine_lists_only_open_owned_jobs() {
     )
     .await
     .unwrap();
+    tasks::assign(&ctx.state, &open.id, "a", None, "me", T0)
+        .await
+        .unwrap();
 
     let f = ListFilter {
         mine: Some("a".into()),
@@ -611,12 +615,10 @@ async fn removing_an_agent_requeues_open_jobs_and_keeps_history() {
     ctx.spawn("b", "pi").await;
     let open = tasks::create(&ctx.state, job("open"), T0).await.unwrap();
     let done = tasks::create(&ctx.state, job("done"), T0).await.unwrap();
-    for t in [&open, &done] {
-        tasks::assign(&ctx.state, &t.id, "a", None, "me", T0)
-            .await
-            .unwrap();
-    }
-    tasks::start(&ctx.state, &open.id, "a", T0).await.unwrap();
+    // one job at a time: `done` first, then `open` stays in progress
+    tasks::assign(&ctx.state, &done.id, "a", None, "me", T0)
+        .await
+        .unwrap();
     tasks::report(
         &ctx.state,
         &done.id,
@@ -627,6 +629,10 @@ async fn removing_an_agent_requeues_open_jobs_and_keeps_history() {
     )
     .await
     .unwrap();
+    tasks::assign(&ctx.state, &open.id, "a", None, "me", T0)
+        .await
+        .unwrap();
+    tasks::start(&ctx.state, &open.id, "a", T0).await.unwrap();
     ctx.harness.kill("a"); // pane already gone: removal must still work
 
     tower_server::sessions::stop(&ctx.state, "a", true)
