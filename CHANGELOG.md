@@ -24,6 +24,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI verbs: ps, spawn, prompt, read, stream, interrupt, stop, doctor, schema
 - E2E smoke script (`scripts/e2e.sh`): spawn → prompt → read → restart →
   rebind → seat survival
+- `tower tui` (phase 3): fleet with queue banner and state/machine
+  filters, agent detail (live ANSI screen, message history, prompt,
+  interrupt, jump to the herdr pane), inbox with inline approve/deny/answer,
+  jobs (live lease countdowns, queue with reservations, recent, schedules,
+  trail), events (filters, follow), machines; command palette; follows
+  `/v1/events` with cursor resume across server restarts
+- `GET /v1/messages?agent=<name|id>`: an agent's message history
+
+### Fixed
+
+- `EventKind::as_str` leaked a string per call (SSE filtering per event)
+- Unset agent `pane_id`/`workdir`/`worktree` were returned as `""`
+- SSE streams (`tower stream`) were cut after 65s by the request timeout
+- `POST /v1/agents/{id}/prompt` now records the `prompt` message (history)
 
 ### Notes
 

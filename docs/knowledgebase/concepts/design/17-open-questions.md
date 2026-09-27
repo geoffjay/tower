@@ -26,7 +26,11 @@ generated:
    sim runs) before full build-out.
 4. Node transport security: TLS + token vs requiring SSH tunnel — phase 5.
 5. Scoped read-only UI token vs full token — phase 4.
-6. Event/artifact retention defaults and pruning UX — phase 3 tune.
+6. Event/artifact retention defaults and pruning UX — phase 3 bounded the
+   client side (TUI keeps the last 2000 events and 100 closed jobs,
+   [§11.1](11-tui.md)). Server-side pruning is still open:
+   `event_retention_days` (default 14) is parsed but nothing deletes events
+   yet — phase 4, where the web UI's soak exercises the same log.
 7. Cloud metrics semantics: exact formulas for "activity volume" (size),
    "quality/health" (brightness), and message-volume edges — defined as
    event-log queries in phase 4 spike S4.B (the phase-4 plan owns it);

@@ -27,8 +27,10 @@ Views:
   (`●` working, `○` idle, `◉` blocked, `✓` done, `✗` dead), current task,
   context note
 - **Agent detail**: live output tail, prompt input line, message history;
-  `o` opens the actual pane in herdr (shell out to `herdr agent attach
-  <pane>`)
+  `o` opens the actual pane in herdr: `herdr agent focus <pane>` when the
+  TUI itself runs inside herdr (`HERDR_PANE_ID` set; the TUI keeps its
+  pane), else `herdr agent attach <pane>` with the terminal handed over
+  until herdr's detach key returns it
 - **Inbox**: pending questions/approvals; reply inline (`y`/`n`/text)
 - **Tasks**: task list + state (queue/owned split, lease countdowns on owned
   tasks, reserved-for target on waiting jobs); schedules with next run;
@@ -64,3 +66,8 @@ an event, and lease countdowns must stay true).
   is not needed by the TUI.
 - Message history: `GET /v1/messages?agent=<name>` — rows sent or addressed
   to the agent (by name or id).
+  Operator prompts are rows too (`POST /v1/agents/{id}/prompt` records a
+  `prompt` message, D§7).
+- Bounded memory for long sessions: the events view keeps the last 2000
+  events (output payloads reduced to their size), the store keeps every
+  open job but only the latest 100 closed ones.

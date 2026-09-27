@@ -12,7 +12,7 @@ Everything happens through one binary: `tower`.
 ```
 tower <verb> [args]          # every verb supports --json
 tower serve                  # the server (runs under systemd)
-tower tui                    # the TUI (later phase)
+tower tui                    # the TUI: fleet, inbox, jobs, events, machines
 ```
 
 One server, one database, one socket. Agents live in herdr panes; tower
@@ -294,6 +294,36 @@ $ tower events --follow --filter task
 $ tower schema            # every route and event type, introspectable
 ```
 
+Or stay in one place — the TUI follows the same event stream and wraps the
+verbs above:
+
+```console
+$ tower tui
+ tower  1 Fleet  2 Inbox (1)  3 Tasks  4 Events  5 Machines          ● live
+1 queued · 1 working · 1 blocked
+
+   NAME      MACHINE  KIND    STATE    TASK                       NOTE
+●  api       local    claude  working  implement CSV error colu…
+◉  backend   local    claude  blocked  migrate schema             awaiting approval
+○  docs      local    pi      idle     —                          adopted · docs
+enter open · i prompt · x interrupt · o herdr · f state · m machine · s sort
+```
+
+| View | What you do there |
+|---|---|
+| `1` Fleet | agents with state, job and why they wait; `f`/`m`/`s` filter by state or machine, sort; `enter` opens an agent |
+| Agent | its live screen (colors kept), message history; `i` prompt, `x` interrupt, `o` jump to the pane in herdr (focus when the TUI runs inside herdr, else attach; herdr's detach key brings you back) |
+| `2` Inbox | questions and approvals with deadlines and the agent's screen; `y`/`n` approve/deny (or yes/no), `r` answer in words |
+| `3` Tasks | owned jobs with live lease countdowns, the queue (with reservations), recently closed, schedules; `n` new job, `a` assign (`<name> later` reserves), `x x` cancel, `enter` trail; on a schedule `p` pause/resume, `R` run now |
+| `4` Events | the feed; `f` type filter, `s` subject (an agent name works), `O` include output chunks; scrolling pauses, `G` follows |
+| `5` Machines | inventory and node status |
+
+`:` opens the command palette (`spawn`, `stop`, `prompt`, `ask`, `task`,
+`assign`, `reserve`, `cancel`, `agent`, `filter`, `sort`), `tab` cycles
+views, `j`/`k`/`g`/`G` move, `?` lists every key, `q` quits. If the server
+restarts, the TUI shows `reconnecting` and resumes from where the stream
+left off.
+
 The web UI (phase 4) is the **agent cloud** — a single highly graphical page:
 every agent a colored point in a drifting cloud (state = color, activity =
 size, attention = pulsing halo, health = brightness), with a floating panel
@@ -374,7 +404,7 @@ it to run outside the sandbox.
 | `tower events --follow [--filter ...]` | system event stream |
 | `tower machines add/remove/list` | node registry |
 | `tower schema` | route + event-type registry |
-| `tower tui` | the TUI (phase 3) |
+| `tower tui` | the TUI: every view above, live |
 | browser → `/ui` | the agent cloud (phase 4, read-only) |
 
 Everything above also exists as `--json` for scripting, as REST under

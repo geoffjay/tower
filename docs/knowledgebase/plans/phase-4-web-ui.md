@@ -67,6 +67,12 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
   cached; exposed only via the UI's render data (no new public API in v1;
   if a route is needed, GET-only under `/v1/ui/*` per [D§12](../concepts/design/12-web-ui.md) amendment rules).
   Verify: fixture events produce expected cached values; staleness handled.
+- **T1.3** Event retention ([D§17.6](../concepts/design/17-open-questions.md), carried from phase 3): prune
+  events older than `event_retention_days` (default 14) in the sweeper,
+  never past a live SSE cursor's replay window; metrics rollups (T1.2)
+  must not depend on pruned rows. Verify: clock-injected sweep deletes
+  exactly the expired rows; a cursor older than the horizon resumes at the
+  oldest kept event.
 
 ## Milestone 2 — The cloud ([D§12.1](../concepts/design/12-web-ui.md))
 
