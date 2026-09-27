@@ -42,11 +42,14 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v6
 
+      - name: Install cargo-make
+        run: cargo install cargo-make
+
       - name: Install okf (cargo install from git fork)
-        run: make deps
+        run: cargo make deps
 
       - name: Build site
-        run: make site
+        run: cargo make site
 
       - name: Sanity-check the build
         run: |
