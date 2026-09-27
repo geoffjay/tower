@@ -493,13 +493,25 @@ async fn doctor() -> anyhow::Result<()> {
         check!(harness, ok, detail);
     }
 
-    // tower server reachable (doctor is sync-friendly; block on one request)
-    let server = Client::connect(None).and_then(|c| {
-        futures::executor::block_on(async { c.get("/healthz").await.map(|v| v["ok"] == true) })
-    });
+    // tower server reachable: report the real cause (missing token file,
+    // connection refused, 401), not a generic "not reachable"
+    let server = match Client::connect(None) {
+        Ok(c) => c.get("/healthz").await.map(|v| v["ok"] == true),
+        Err(e) => Err(e),
+    };
     match server {
         Ok(true) => check!("tower server", true, "healthz ok"),
-        _ => check!("tower server", false, "not reachable (started?)"),
+        Ok(false) => check!("tower server", false, "healthz reports a database error"),
+        Err(e) => {
+            let mut detail = format!("{e:#}");
+            if detail.contains("token file") {
+                let home = std::env::var("TOWER_HOME").unwrap_or_else(|_| "(default)".into());
+                detail.push_str(&format!(
+                    " — TOWER_HOME={home}; it must match the server's (`tower serve` prints its token path)"
+                ));
+            }
+            check!("tower server", false, detail)
+        }
     }
 
     println!();
