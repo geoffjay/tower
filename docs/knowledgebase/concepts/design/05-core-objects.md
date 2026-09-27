@@ -93,7 +93,9 @@ assignment-only, and time-bound:
   state = 'queued'`. That is the `(owner IS NULL OR lease_expires_at <
   now)` check with one code path for expiry accounting — an exhausted job
   is never reassigned and a paused `input-required` lease is never
-  stolen. Affected-rows == 1 → assigned; 0 → `conflict`. A job with a
+  stolen. The same `UPDATE` also requires that the agent owns **no other
+  open job** (one job per agent at a time — [§5.2.2](#522-reservations-and-schedules)).
+  Affected-rows == 1 → assigned; 0 → `conflict`. A job with a
   live owner can never be assigned to another agent. No coordinator
   arbitration needed — SQLite row state is the lock (the single-writer
   SQLite design from [§6](06-data-model.md) makes the check-and-set
@@ -149,6 +151,33 @@ comparable, and herdr-panes outlive client sessions). A lease is machine-
 agnostic: heartbeat renewal is just another event write, and expiry is a
 simple timestamp comparison. Heartbeats piggyback on the agent loop (MCP tool
 call between prompt turns) — see the MCP tools in [§7](07-server-api.md).
+
+## 5.2.2 Reservations and schedules
+
+Decision: [scheduled jobs](../../decisions/scheduled-jobs.md) — the policy
+table there is normative.
+
+- **Reserved delivery**: a queued job may carry `target_agent_id`. It stays
+  `queued`; the **dispatcher** assigns it (normal CAS, lease starts at
+  delivery) when the target is *available* — row state `idle`/`done` and no
+  open job. Triggers: the target's row entering `idle`/`done`, its open job
+  closing, and the ~10s sweep. Highest priority, then oldest, first.
+  `task.assigned` records `by: "schedule:<id>"` for schedule jobs, else
+  `"dispatch"`.
+- **One job per agent**: every assignment (manual or dispatched) is refused
+  with `conflict` while the agent owns an open job; the check lives in the
+  assignment `UPDATE`, so it is atomic.
+- **`not_before`** holds a reserved job back from the dispatcher until a
+  time (`task create --at`). Immediate manual `assign` ignores it and may
+  take a reserved job for any agent — explicit operator action wins.
+- **Schedules**: a job template + cron expression + IANA timezone. Each
+  firing creates an ordinary job (`origin='schedule'`, `schedule_id`,
+  `occurrence_at`), reserved for the schedule's target if it has one.
+  Firing is exactly-once: CAS on `next_run_at` plus a unique
+  `(schedule_id, occurrence_at)`. Overlap → skip; undelivered previous
+  occurrence → canceled (`occurrence_expired`); missed firings → coalesced
+  into one; target removed → schedule paused, reserved jobs fall back to
+  the general queue. Schedules are operator-only.
 
 ## 5.3 Message
 

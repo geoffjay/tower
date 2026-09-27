@@ -242,6 +242,43 @@ $ tower task release t_01J9X8A       # give it back to the queue (acts as the ow
 
 Every command above takes `--json` to print the raw API response.
 
+### Scheduled and recurring jobs
+
+An agent owns **one job at a time**; assigning a second while it's busy is
+a `conflict`. To line work up for a busy agent, **reserve** it — tower
+delivers it the moment the agent is free (the lease starts then, not now):
+
+```console
+$ tower task assign t_01J9X8C backend --when-available
+t_01J9X8C  reserved for backend (delivered when available)
+
+$ tower task create 'nightly cleanup' --assign backend --at 22:00
+t_01J9X8D  reserved for backend (not before 22:00)
+```
+
+Recurring work is a **schedule**: a job template that fires on a cron
+cadence and creates an ordinary job each time.
+
+```console
+$ tower schedule create 'dependency audit' --daily 09:00 --assign backend
+s_01J9X9A  daily 09:00 America/Los_Angeles → backend  next: 2026-09-28 09:00
+
+$ tower schedule list
+ID         CADENCE            TARGET   NEXT               LAST   TITLE
+s_01J9X9A  daily 09:00 (LA)   backend  2026-09-28 09:00   —      dependency audit
+
+$ tower schedule run s_01J9X9A        # one extra run now
+$ tower schedule pause s_01J9X9A      # resume picks up from now; rm deletes
+```
+
+What happens when things don't go to plan is fixed policy
+([decision](knowledgebase/decisions/scheduled-jobs.md)): if yesterday's run
+is still being worked, today's is **skipped**; if it was never picked up,
+it's **replaced** (at most one pending run per schedule); if tower was down
+across several firings, it fires **once**; removing the target agent
+**pauses** the schedule. Schedules only fire while `tower serve` runs —
+`tower service install` keeps it running as a user service.
+
 ## 8. Watch the system
 
 ```console

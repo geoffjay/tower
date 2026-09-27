@@ -31,7 +31,8 @@ Views:
   `herdr` client attach)
 - **Inbox**: pending questions/approvals; reply inline (`y`/`n`/text)
 - **Tasks**: task list + state (queue/owned split, lease countdowns on owned
-  tasks); detail shows trail + assignment history
+  tasks, reserved-for target on waiting jobs); schedules with next run;
+  detail shows trail + assignment history
 - **Events**: filtered feed of `/v1/events`
 - **Machines**: inventory + node status
 

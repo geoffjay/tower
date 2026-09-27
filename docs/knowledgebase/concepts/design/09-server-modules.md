@@ -52,7 +52,10 @@ Task rows + job-queue semantics ([§5.2.1](05-core-objects.md)): assign
 Task completion is owner-reported (prompt response or detection `done`) —
 never inferred from a delivered message alone (openrig's epistemics rule).
 The sweeper also pauses lease expiry during `input-required` (see [§5.2](05-core-objects.md)
-state machine note).
+state machine note). The **dispatcher** delivers reserved jobs to available
+targets (on the agent's `idle`/`done` transition, when its job closes, and
+each sweep); the **scheduler** fires due schedules each sweep
+([§5.2.2](05-core-objects.md)).
 
 ## 9.5 machine hub
 

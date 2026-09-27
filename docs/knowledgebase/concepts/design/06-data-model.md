@@ -62,6 +62,10 @@ CREATE TABLE tasks (
   max_attempts      INTEGER NOT NULL DEFAULT 3,
   lease_expires_at  INTEGER,                      -- ownership deadline; NULL when unowned
   lease_s           INTEGER NOT NULL DEFAULT 60,   -- renewal window per assign/heartbeat (migration 0002)
+  target_agent_id   TEXT REFERENCES agents(id),    -- reserved for this agent; dispatcher delivers when available (0003)
+  not_before        INTEGER,                       -- dispatcher holds the job until this time (0003)
+  schedule_id       TEXT REFERENCES schedules(id), -- set on jobs a schedule materialized (0003)
+  occurrence_at     INTEGER,                       -- the schedule time this job is for (0003)
   result            TEXT,                          -- JSON summary
   created_at        INTEGER NOT NULL,
   updated_at        INTEGER NOT NULL
@@ -69,6 +73,26 @@ CREATE TABLE tasks (
 CREATE INDEX idx_tasks_agent ON tasks(agent_id);
 CREATE INDEX idx_tasks_state ON tasks(state);
 CREATE INDEX idx_tasks_pool ON tasks(state, priority DESC, created_at);
+CREATE INDEX idx_tasks_target ON tasks(target_agent_id, state);
+CREATE UNIQUE INDEX idx_tasks_occurrence ON tasks(schedule_id, occurrence_at);  -- exactly-once firing
+
+CREATE TABLE schedules (                          -- migration 0003
+  id               TEXT PRIMARY KEY,
+  title            TEXT NOT NULL,
+  description      TEXT,
+  tags             TEXT NOT NULL DEFAULT '[]',
+  priority         INTEGER NOT NULL DEFAULT 0,
+  lease_s          INTEGER NOT NULL DEFAULT 60,
+  max_attempts     INTEGER NOT NULL DEFAULT 3,
+  target_agent_id  TEXT REFERENCES agents(id),     -- NULL = jobs go to the general queue
+  cron             TEXT NOT NULL,                   -- 5/6-field cron (croner)
+  timezone         TEXT NOT NULL,                   -- IANA name, fixed at creation
+  enabled          INTEGER NOT NULL DEFAULT 1,
+  next_run_at      INTEGER,                         -- CAS-advanced on each firing
+  last_run_at      INTEGER,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+);
 
 CREATE TABLE messages (
   id          TEXT PRIMARY KEY,

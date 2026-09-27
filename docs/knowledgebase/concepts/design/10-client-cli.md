@@ -37,6 +37,11 @@ tower task assign <id> <name>                 # dispatch (operator; orchestrator
 tower task cancel <id> / task release <id> [--as <agent>]
 tower task start|heartbeat <id> [--as <agent>]            # agent work loop
 tower task status <id> <working|input-required|completed|failed> [--result R] [--as <agent>]
+tower task create 'title' --assign name --when-available | --at <time>   # reserve: deliver when free / after time
+tower task assign <id> <name> --when-available                          # reserve instead of immediate
+tower schedule create 'title' (--daily HH:MM | --cron '…') [--tz Zone] [--assign name] [--tag x] [--lease-s N]
+tower schedule list | show <id> | pause <id> | resume <id> | run <id> | rm <id>
+tower service install | uninstall | status          # run `tower serve` as a user service (launchd / systemd)
                                     # --as defaults to $TOWER_AGENT (set in spawned panes)
 tower machines                      # machine inventory
 tower machines add <name>           # issue a node token (prints once)

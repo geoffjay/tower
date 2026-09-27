@@ -15,7 +15,11 @@ this document; the server enforces it (design
 3. **Declare, heartbeat, report.** Say when you start, keep your lease
    alive, and report the outcome. A job you stop heartbeating goes back
    to the queue for someone else.
-4. **A `conflict` answer means you no longer own the job** (lease swept,
+4. **One job at a time.** You won't be assigned a second job while you own
+   one. Work reserved for you (including scheduled jobs) is delivered when
+   you're idle with no open job — finishing or releasing your job is what
+   lets the next one in.
+5. **A `conflict` answer means you no longer own the job** (lease swept,
    canceled, or reassigned). Stop working on it.
 
 ## Identity
