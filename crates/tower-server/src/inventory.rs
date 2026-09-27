@@ -99,32 +99,11 @@ pub async fn reconcile(state: &AppState) -> anyhow::Result<()> {
         });
         match live {
             Some(h) => {
-                let new_state = map_harness_state(h.state);
-                if new_state != agent.state {
-                    update_state(state, &agent.id, new_state).await?;
-                    state
-                        .events
-                        .append(
-                            tower_core::EventKind::AgentStateChange,
-                            Some("agent"),
-                            Some(&agent.id.0),
-                            serde_json::json!({"from": agent.state.as_str(), "to": new_state.as_str()}),
-                        )
-                        .await?;
-                }
+                transition(state, agent, map_harness_state(h.state)).await?;
             }
             None => {
-                if agent.state != AgentState::Dead && agent.pane_id.is_some() {
-                    update_state(state, &agent.id, AgentState::Dead).await?;
-                    state
-                        .events
-                        .append(
-                            tower_core::EventKind::AgentStateChange,
-                            Some("agent"),
-                            Some(&agent.id.0),
-                            serde_json::json!({"from": agent.state.as_str(), "to": "dead"}),
-                        )
-                        .await?;
+                if agent.pane_id.is_some() {
+                    transition(state, agent, AgentState::Dead).await?;
                 }
             }
         }
@@ -213,14 +192,43 @@ pub async fn adopt(state: &AppState, name: &str) -> anyhow::Result<Agent> {
     Ok(get_agent(state, name).await?.expect("just inserted"))
 }
 
-async fn update_state(state: &AppState, id: &AgentId, new: AgentState) -> anyhow::Result<()> {
-    sqlx::query("UPDATE agents SET state = ?1, updated_at = ?2 WHERE id = ?3")
-        .bind(new.as_str())
-        .bind(tower_core::now_ms())
-        .bind(id.0.as_str())
-        .execute(&state.pool)
+/// The one place an agent row changes state (D§5.1). CAS on the observed
+/// state, so when reconcile and the pump see the same change only one
+/// transition happens. On success: `agent.state` event, the owner's job
+/// follows (`blocked` ↔ `input-required`, D§5.2), and entering `blocked`
+/// opens the operator's inbox item (D§9.3). Returns whether it changed.
+pub async fn transition(state: &AppState, agent: &Agent, new: AgentState) -> anyhow::Result<bool> {
+    if agent.state == new {
+        return Ok(false);
+    }
+    let now = tower_core::now_ms();
+    let res =
+        sqlx::query("UPDATE agents SET state = ?1, updated_at = ?2 WHERE id = ?3 AND state = ?4")
+            .bind(new.as_str())
+            .bind(now)
+            .bind(agent.id.0.as_str())
+            .bind(agent.state.as_str())
+            .execute(&state.pool)
+            .await?;
+    if res.rows_affected() == 0 {
+        return Ok(false); // someone else already moved it
+    }
+    state
+        .events
+        .append(
+            tower_core::EventKind::AgentStateChange,
+            Some("agent"),
+            Some(&agent.id.0),
+            serde_json::json!({"from": agent.state.as_str(), "to": new.as_str()}),
+        )
         .await?;
-    Ok(())
+    crate::tasks::sync_agent_state(state, &agent.id, new, now).await?;
+    if new == AgentState::Blocked {
+        if let Err(e) = crate::messaging::inbox_for_blocked(state, agent).await {
+            tracing::warn!(error = %e, agent = %agent.name, "blocked → inbox failed");
+        }
+    }
+    Ok(true)
 }
 
 pub fn map_harness_state(s: HarnessState) -> AgentState {

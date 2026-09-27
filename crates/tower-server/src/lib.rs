@@ -2,6 +2,7 @@ pub mod agents_api;
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod dialog;
 pub mod http;
 pub mod inventory;
 pub mod mcp;

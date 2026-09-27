@@ -28,8 +28,9 @@ generated:
 5. Scoped read-only UI token vs full token — phase 4.
 6. Event/artifact retention defaults and pruning UX — phase 3 tune.
 7. Cloud metrics semantics: exact formulas for "activity volume" (size),
-   "quality/health" (brightness), and message-volume edges — defined in
-   phase 2 as event-log queries; documented in the UI as tooltips.
+   "quality/health" (brightness), and message-volume edges — defined as
+   event-log queries in phase 4 spike S4.B (the phase-4 plan owns it);
+   documented in the UI as tooltips.
 8. Orchestrator agent + agent router: which decision model dispatches jobs
    (jev vs laya — both have Rust libraries; laya can run locally as a GGUF
    via ollama/llama.cpp), and how the orchestrator's still-working checks

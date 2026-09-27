@@ -62,12 +62,12 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
   transition; assert exactly one inbox item + event.
 - **T2.2** Answer flow: `respond` on a question → prompt delivered to agent
   → message `answered`, agent unblocks. Approval messages work the same but
-  respond with send-keys option (`1`/`2`) per [D§8.2](../concepts/design/08-harness-layer.md). Verify: end-to-end
+  answer the on-screen dialog (deny = `esc`, approve = first plain "Yes") per [D§8.2](../concepts/design/08-harness-layer.md). Verify: end-to-end
   integration test; verify dedup prevents duplicate prompts to the agent.
 - **T2.3** Deadline sweeper ([D§9.3](../concepts/design/09-server-modules.md)): `pending` questions/approvals expire at
   `deadline_at` (default 5 min, `deadline_s` override on send); expiry →
   message `expired` + agent notified (question: prompt "proceed with
-  defaults or stop"; approval: denied via keys `2`) + `approval.expired`
+  defaults or stop"; approval: denied via `esc`) + `approval.expired`
   event. Verify: clock-injected unit tests at boundary; sweep integration test.
 
 ## Milestone 3 — Job queue ([D§5.2.1](../concepts/design/05-core-objects.md), [D§9.4](../concepts/design/09-server-modules.md), [job-queue decision](../decisions/job-queue.md))
@@ -146,7 +146,17 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
 
 ## Verification log
 
-(filled during execution)
-
 | Date | Check | Result |
 |---|---|---|
+| 2026-09-27 | M1: messaging routes vs FakeHarness — to-human inbox row (pending + deadline), to-agent prompt, respond CAS (double respond → 409, no re-delivery), explicit agent recipient must exist | pass (`tests/messaging.rs`) |
+| 2026-09-27 | M1 live CLI: `send`/`inbox`/`approve --answer` round trip; `ask` to unknown agent → `not_found`, exit 1 | pass |
+| 2026-09-27 | M2: pump — blocked → exactly one inbox item per episode; claude → `approval`; approval respond answers the dialog once; approval without decision → 400, stays pending | pass (`tests/pump.rs`, `tests/messaging.rs`) |
+| 2026-09-27 | M2: deadline sweeper, clock-injected — expires at `deadline_at` (inclusive), question → "proceed" prompt, approval → denied, respond after expiry → 409 | pass (`tests/sweeper.rs`) |
+| 2026-09-27 | M3: 32 concurrent assigns on one job → exactly 1 winner, 31 `conflict`, one delegation prompt; 20/20 repeat runs; mutating the CAS guard away makes it fail | pass (`tests/tasks.rs`) |
+| 2026-09-27 | M3: owner-only writes, release (no attempt bump), late-but-unswept completion, sweeper requeue / `lease_exhausted` / `input-required` pause, routes + trail | pass (`tests/tasks.rs`, 19 tests) |
+| 2026-09-27 | M3 live, real herdr 0.8.2 + pi: spawn into `tower-agents` workspace; create → assign → second assign `conflict` (exit 1) → `--mine`; delegation text landed in the pi pane; unstarted lease lapsed and was swept within one 10s tick → `queued`, attempt 1/3; reassign → release → cancel trail | pass |
+| 2026-09-27 | Live runs surfaced 3 phase-1 driver bugs: unnamed herdr agents failed the whole snapshot (reconcile + pump dead); error envelopes on non-zero exit never mapped; spawn split the operator's first pane and ignored `workdir` | fixed `15181b6` (regression test: `snapshot_skips_unnamed_agents`) |
+| 2026-09-27 | M4: MCP protocol (version negotiation, notifications 202, JSON-RPC errors), work loop over MCP, agents can't assign, `/v1/schema` lists only mounted routes (phantom-route mutation caught) | pass (`tests/mcp.rs`) |
+| 2026-09-27 | M4 live: official `@modelcontextprotocol/inspector` CLI — `tools/list`, `tools/call` (create, start via `X-Tower-Agent`), agent assign → `isError` `unauthorized`; herdr `--env` propagation probe (workspace + tab); CLI loop with `$TOWER_AGENT` (impostor → `not_found`, no identity → usage error) | pass |
+| 2026-09-27 | `stop --remove` on an agent that had owned a job → FK error after the pane was closed | fixed `65f223d` (regression test fails before, passes after) |
+| 2026-09-27 | T5.1 / T5.2 real-pi e2e | **blocked**: pi's provider auth fails in any shell (`401 Invalid bearer token`), independent of tower |

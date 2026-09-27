@@ -140,13 +140,20 @@ async fn respond_unknown_message_404s() {
     assert_eq!(v["error"]["code"], "not_found");
 }
 
+/// claude's tool-permission menu; option 2 widens the grant.
+const PERMISSION_MENU: &str = " Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for echo commands in /tmp
+   3. No, and tell Claude what to do differently (esc)";
+
 #[tokio::test]
 async fn approval_respond_sends_keys_once() {
     let ctx = common::boot().await;
     ctx.spawn("backend", "claude").await;
+    ctx.harness.append_output("backend", PERMISSION_MENU);
     let id = ctx.ask_operator("backend", "approval", 300).await;
 
-    // approve → keys `1` (D§8.2), not a text prompt
+    // approve → confirm the plain "Yes" (D§8.2), not a text prompt
     let (status, v) = ctx
         .req(
             "POST",
@@ -158,7 +165,7 @@ async fn approval_respond_sends_keys_once() {
     assert_eq!(v["message"]["status"], "answered");
     assert_eq!(
         ctx.harness.keys(),
-        vec![("backend".into(), vec!["1".into()])]
+        vec![("backend".into(), vec!["enter".into()])]
     );
     assert!(ctx.harness.prompts().is_empty());
 
@@ -175,9 +182,10 @@ async fn approval_respond_sends_keys_once() {
 }
 
 #[tokio::test]
-async fn approval_deny_sends_key_two() {
+async fn approval_deny_is_escape_never_option_two() {
     let ctx = common::boot().await;
     ctx.spawn("backend", "claude").await;
+    ctx.harness.append_output("backend", PERMISSION_MENU);
     let id = ctx.ask_operator("backend", "approval", 300).await;
     let (status, v) = ctx
         .req(
@@ -187,10 +195,33 @@ async fn approval_deny_sends_key_two() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{v}");
+    // `2` would be "Yes, and don't ask again" — deny must be esc
     assert_eq!(
         ctx.harness.keys(),
-        vec![("backend".into(), vec!["2".into()])]
+        vec![("backend".into(), vec!["esc".into()])]
     );
+}
+
+#[tokio::test]
+async fn approve_without_a_safe_yes_on_screen_fails_instead_of_guessing() {
+    let ctx = common::boot().await;
+    ctx.spawn("backend", "claude").await;
+    ctx.harness.append_output(
+        "backend",
+        " Allow edits?\n ❯ 1. Yes, allow all edits during this session\n   2. No",
+    );
+    let id = ctx.ask_operator("backend", "approval", 300).await;
+    let (status, v) = ctx
+        .req(
+            "POST",
+            &format!("/v1/messages/{id}/respond"),
+            Some(serde_json::json!({"approve": true})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{v}");
+    assert_eq!(v["error"]["code"], "driver");
+    assert!(ctx.harness.keys().is_empty(), "no key sent");
+    assert_eq!(ctx.status_of(&id).await, "failed");
 }
 
 #[tokio::test]

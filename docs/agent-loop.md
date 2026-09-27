@@ -46,7 +46,7 @@ it fails with `lease_exhausted` instead.
 **Blocked on a human**: when you block (question or permission prompt),
 tower marks your job `input-required` and **pauses lease expiry** — a slow
 human never costs you the job. The answer arrives as a prompt (questions)
-or keys `1`/`2` (approvals); your job resumes `working` with a fresh lease.
+or as your dialog being answered (approvals); your job resumes `working` with a fresh lease.
 If nobody answers before the deadline (default 5 min), questions come back
 as "proceed with your default or stop", and approvals are **denied**.
 

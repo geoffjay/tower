@@ -51,7 +51,7 @@ async fn expired_approval_is_denied_never_granted() {
 
     assert_eq!(
         ctx.harness.keys(),
-        vec![("coder".to_string(), vec!["2".to_string()])]
+        vec![("coder".to_string(), vec!["esc".to_string()])]
     );
     assert!(ctx.harness.prompts().is_empty());
     assert_eq!(ctx.event_count("approval.expired").await, 1);

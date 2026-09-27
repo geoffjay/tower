@@ -287,7 +287,7 @@ async fn ask(name: String, text: String, deadline_s: Option<i64>) -> anyhow::Res
 
 async fn approve(msg_id: String, deny: bool, answer: Option<String>) -> anyhow::Result<()> {
     let c = client(None).await?;
-    // Approvals use `approve` (keys 1/2); questions use the answer text.
+    // Approvals use `approve` (the server answers the dialog); questions use the answer text.
     let mut body = serde_json::json!({ "approve": !deny });
     if let Some(a) = answer {
         body["parts"] = serde_json::json!([{ "text": a }]);
@@ -407,13 +407,16 @@ async fn read(cli: Cli) -> anyhow::Result<()> {
 
 async fn stream(name: String, token: Option<String>) -> anyhow::Result<()> {
     let c = client(token).await?;
+    // events carry the agent id as subject; resolve the name once
+    let id = c.get(&format!("/v1/agents/{name}")).await?["agent"]["id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("agent {name} not found"))?
+        .to_string();
     // seed with a read, then follow the SSE bus filtered to this agent
     let v = c.get(&format!("/v1/agents/{name}/read")).await?;
     print!("{}", v["output"].as_str().unwrap_or(""));
     let resp = c
-        .stream(&format!(
-            "/v1/events?subject=agent:{name}&filter=type:agent"
-        ))
+        .stream(&format!("/v1/events?subject=agent:{id}&filter=type:agent"))
         .await?;
     use futures::StreamExt;
     let mut stream = resp.bytes_stream();

@@ -251,6 +251,14 @@ impl Harness for HerdrDriver {
         loop {
             match self.run_json(&args).await {
                 Ok(_) => return Ok(pane_id),
+                // the harness launched but stopped at a prompt (claude's
+                // folder-trust dialog): it exists and is `blocked` — tower
+                // surfaces that as an inbox approval, like any other block
+                Err(DriverError::Herdr { code, message })
+                    if code == "agent_not_ready" && message.contains("blocked") =>
+                {
+                    return Ok(pane_id)
+                }
                 Err(DriverError::Herdr { code, .. })
                     if code == "agent_pane_busy" && std::time::Instant::now() < deadline =>
                 {

@@ -27,7 +27,7 @@ pub trait Harness: Send + Sync {
     async fn start(&self, spec: &AgentSpec) -> Result<Handle>;
     async fn prompt(&self, h: &Handle, text: &str, wait: bool) -> Result<()>;
     async fn interrupt(&self, h: &Handle) -> Result<()>;
-    async fn send_keys(&self, h: &Handle, keys: &[String]) -> Result<()>; // approvals 1/2
+    async fn send_keys(&self, h: &Handle, keys: &[String]) -> Result<()>; // dialog answers
     async fn read(&self, h: &Handle, source: ReadSource) -> Result<ReadResult>;
     async fn snapshot(&self) -> Result<Vec<PaneAgentState>>;
     fn events(&self) -> BoxStream<HarnessEvent>;   // state changes, output
@@ -59,7 +59,14 @@ Two implementations:
 - Classic renderer preferred (scrollback; openrig's finding)
 - tower never writes to `~/.claude.json` or hooks by default — trust and
   permission prompts are surfaced via `blocked` state, answered through the
-  inbox (send-keys `1`/`2` on approval messages). Claude hook integrations
+  inbox. Answers never use fixed digits — claude's menus are
+  position-dependent (the folder-trust dialog lists "No, exit" first; in
+  the tool prompt option 2 is "Yes, and don't ask again", so a fixed `2`
+  "deny" would grant a *permanent* permission). **Deny = `esc`**;
+  **approve = move the `❯` cursor to the first plain "Yes" option** (never
+  one that widens the grant: "don't ask again", "all …", "this session")
+  and press `enter`; if the visible screen has no such option, delivery
+  fails and the operator answers in herdr. Claude hook integrations
   (activity relay) are opt-in later.
 
 ## 8.3 pi (ohmypi) specifics

@@ -7,8 +7,8 @@
 //! `failed`.
 //!
 //! Responding to an agent's question prompts the agent with the answer;
-//! responding to an agent's approval sends keys `1` (approve) / `2` (deny)
-//! (D§8.2). The pending → answered transition is a CAS, so a double respond
+//! responding to an agent's approval answers its on-screen dialog
+//! (`dialog`, D§8.2: deny = esc, approve = first plain "Yes"). The pending → answered transition is a CAS, so a double respond
 //! can never deliver twice.
 
 use axum::extract::{Path, Query, State};
@@ -61,8 +61,8 @@ pub struct SendBody {
 pub struct RespondBody {
     #[serde(default)]
     pub parts: Vec<Part>,
-    /// Required for approval messages: true = approve (keys `1`),
-    /// false = deny (keys `2`). Ignored for questions.
+    /// Required for approval messages: true = approve, false = deny
+    /// (`dialog::answer_keys`). Ignored for questions.
     #[serde(default)]
     pub approve: Option<bool>,
 }
@@ -228,8 +228,7 @@ pub async fn respond(
 
     if existing.from_kind == PartyKind::Agent {
         let delivered = if existing.kind == MessageKind::Approval {
-            let key = if approve == Some(true) { "1" } else { "2" };
-            deliver_keys(state, &existing.from_id, &[key.to_string()]).await
+            answer_dialog(state, &existing.from_id, approve == Some(true)).await
         } else {
             deliver_prompt(state, &existing.from_id, parts).await
         };
@@ -253,6 +252,66 @@ pub async fn respond(
     get_message(state, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("message {id} vanished after respond"))
+}
+
+/// Blocked agent → operator inbox (D§9.3, T2.1). One open item per blocked
+/// episode: skipped while the agent already has a pending question/approval
+/// to the operator (detection flapping never spams). claude's `blocked` is a
+/// permission prompt → `approval` (D§8.2); others → `question`.
+/// The recent pane text rides along as a data part.
+pub async fn inbox_for_blocked(state: &AppState, agent: &tower_core::Agent) -> anyhow::Result<()> {
+    let open: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM messages
+         WHERE from_kind='agent' AND from_id=?1 AND to_kind='human'
+           AND kind IN ('question', 'approval') AND status='pending'
+         LIMIT 1",
+    )
+    .bind(&agent.name)
+    .fetch_optional(&state.pool)
+    .await?;
+    if open.is_some() {
+        return Ok(());
+    }
+    let context = state
+        .driver
+        .read(&agent.name, tower_driver::ReadSource::Recent, false)
+        .await
+        .map(|r| r.text)
+        .unwrap_or_default();
+    let skip = context.chars().count().saturating_sub(2000);
+    let context_tail: String = context.chars().skip(skip).collect();
+    let kind = if agent.kind == "claude" {
+        MessageKind::Approval
+    } else {
+        MessageKind::Question
+    };
+    // the job the agent is blocked on, when it owns one
+    let task_id: Option<String> = sqlx::query_scalar(
+        "SELECT id FROM tasks WHERE owner_id = ?1 AND state = 'input-required' LIMIT 1",
+    )
+    .bind(agent.id.0.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    let task_id = task_id.map(TaskId::from);
+    let parts = [
+        Part::text(format!("{} is blocked and waiting for input.", agent.name)),
+        Part::data(serde_json::json!({ "context": context_tail })),
+    ];
+    insert(
+        state,
+        NewMessage {
+            task_id: task_id.as_ref(),
+            from_kind: PartyKind::Agent,
+            from_id: &agent.name,
+            to_kind: PartyKind::Human,
+            to_id: "me",
+            kind,
+            parts: &parts,
+            deadline_s: None,
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 /// Set a message status + `message.status` event.
@@ -294,13 +353,31 @@ pub async fn deliver_prompt(state: &AppState, to: &str, parts: &[Part]) -> anyho
     Ok(())
 }
 
-async fn deliver_keys(state: &AppState, to: &str, keys: &[String]) -> anyhow::Result<()> {
+/// Answer the approval dialog on an agent's screen (D§8.2, `dialog`):
+/// deny = `esc`; approve = navigate to the first plain "Yes" + `enter`, or
+/// fail if the screen shows no such option — never a guessed key.
+pub async fn answer_dialog(state: &AppState, to: &str, approve: bool) -> anyhow::Result<()> {
     let agent = crate::inventory::get_agent(state, to)
         .await?
         .ok_or_else(|| TowerError::not_found(format!("agent {to} not found")))?;
     let guard = crate::sessions::lock_for(&agent.name);
     let _guard = guard.lock().await;
-    state.driver.send_keys(&agent.name, keys).await?;
+    let screen = if approve {
+        state
+            .driver
+            .read(&agent.name, tower_driver::ReadSource::Visible, false)
+            .await?
+            .text
+    } else {
+        String::new()
+    };
+    let keys = crate::dialog::answer_keys(&screen, approve).ok_or_else(|| {
+        TowerError::driver(format!(
+            "no plain 'Yes' option on {}'s screen; answer the dialog in herdr",
+            agent.name
+        ))
+    })?;
+    state.driver.send_keys(&agent.name, &keys).await?;
     Ok(())
 }
 

@@ -64,3 +64,35 @@ async fn blocked_claude_agent_opens_an_approval() {
     .await;
     assert_eq!(n, 1);
 }
+
+/// Seen live: claude blocks on its folder-trust dialog before tower's row
+/// exists, so the first observers are spawn's reconcile and the pump's
+/// `AgentUp` — no `StateChange` ever fires. Each path must still yield
+/// exactly one inbox item.
+#[tokio::test]
+async fn blocked_first_seen_by_reconcile_then_pump_opens_one_item() {
+    let ctx = common::boot().await;
+    ctx.spawn("coder", "claude").await;
+    ctx.harness.set_state("coder", HarnessState::Blocked);
+
+    tower_server::inventory::reconcile(&ctx.state)
+        .await
+        .unwrap();
+    tower_server::inventory::reconcile(&ctx.state)
+        .await
+        .unwrap();
+    // the pump's first poll reports the same agent as AgentUp(blocked)
+    let snap = tower_driver::Harness::snapshot(&ctx.harness).await.unwrap();
+    ctx.harness
+        .push_event(HarnessEvent::AgentUp(snap[0].clone()));
+    let _pump = tower_server::pump::spawn(ctx.state.clone());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let sql = "SELECT COUNT(*) FROM messages WHERE from_id='coder' AND kind='approval'";
+    assert_eq!(wait_count(&ctx, sql).await, 1);
+    assert_eq!(
+        ctx.event_count("agent.state").await,
+        2,
+        "launching→idle, idle→blocked"
+    );
+}

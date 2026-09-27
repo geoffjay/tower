@@ -74,15 +74,8 @@ pub async fn sweep_deadlines(state: &AppState, now: i64) -> anyhow::Result<usize
         }
         let kind: MessageKind = parse_enum(kind);
         let notified = if kind == MessageKind::Approval {
-            // an unattended permission is never granted: deny (D§9.3)
-            match crate::inventory::get_agent(state, &from_id).await? {
-                Some(agent) => state
-                    .driver
-                    .send_keys(&agent.name, &["2".to_string()])
-                    .await
-                    .map_err(anyhow::Error::from),
-                None => Ok(()),
-            }
+            // an unattended permission is never granted: deny = esc (D§9.3)
+            messaging::answer_dialog(state, &from_id, false).await
         } else {
             messaging::deliver_prompt(state, &from_id, &[Part::text(EXPIRED_QUESTION_PROMPT)]).await
         };
