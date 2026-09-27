@@ -457,3 +457,43 @@ fn palette_commands() {
     run(&mut a, "q");
     assert!(a.quit);
 }
+
+#[test]
+fn long_input_scrolls_to_keep_the_cursor_visible() {
+    let mut a = mixed();
+    a.on_key(key('i'));
+    let long: String = (0..90).map(|i| char::from(b'a' + (i % 26) as u8)).collect();
+    for c in long.chars() {
+        a.on_key(key(c));
+    }
+    let frame = text(&mut a, 60, 8);
+    let bottom = frame.lines().last().unwrap();
+    assert!(bottom.starts_with("prompt api › "), "{bottom}");
+    assert!(bottom.ends_with(&long[long.len() - 20..]), "{bottom}");
+}
+
+#[test]
+fn approval_context_shows_the_screen_tail_not_json() {
+    let mut a = mixed();
+    let mut m = message(
+        "M1",
+        "c1",
+        MessageKind::Approval,
+        "c1 is blocked and waiting for input.",
+        240_000,
+    );
+    m.parts.push(Part::data(serde_json::json!({
+        "context": "(eval): shell noise\n\n\n Accessing workspace:\n\n /private/tmp/x\n\n ❯ 1. Yes, I trust this folder\n   2. No, exit\n\n Enter to confirm · Esc to cancel\n"
+    })));
+    a.store.load(Loaded::Inbox(vec![m]));
+    a.on_key(key('2'));
+    let frame = text(&mut a, 80, 12);
+    assert!(
+        !frame.contains("\\n") && !frame.contains("{\"context\""),
+        "{frame}"
+    );
+    // the dialog (bottom of the capture) is what fits, not the shell noise
+    assert!(frame.contains("❯ 1. Yes, I trust this folder"), "{frame}");
+    assert!(frame.contains("Enter to confirm"), "{frame}");
+    assert!(!frame.contains("shell noise"), "{frame}");
+}

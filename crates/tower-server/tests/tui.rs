@@ -188,6 +188,15 @@ async fn prompt_input_posts_to_the_agent() {
         l.app.toast.as_ref().map(|t| t.text.as_str()),
         Some("prompt delivered → writer")
     );
+    // the prompt is a message row: the open history picks it up off the bus
+    l.until(|a| {
+        a.store.history.as_ref().is_some_and(|(_, m)| {
+            m.iter()
+                .any(|m| m.parts[0].text.as_deref() == Some("summarize the repo"))
+        })
+    })
+    .await;
+    assert!(l.frame().contains("me → writer prompt"));
 }
 
 #[tokio::test]

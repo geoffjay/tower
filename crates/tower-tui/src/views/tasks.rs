@@ -522,9 +522,11 @@ fn render_detail(f: &mut Frame, area: Rect, id: &TaskId, ctx: &Ctx) {
     ];
     if let Some(o) = &t.owner_id {
         state.push(Span::raw(format!("  owner {}", ctx.store.name_of(o))));
-        let (lease, style) = lease_cell(t, ctx.now);
-        state.push(Span::raw("  lease "));
-        state.push(Span::styled(lease, style));
+        if !t.state.is_terminal() {
+            let (lease, style) = lease_cell(t, ctx.now);
+            state.push(Span::raw("  lease "));
+            state.push(Span::styled(lease, style));
+        }
     } else if t.state == TaskState::Queued {
         state.push(Span::raw(format!("  {}", waiting_for(t, ctx))));
     }

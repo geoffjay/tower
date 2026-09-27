@@ -79,7 +79,15 @@ async fn prompt(
     Path(id): Path<String>,
     Json(body): Json<PromptBody>,
 ) -> impl IntoResponse {
-    match crate::sessions::prompt(&state, &id, &body.text, body.wait).await {
+    match crate::sessions::prompt(
+        &state,
+        &id,
+        &body.text,
+        body.wait,
+        crate::sessions::OPERATOR,
+    )
+    .await
+    {
         Ok(o) => Json(serde_json::json!({ "ok": true, "state": o.state, "stalled": o.stalled }))
             .into_response(),
         Err(e) => crate::http::error_response(e),

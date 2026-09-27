@@ -126,7 +126,7 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
 
     // first prompt, if requested
     if let Some(text) = req.prompt {
-        let _ = prompt(state, &req.name, &text, false).await;
+        let _ = prompt(state, &req.name, &text, false, OPERATOR).await;
     }
 
     // refresh state from the harness (launching → idle typically)
@@ -172,11 +172,17 @@ pub struct PromptOutcome {
     pub stalled: bool,
 }
 
+/// The operator as a message party (`from` of operator prompts).
+pub const OPERATOR: (tower_core::PartyKind, &str) = (tower_core::PartyKind::Human, "me");
+
+/// Prompt an agent (D§7): drive the harness, then record the `prompt`
+/// message row so it shows in the agent's history (`?agent=`, D§11.1).
 pub async fn prompt(
     state: &AppState,
     name: &str,
     text: &str,
     wait: bool,
+    from: (tower_core::PartyKind, &str),
 ) -> anyhow::Result<PromptOutcome> {
     let agent = crate::inventory::get_agent(state, name)
         .await?
@@ -191,15 +197,20 @@ pub async fn prompt(
     // reconcile below can dispatch a reserved job to this agent, which
     // prompts it — that takes this lock again
     drop(prompting);
-    state
-        .events
-        .append(
-            tower_core::EventKind::MessageCreated,
-            Some("agent"),
-            Some(&agent.id.0),
-            serde_json::json!({"kind": "prompt", "text": text, "wait": wait}),
-        )
-        .await?;
+    crate::messaging::insert(
+        state,
+        crate::messaging::NewMessage {
+            task_id: None,
+            from_kind: from.0,
+            from_id: from.1,
+            to_kind: tower_core::PartyKind::Agent,
+            to_id: &agent.name,
+            kind: tower_core::MessageKind::Prompt,
+            parts: &[tower_core::Part::text(text)],
+            deadline_s: None,
+        },
+    )
+    .await?;
     // refresh state from harness truth (prompt often flips working)
     let _ = crate::inventory::reconcile(state).await;
     let now = crate::inventory::get_agent(state, &agent.name)

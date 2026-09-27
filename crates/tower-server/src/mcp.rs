@@ -193,7 +193,11 @@ async fn call_tool(
             let target: String = req_arg(args, "name")?;
             let text: String = req_arg(args, "text")?;
             let wait = arg::<bool>(args, "wait")?.unwrap_or(false);
-            let o = crate::sessions::prompt(state, &target, &text, wait).await?;
+            let from = match caller {
+                Some(c) => (tower_core::PartyKind::Agent, c),
+                None => crate::sessions::OPERATOR,
+            };
+            let o = crate::sessions::prompt(state, &target, &text, wait, from).await?;
             json!({ "ok": true, "state": o.state, "stalled": o.stalled })
         }
         "tower_send" => {

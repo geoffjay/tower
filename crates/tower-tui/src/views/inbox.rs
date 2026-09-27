@@ -75,8 +75,11 @@ impl Inbox {
             );
             return;
         }
+        // the list takes what its rows need (up to a third); the detail —
+        // with the captured screen — gets the rest
+        let list_h = (msgs.len() as u16 + 1).min((area.height / 3).max(4));
         let [list, detail] =
-            Layout::vertical([Constraint::Min(3), Constraint::Length(9)]).areas(area);
+            Layout::vertical([Constraint::Length(list_h + 1), Constraint::Min(4)]).areas(area);
         let ids: Vec<&MessageId> = msgs.iter().map(|m| &m.id).collect();
         let idx = super::index_of(&ids, &self.sel.as_ref());
         self.table.select(idx);
@@ -124,9 +127,32 @@ fn row<'a>(m: &'a Message, ctx: &Ctx) -> Row<'a> {
     ])
 }
 
+/// A data part as display lines. Blocked-agent items carry the captured
+/// screen as `{"context": "..."}`; show it as text, blank rows dropped.
+fn context_lines(d: &serde_json::Value) -> Vec<String> {
+    let text = |s: &str| -> Vec<String> {
+        s.lines()
+            .map(str::trim_end)
+            .filter(|l| !l.trim().is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    match d {
+        serde_json::Value::Object(m) => m
+            .iter()
+            .flat_map(|(k, v)| match v.as_str() {
+                Some(s) => text(s),
+                None => vec![format!("{k}: {v}")],
+            })
+            .collect(),
+        serde_json::Value::String(s) => text(s),
+        other => vec![other.to_string()],
+    }
+}
+
 fn render_detail(f: &mut Frame, area: Rect, m: &Message, ctx: &Ctx) {
     let (exp, exp_style) = expires(m, ctx.now);
-    let mut lines = vec![Line::from(vec![
+    let mut head = vec![Line::from(vec![
         Span::styled(m.id.0.clone(), super::dim()),
         Span::raw(format!(
             "  {} from {} · expires ",
@@ -135,12 +161,17 @@ fn render_detail(f: &mut Frame, area: Rect, m: &Message, ctx: &Ctx) {
         )),
         Span::styled(exp, exp_style),
     ])];
+    let mut context: Vec<Line> = Vec::new();
     for p in &m.parts {
         if let Some(t) = &p.text {
-            lines.extend(t.lines().map(|l| Line::raw(l.to_string())));
+            head.extend(t.lines().map(|l| Line::raw(l.to_string())));
         }
         if let Some(d) = &p.data {
-            lines.push(Line::styled(format!("context: {d}"), super::dim()));
+            context.extend(
+                context_lines(d)
+                    .into_iter()
+                    .map(|l| Line::styled(l, super::dim())),
+            );
         }
     }
     let hint = if m.kind == MessageKind::Approval {
@@ -148,10 +179,16 @@ fn render_detail(f: &mut Frame, area: Rect, m: &Message, ctx: &Ctx) {
     } else {
         "y yes · n no · r reply"
     };
-    f.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(Block::bordered().title(format!(" {hint} "))),
-        area,
-    );
+    let block = Block::bordered().title(format!(" {hint} "));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let [top, rest] = Layout::vertical([
+        Constraint::Length((head.len() as u16).min(inner.height)),
+        Constraint::Min(0),
+    ])
+    .areas(inner);
+    f.render_widget(Paragraph::new(head).wrap(Wrap { trim: false }), top);
+    // the screen's last rows hold the dialog being asked about
+    let skip = context.len().saturating_sub(rest.height as usize);
+    f.render_widget(Paragraph::new(context).scroll((skip as u16, 0)), rest);
 }

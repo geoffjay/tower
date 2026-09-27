@@ -17,6 +17,9 @@ use tower_core::{
 /// Events kept for the events view.
 pub const EVENTS_CAP: usize = 2000;
 
+/// Closed jobs kept client-side (the recent pane shows 10).
+pub const CLOSED_KEEP: usize = 100;
+
 /// Something to (re)load from `/v1`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Fetch {
@@ -193,11 +196,15 @@ impl Store {
                 a.sort_by(|x, y| x.name.cmp(&y.name));
                 self.agents = a;
             }
-            Loaded::Tasks(t) => self.tasks = t.into_iter().map(|t| (t.id.clone(), t)).collect(),
+            Loaded::Tasks(t) => {
+                self.tasks = t.into_iter().map(|t| (t.id.clone(), t)).collect();
+                self.prune_closed();
+            }
             Loaded::TasksDelta(t) => {
                 for t in t {
                     self.upsert_task(t);
                 }
+                self.prune_closed();
             }
             Loaded::Schedules(s) => self.schedules = s,
             Loaded::Inbox(m) => self.inbox = m,
@@ -208,6 +215,24 @@ impl Store {
                 self.upsert_task(d.task.clone());
                 self.task_detail = Some(*d);
             }
+        }
+    }
+
+    /// Keep every open job but only the latest `CLOSED_KEEP` closed ones:
+    /// the job history grows forever server-side, a long-running TUI must not.
+    fn prune_closed(&mut self) {
+        let mut closed: Vec<(i64, TaskId)> = self
+            .tasks
+            .values()
+            .filter(|t| t.state.is_terminal())
+            .map(|t| (t.updated_at, t.id.clone()))
+            .collect();
+        if closed.len() <= CLOSED_KEEP {
+            return;
+        }
+        closed.sort_unstable_by_key(|c| std::cmp::Reverse(c.0));
+        for (_, id) in closed.drain(CLOSED_KEEP..) {
+            self.tasks.remove(&id);
         }
     }
 
@@ -272,5 +297,38 @@ impl Store {
             }
         }
         c
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task(n: i64, state: TaskState) -> Task {
+        serde_json::from_value(serde_json::json!({
+            "id": format!("t{n}"), "origin": "cli", "title": "x", "state": state,
+            "priority": 0, "tags": [], "attempt_count": 0, "max_attempts": 3,
+            "lease_s": 60, "created_at": n, "updated_at": n,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn closed_jobs_are_bounded_open_ones_never_dropped() {
+        let mut s = Store::default();
+        let mut all: Vec<Task> = (0..150).map(|n| task(n, TaskState::Completed)).collect();
+        all.push(task(-1, TaskState::Working)); // oldest of all, but open
+        s.load(Loaded::Tasks(all));
+        assert_eq!(s.tasks.len(), CLOSED_KEEP + 1);
+        assert!(s.tasks.contains_key(&TaskId("t-1".into())));
+        assert!(s.tasks.contains_key(&TaskId("t149".into())));
+        assert!(
+            !s.tasks.contains_key(&TaskId("t49".into())),
+            "oldest closed pruned"
+        );
+        // deltas prune too
+        s.load(Loaded::TasksDelta(vec![task(200, TaskState::Failed)]));
+        assert_eq!(s.tasks.len(), CLOSED_KEEP + 1);
+        assert!(!s.tasks.contains_key(&TaskId("t50".into())));
     }
 }

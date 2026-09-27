@@ -692,15 +692,19 @@ impl App {
     fn render_bottom(&self, f: &mut Frame, area: Rect) {
         if let Some((purpose, line)) = &self.input {
             let label = purpose.label();
-            let w = label.chars().count() as u16;
+            let w = label.chars().count();
+            // scroll horizontally so the cursor stays visible in long input
+            let room = (area.width as usize).saturating_sub(w + 1).max(1);
+            let start = line.cursor().saturating_sub(room);
+            let shown: String = line.text().chars().skip(start).take(room + 1).collect();
             f.render_widget(
                 Paragraph::new(Line::from(vec![
                     Span::styled(label, Style::new().fg(Color::Cyan)),
-                    Span::raw(line.text().to_string()),
+                    Span::raw(shown),
                 ])),
                 area,
             );
-            let x = area.x + w + line.cursor() as u16;
+            let x = area.x + (w + line.cursor() - start) as u16;
             f.set_cursor_position((x.min(area.right().saturating_sub(1)), area.y));
             return;
         }

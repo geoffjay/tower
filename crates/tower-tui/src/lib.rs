@@ -84,6 +84,9 @@ async fn event_loop(
             batch.push(m);
         }
         for m in batch {
+            // countdowns and toast lifetimes use the real clock, not the
+            // last tick (an attach blocks the loop for as long as it lasts)
+            app.now = tower_core::now_ms();
             let effects = match m {
                 Msg::Key(k) => app.on_key(k),
                 Msg::Redraw => Vec::new(),
@@ -118,6 +121,7 @@ async fn event_loop(
                     }
                     Effect::Attach { target } => {
                         let r = attach(terminal, paused, &target).await;
+                        app.now = tower_core::now_ms();
                         app.on_api(r);
                     }
                 }
