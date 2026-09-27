@@ -276,11 +276,34 @@ pub enum EventKind {
 }
 
 impl EventKind {
+    /// Wire name (the serde rename). A plain match: this runs per event
+    /// per SSE subscriber, so it must not allocate.
     pub fn as_str(&self) -> &'static str {
-        serde_json::to_value(self)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_default()
-            .leak()
+        match self {
+            EventKind::ServerStarted => "server.started",
+            EventKind::AgentCreated => "agent.created",
+            EventKind::AgentRemoved => "agent.removed",
+            EventKind::AgentStateChange => "agent.state",
+            EventKind::AgentOutput => "agent.output",
+            EventKind::TaskCreated => "task.created",
+            EventKind::TaskStatus => "task.status",
+            EventKind::TaskAssigned => "task.assigned",
+            EventKind::TaskLeasedOut => "task.leased_out",
+            EventKind::TaskCompleted => "task.completed",
+            EventKind::TaskFailed => "task.failed",
+            EventKind::TaskReserved => "task.reserved",
+            EventKind::ScheduleCreated => "schedule.created",
+            EventKind::ScheduleFired => "schedule.fired",
+            EventKind::ScheduleSkipped => "schedule.skipped",
+            EventKind::SchedulePaused => "schedule.paused",
+            EventKind::ScheduleResumed => "schedule.resumed",
+            EventKind::ScheduleRemoved => "schedule.removed",
+            EventKind::MessageCreated => "message.created",
+            EventKind::MessageStatusChange => "message.status",
+            EventKind::ApprovalExpired => "approval.expired",
+            EventKind::MachineState => "machine.state",
+            EventKind::NodeRegistered => "node.registered",
+            EventKind::NodeDisconnected => "node.disconnected",
+        }
     }
 }

@@ -127,6 +127,39 @@ fn event_envelope_shape() {
 }
 
 #[test]
+fn event_kind_as_str_is_the_wire_name() {
+    use EventKind::*;
+    for k in [
+        ServerStarted,
+        AgentCreated,
+        AgentRemoved,
+        AgentStateChange,
+        AgentOutput,
+        TaskCreated,
+        TaskStatus,
+        TaskAssigned,
+        TaskLeasedOut,
+        TaskCompleted,
+        TaskFailed,
+        TaskReserved,
+        ScheduleCreated,
+        ScheduleFired,
+        ScheduleSkipped,
+        SchedulePaused,
+        ScheduleResumed,
+        ScheduleRemoved,
+        MessageCreated,
+        MessageStatusChange,
+        ApprovalExpired,
+        MachineState,
+        NodeRegistered,
+        NodeDisconnected,
+    ] {
+        assert_eq!(serde_json::to_value(k).unwrap(), k.as_str(), "{k:?}");
+    }
+}
+
+#[test]
 fn error_envelope_codes() {
     assert_eq!(ErrorCode::Conflict.as_str(), "conflict");
     assert_eq!(ErrorCode::Conflict.http_status(), 409);
