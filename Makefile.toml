@@ -50,6 +50,6 @@ description = "Install necessary project dependencies"
 command = "cargo install --git https://github.com/geoffjay/okf --branch okf-web okf"
 
 # Build the knowledge base into a static HTML site (output: docs/knowledgebase/site/).
-[tasks.site]:
+[tasks.site]
 description = "Build OKF site"
 command = "okf site docs/knowledgebase"
