@@ -33,9 +33,14 @@ per agent; herdr prompts wait on detection anyway).
 
 Unified message store + delivery. "Delivery" to a human = the message appears
 in inbox queries + TUI + web UI (they poll/SSE; no push channel in v1).
-"Delivery" to an agent = driver `prompt`. Sweeper marks `pending`
-questions/approvals `expired` at `deadline_at` and notifies the agent with an
-`approval.expired` prompt ("proceed with defaults or stop").
+"Delivery" to an agent = driver `prompt`; approval responses are send-keys
+`1`/`2` ([§8.2](08-harness-layer.md)). A failed driver delivery marks the
+message `failed`. Sweeper marks `pending` questions/approvals `expired` at
+`deadline_at`. When the sender is an agent it is notified and an
+`approval.expired` event is emitted: an expired question prompts it
+("proceed with defaults or stop"); an expired approval is **denied** (keys
+`2`) — an unattended permission is never granted, and text typed into a
+permission menu is undefined.
 
 ## 9.4 tasks
 

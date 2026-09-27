@@ -66,9 +66,9 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
   integration test; verify dedup prevents duplicate prompts to the agent.
 - **T2.3** Deadline sweeper ([D§9.3](../concepts/design/09-server-modules.md)): `pending` questions/approvals expire at
   `deadline_at` (default 5 min, `deadline_s` override on send); expiry →
-  message `expired` + agent notified via prompt ("proceed with defaults or
-  stop") + `approval.expired` event. Verify: clock-injected unit tests at
-  boundary; sweep integration test.
+  message `expired` + agent notified (question: prompt "proceed with
+  defaults or stop"; approval: denied via keys `2`) + `approval.expired`
+  event. Verify: clock-injected unit tests at boundary; sweep integration test.
 
 ## Milestone 3 — Job queue ([D§5.2.1](../concepts/design/05-core-objects.md), [D§9.4](../concepts/design/09-server-modules.md), [job-queue decision](../decisions/job-queue.md))
 

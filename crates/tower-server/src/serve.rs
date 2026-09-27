@@ -96,7 +96,9 @@ pub async fn serve() -> anyhow::Result<()> {
     println!("  token   {} (0600)", paths.token_file.display());
 
     // driver event pump (T2.1): state changes, output events, blocked → question
-    tasks.push(crate::pump::spawn(pump_state));
+    tasks.push(crate::pump::spawn(pump_state.clone()));
+    // sweeper (T2.3): message deadlines
+    tasks.push(crate::sweeper::spawn(pump_state));
 
     tasks.push(tokio::spawn(async move {
         if let Err(e) = axum::serve(tcp_listener, tcp_app).await {
