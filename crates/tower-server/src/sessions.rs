@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use sqlx::Row;
-use tower_core::{Agent, AgentId, AgentState, MachineId};
+use tower_core::{Agent, AgentId, AgentState, MachineId, TowerError};
 use tower_driver::{AgentSpec, ReadSource};
 
 use crate::state::AppState;
@@ -157,13 +157,33 @@ pub struct PromptRequest {
     pub wait: bool,
 }
 
-pub async fn prompt(state: &AppState, name: &str, text: &str, wait: bool) -> anyhow::Result<()> {
+/// What a delivered prompt led to.
+#[derive(Debug, serde::Serialize)]
+pub struct PromptOutcome {
+    /// Agent state after delivery (harness truth, post-reconcile).
+    pub state: AgentState,
+    /// `--wait` saw no state change within herdr's 5s window. The prompt WAS
+    /// delivered (S1.A: not fatal) — the agent may have answered faster
+    /// than detection, or be at an error screen; read its output.
+    pub stalled: bool,
+}
+
+pub async fn prompt(
+    state: &AppState,
+    name: &str,
+    text: &str,
+    wait: bool,
+) -> anyhow::Result<PromptOutcome> {
     let agent = crate::inventory::get_agent(state, name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("agent {name} not found"))?;
+        .ok_or_else(|| TowerError::not_found(format!("agent {name} not found")))?;
     let guard = lock_for(name);
     let _guard = guard.lock().await;
-    state.driver.prompt(&agent.name, text, wait).await?;
+    let stalled = match state.driver.prompt(&agent.name, text, wait).await {
+        Ok(()) => false,
+        Err(tower_driver::DriverError::PromptStalled(_)) => true,
+        Err(e) => return Err(e.into()),
+    };
     state
         .events
         .append(
@@ -175,13 +195,20 @@ pub async fn prompt(state: &AppState, name: &str, text: &str, wait: bool) -> any
         .await?;
     // refresh state from harness truth (prompt often flips working)
     let _ = crate::inventory::reconcile(state).await;
-    Ok(())
+    let now = crate::inventory::get_agent(state, &agent.name)
+        .await?
+        .map(|a| a.state)
+        .unwrap_or(agent.state);
+    Ok(PromptOutcome {
+        state: now,
+        stalled,
+    })
 }
 
 pub async fn interrupt(state: &AppState, name: &str) -> anyhow::Result<()> {
     let agent = crate::inventory::get_agent(state, name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("agent {name} not found"))?;
+        .ok_or_else(|| TowerError::not_found(format!("agent {name} not found")))?;
     state.driver.interrupt(&agent.name).await?;
     Ok(())
 }
@@ -189,7 +216,7 @@ pub async fn interrupt(state: &AppState, name: &str) -> anyhow::Result<()> {
 pub async fn read(state: &AppState, name: &str, ansi: bool) -> anyhow::Result<String> {
     let agent = crate::inventory::get_agent(state, name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("agent {name} not found"))?;
+        .ok_or_else(|| TowerError::not_found(format!("agent {name} not found")))?;
     let source = if ansi {
         ReadSource::Visible
     } else {
@@ -201,7 +228,7 @@ pub async fn read(state: &AppState, name: &str, ansi: bool) -> anyhow::Result<St
 pub async fn stop(state: &AppState, name: &str, remove: bool) -> anyhow::Result<()> {
     let agent = crate::inventory::get_agent(state, name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("agent {name} not found"))?;
+        .ok_or_else(|| TowerError::not_found(format!("agent {name} not found")))?;
     let guard = lock_for(name);
     let _guard = guard.lock().await;
     // pane first: an agent must be gone before its jobs are requeued, or it

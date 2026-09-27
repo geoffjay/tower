@@ -175,8 +175,8 @@ async fn call_tool(
             let target: String = req_arg(args, "name")?;
             let text: String = req_arg(args, "text")?;
             let wait = arg::<bool>(args, "wait")?.unwrap_or(false);
-            crate::sessions::prompt(state, &target, &text, wait).await?;
-            json!({ "ok": true })
+            let o = crate::sessions::prompt(state, &target, &text, wait).await?;
+            json!({ "ok": true, "state": o.state, "stalled": o.stalled })
         }
         "tower_send" => {
             let body = crate::messaging::SendBody {

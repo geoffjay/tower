@@ -25,6 +25,9 @@ struct Inner {
     next_pane: usize,
     /// Recorded send-keys calls: (name, keys)
     keys: Vec<(String, Vec<String>)>,
+    /// Answer prompts like herdr's `--wait` when detection never moves:
+    /// recorded (delivered) but `PromptStalled`.
+    stall_prompts: bool,
     /// Scripted events for `events()`; drained by the pump in tests.
     scripted: std::collections::VecDeque<HarnessEvent>,
 }
@@ -89,6 +92,12 @@ impl FakeHarness {
         self.inner.lock().prompts.clone()
     }
 
+    /// Make prompts deliver but report `PromptStalled` (seen live with omp:
+    /// it answered before herdr detection ever saw `working`).
+    pub fn stall_prompts(&self, on: bool) {
+        self.inner.lock().stall_prompts = on;
+    }
+
     pub fn keys(&self) -> Vec<(String, Vec<String>)> {
         self.inner.lock().keys.clone()
     }
@@ -135,13 +144,21 @@ impl Harness for FakeHarness {
 
     async fn prompt(&self, name: &str, text: &str, wait: bool) -> Result<(), DriverError> {
         let mut i = self.inner.lock();
+        let stall = i.stall_prompts;
         let a = i
             .agents
             .iter_mut()
             .find(|a| a.name == name && a.up)
             .ok_or_else(|| DriverError::NotFound(name.into()))?;
-        a.state = HarnessState::Working;
+        if !stall {
+            a.state = HarnessState::Working;
+        }
         i.prompts.push((name.into(), text.into(), wait));
+        if stall {
+            return Err(DriverError::PromptStalled(format!(
+                "{name}: no observed state change within 5000 ms"
+            )));
+        }
         Ok(())
     }
 

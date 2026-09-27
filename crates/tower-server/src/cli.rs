@@ -376,13 +376,20 @@ async fn prompt(cli: Cli) -> anyhow::Result<()> {
         unreachable!()
     };
     let c = client(cli.token).await?;
-    c.post(
-        &format!("/v1/agents/{name}/prompt"),
-        Some(serde_json::json!({"text": text, "wait": wait})),
-    )
-    .await?;
-    if wait {
-        println!("prompt delivered; agent settled");
+    let v = c
+        .post(
+            &format!("/v1/agents/{name}/prompt"),
+            Some(serde_json::json!({"text": text, "wait": wait})),
+        )
+        .await?;
+    let state = v["state"].as_str().unwrap_or("unknown");
+    if v["stalled"] == true {
+        println!(
+            "prompt delivered; herdr saw no state change within 5s (now {state}) — \
+             the agent may have answered instantly; check `tower read {name}`"
+        );
+    } else if wait {
+        println!("prompt delivered; settled in {state}");
     } else {
         println!("prompt delivered");
     }

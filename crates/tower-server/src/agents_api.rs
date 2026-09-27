@@ -80,15 +80,16 @@ async fn prompt(
     Json(body): Json<PromptBody>,
 ) -> impl IntoResponse {
     match crate::sessions::prompt(&state, &id, &body.text, body.wait).await {
-        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
-        Err(e) => tower_err(StatusCode::NOT_FOUND, &e.to_string()),
+        Ok(o) => Json(serde_json::json!({ "ok": true, "state": o.state, "stalled": o.stalled }))
+            .into_response(),
+        Err(e) => crate::http::error_response(e),
     }
 }
 
 async fn interrupt(State(state): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
     match crate::sessions::interrupt(&state, &id).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
-        Err(e) => tower_err(StatusCode::NOT_FOUND, &e.to_string()),
+        Err(e) => crate::http::error_response(e),
     }
 }
 
@@ -131,7 +132,7 @@ async fn read(
     let ansi = q.format.as_deref() == Some("ansi");
     match crate::sessions::read(&state, &id, ansi).await {
         Ok(text) => Json(serde_json::json!({ "output": text })).into_response(),
-        Err(e) => tower_err(StatusCode::NOT_FOUND, &e.to_string()),
+        Err(e) => crate::http::error_response(e),
     }
 }
 
@@ -149,6 +150,6 @@ async fn stop(
     let remove = body.map(|b| b.0.remove).unwrap_or_default();
     match crate::sessions::stop(&state, &id, remove).await {
         Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
-        Err(e) => tower_err(StatusCode::NOT_FOUND, &e.to_string()),
+        Err(e) => crate::http::error_response(e),
     }
 }
