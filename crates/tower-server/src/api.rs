@@ -37,7 +37,19 @@ async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
 async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
     let routes = [
         ("GET", "/healthz"),
-        ("GET", "/v1/schema"),
+        ("GET", "/v1/agents"),
+        ("GET", "/v1/agents/{id}"),
+        ("GET", "/v1/agents/adoptable"),
+        ("POST", "/v1/agents"),
+        ("POST", "/v1/agents/{id}/prompt"),
+        ("POST", "/v1/agents/{id}/interrupt"),
+        ("POST", "/v1/agents/{id}/send-keys"),
+        ("POST", "/v1/agents/{id}/stop"),
+        ("GET", "/v1/agents/{id}/read"),
+        ("GET", "/v1/agents/{id}/stream"),
+        ("GET", "/v1/messages"),
+        ("POST", "/v1/messages"),
+        ("POST", "/v1/messages/{id}/respond"),
         ("GET", "/v1/events"),
         ("GET", "/v1/events/heads"),
     ];

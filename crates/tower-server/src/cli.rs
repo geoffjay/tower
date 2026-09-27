@@ -79,6 +79,38 @@ pub enum Command {
     Doctor,
     /// Route + event-type registry
     Schema,
+
+    /// Pending questions/approvals addressed to me
+    Inbox,
+    /// Send a question to an agent
+    Ask {
+        name: String,
+        text: String,
+        /// Seconds until the question expires (default 300)
+        #[arg(long)]
+        deadline_s: Option<i64>,
+    },
+    /// Answer a question or approval from the inbox
+    Approve {
+        msg_id: String,
+        /// Deny instead of approve
+        #[arg(long)]
+        deny: bool,
+        /// Free-text answer (for questions)
+        #[arg(long)]
+        answer: Option<String>,
+    },
+    /// Generic unified send
+    Send {
+        to: String,
+        text: String,
+        /// Message kind (prompt, question, notice, ...)
+        #[arg(long)]
+        kind: Option<String>,
+        /// Seconds until questions/approvals expire
+        #[arg(long)]
+        deadline_s: Option<i64>,
+    },
 }
 
 #[tokio::main]
@@ -96,6 +128,23 @@ async fn main_async() -> anyhow::Result<()> {
         Command::Stop { .. } => stop(cli).await,
         Command::Doctor => doctor().await,
         Command::Schema => schema().await,
+        Command::Inbox => inbox().await,
+        Command::Ask {
+            name,
+            text,
+            deadline_s,
+        } => ask(name, text, deadline_s).await,
+        Command::Approve {
+            msg_id,
+            deny,
+            answer,
+        } => approve(msg_id, deny, answer).await,
+        Command::Send {
+            to,
+            text,
+            kind,
+            deadline_s,
+        } => send(to, text, kind, deadline_s).await,
     }
 }
 
@@ -157,6 +206,120 @@ fn state_glyph(state: &str) -> &'static str {
         "launching" => "◌",
         _ => "?",
     }
+}
+
+async fn inbox() -> anyhow::Result<()> {
+    let c = client(None).await?;
+    let v = c.get("/v1/messages?to=me&status=pending").await?;
+    let msgs = v["messages"].as_array().cloned().unwrap_or_default();
+    if msgs.is_empty() {
+        println!("inbox empty");
+        return Ok(());
+    }
+    println!(
+        "{:<14} {:<10} {:<18} {:<10} SUMMARY",
+        "ID", "FROM", "KIND", "AGE"
+    );
+    let now = tower_core::now_ms();
+    for m in &msgs {
+        let id = m["id"].as_str().unwrap_or("?");
+        let from = m["from_id"].as_str().unwrap_or("?");
+        let kind = m["kind"].as_str().unwrap_or("?");
+        let age = age_str(now - m["created_at"].as_i64().unwrap_or(0));
+        let summary = m["parts"]
+            .as_array()
+            .and_then(|p| p.first())
+            .and_then(|p| p["text"].as_str())
+            .unwrap_or("");
+        println!("{:<14} {:<10} {:<18} {:<10} {summary}", id, from, kind, age);
+    }
+    Ok(())
+}
+
+fn age_str(ms: i64) -> String {
+    let s = ms / 1000;
+    if s < 60 {
+        format!("{s}s")
+    } else {
+        format!("{}m", s / 60)
+    }
+}
+
+async fn ask(name: String, text: String, deadline_s: Option<i64>) -> anyhow::Result<()> {
+    let c = client(None).await?;
+    let mut body = serde_json::json!({
+        "to": name,
+        "to_kind": "agent",
+        "kind": "question",
+        "parts": [{"text": text}],
+    });
+    if let Some(s) = deadline_s {
+        body["deadline_s"] = serde_json::json!(s);
+    }
+    let v = c.post("/v1/messages", Some(body)).await?;
+    let id = v["message"]["id"].as_str().unwrap_or("?");
+    println!(
+        "question sent → {id} (expires in {})",
+        deadline_s.unwrap_or(300)
+    );
+    Ok(())
+}
+
+async fn approve(msg_id: String, deny: bool, answer: Option<String>) -> anyhow::Result<()> {
+    let c = client(None).await?;
+    // Look up the message to decide approve-vs-answer semantics.
+    let v = c.get("/v1/messages?to=me").await?;
+    let msgs = v["messages"].as_array().cloned().unwrap_or_default();
+    let msg = msgs
+        .iter()
+        .find(|m| m["id"].as_str() == Some(msg_id.as_str()))
+        .ok_or_else(|| anyhow::anyhow!("message {msg_id} not found in inbox"))?;
+    let text = match answer {
+        Some(a) => a,
+        None => {
+            if msg["kind"] == "approval" {
+                if deny { "denied" } else { "approved" }.to_string()
+            } else {
+                // free-text questions need an answer argument
+                anyhow::bail!("question {msg_id} needs --answer '...'");
+            }
+        }
+    };
+    let _ = c
+        .post(
+            &format!("/v1/messages/{msg_id}/respond"),
+            Some(serde_json::json!({"parts": [{"text": text}]})),
+        )
+        .await?;
+    println!(
+        "{} → delivered to {}",
+        if deny { "denied" } else { "answered" },
+        msg["from_id"].as_str().unwrap_or("?")
+    );
+    Ok(())
+}
+
+async fn send(
+    to: String,
+    text: String,
+    kind: Option<String>,
+    deadline_s: Option<i64>,
+) -> anyhow::Result<()> {
+    let c = client(None).await?;
+    let mut body = serde_json::json!({
+        "to": to,
+        "parts": [{"text": text}],
+    });
+    if let Some(k) = kind {
+        body["kind"] = serde_json::json!(k);
+    }
+    if let Some(s) = deadline_s {
+        body["deadline_s"] = serde_json::json!(s);
+    }
+    let v = c.post("/v1/messages", Some(body)).await?;
+    let id = v["message"]["id"].as_str().unwrap_or("?");
+    println!("sent → {id}");
+    Ok(())
 }
 
 async fn spawn(cli: Cli) -> anyhow::Result<()> {

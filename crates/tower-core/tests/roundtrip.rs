@@ -79,6 +79,32 @@ fn message_parts_roundtrip() {
 }
 
 #[test]
+fn message_kind_rejects_invalid() {
+    // invalid kind strings must not deserialize into the closed enum
+    let bad = serde_json::json!({
+        "id": "m_1", "from_kind": "agent", "from_id": "backend",
+        "to_kind": "human", "to_id": "me",
+        "kind": "nonsense", "parts": [], "status": "delivered",
+        "created_at": 1
+    });
+    assert!(serde_json::from_value::<Message>(bad).is_err());
+    // all declared kinds round-trip
+    for k in [
+        "prompt",
+        "question",
+        "answer",
+        "approval",
+        "approval-response",
+        "notice",
+        "delegation",
+        "broadcast",
+    ] {
+        let parsed: MessageKind = serde_json::from_value(serde_json::json!(k)).unwrap();
+        assert_eq!(serde_json::to_value(parsed).unwrap(), serde_json::json!(k));
+    }
+}
+
+#[test]
 fn event_envelope_shape() {
     let e = Event {
         seq: 42,

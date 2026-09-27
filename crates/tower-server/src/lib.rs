@@ -3,6 +3,7 @@ pub mod api;
 pub mod auth;
 pub mod config;
 pub mod inventory;
+pub mod messaging;
 pub mod paths;
 pub mod serve;
 pub mod sessions;

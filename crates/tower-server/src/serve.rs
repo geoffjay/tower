@@ -41,6 +41,7 @@ pub async fn serve() -> anyhow::Result<()> {
 
     let routes = api::router()
         .merge(crate::agents_api::router())
+        .merge(crate::messaging::router())
         .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
         .with_state(state);
 
