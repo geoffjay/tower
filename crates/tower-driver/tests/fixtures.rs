@@ -9,24 +9,32 @@ fn fixture(name: &str) -> serde_json::Value {
     serde_json::from_str(&raw).unwrap()
 }
 
-/// Mirror of the driver's private parse path (kept in one place would be
-/// better; these tests pin the envelope shape, so they re-implement the
-/// three-line extraction).
 #[test]
-fn snapshot_envelope_parses_agents_and_panes() {
+fn snapshot_envelope_parses_named_agents() {
     let v = fixture("snapshot");
     assert!(
         v.get("error").is_none(),
         "fixture must be a success envelope"
     );
-    let snap = &v["result"]["snapshot"];
-    let agents = snap["agents"].as_array().unwrap();
+    let agents = tower_driver::herdr::parse_snapshot(&v["result"]).unwrap();
     assert_eq!(agents.len(), 1);
-    assert_eq!(agents[0]["name"], "spike-pi");
-    assert_eq!(agents[0]["agent"], "pi");
-    assert_eq!(agents[0]["agent_status"], "idle");
-    let panes = snap["panes"].as_array().unwrap();
-    assert_eq!(panes.len(), 2);
+    assert_eq!(agents[0].name, "spike-pi");
+    assert_eq!(agents[0].kind, "pi");
+    assert_eq!(agents[0].state, HarnessState::Idle);
+}
+
+/// herdr 0.8.2 lists panes nobody named (no `name` field). One of those
+/// must not fail the whole snapshot — it's skipped (seen live 2026-09-27).
+#[test]
+fn snapshot_skips_unnamed_agents() {
+    let result = serde_json::json!({"snapshot": {"agents": [
+        {"agent": "omp", "agent_status": "idle", "pane_id": "w1:p2", "cwd": "/x"},
+        {"name": "backend", "agent": "pi", "agent_status": "blocked", "pane_id": "w1:p3"},
+    ], "panes": []}});
+    let agents = tower_driver::herdr::parse_snapshot(&result).unwrap();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].name, "backend");
+    assert_eq!(agents[0].state, HarnessState::Blocked);
 }
 
 #[test]

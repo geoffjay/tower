@@ -1,9 +1,10 @@
 //! HerdrDriver: drives herdr via its CLI (S1.A findings, plan T4.2).
 //!
-//! Verb grammar (validated live 2026-09-26):
+//! Verb grammar (validated live 2026-09-26/27):
 //!   herdr api snapshot                       → inventory
-//!   herdr pane split --pane <id> --direction right   → new pane
-//!   herdr agent start <name> --kind <kind> --pane <id> [--timeout <ms>]
+//!   herdr workspace list | create --label L [--cwd D] --no-focus
+//!   herdr tab create --workspace <id> --label L [--cwd D] | rename <tab> <L>
+//!   herdr agent start <name> --kind <kind> --pane <id> [--timeout <ms>] [-- args]
 //!   herdr agent prompt <name> <text> [--wait [--until <s>...] --timeout <ms>]
 //!   herdr agent read <name> --source <s> [--lines N] [--format text|ansi]
 //!   herdr agent send-keys <name> <key>
@@ -11,7 +12,11 @@
 //!   herdr pane close <pane_id>
 //!
 //! Output: single-line JSON. Success: {"id":...,"result":{...,"type":...}}.
-//! Error: {"error":{"code":...,"message":...},"id":...}.
+//! Error: {"error":{"code":...,"message":...},"id":...} with a non-zero exit.
+//!
+//! Placement: spawned agents live in one herdr workspace labelled
+//! `tower-agents` (created on first spawn), one tab per agent rooted at its
+//! workdir — never inside the operator's own workspaces.
 
 use std::process::Stdio;
 
@@ -47,23 +52,28 @@ impl HerdrDriver {
             .output()
             .await
             .map_err(|e| DriverError::Transport(format!("spawn herdr: {e}")))?;
-        if !out.status.success() {
-            return Err(DriverError::Transport(format!(
-                "herdr exited {}: {}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr).trim()
-            )));
-        }
-        let line = String::from_utf8_lossy(&out.stdout);
-        // CLI prints a leading newline before JSON (observed in S1.A)
-        let line = line.trim();
-        let v: serde_json::Value = serde_json::from_str(line)
-            .map_err(|e| DriverError::Transport(format!("parse herdr output: {e}: {line:?}")))?;
-        if let Some(err) = v.get("error") {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // CLI prints a leading newline before JSON (observed in S1.A); on
+        // failure the error envelope may arrive on either stream.
+        let envelope = [stdout.trim(), stderr.trim()]
+            .into_iter()
+            .find_map(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+        if let Some(err) = envelope.as_ref().and_then(|v| v.get("error")) {
             let code = err["code"].as_str().unwrap_or("unknown").to_string();
             let message = err["message"].as_str().unwrap_or("").to_string();
             return Err(map_error(code, message));
         }
+        if !out.status.success() {
+            return Err(DriverError::Transport(format!(
+                "herdr exited {}: {}",
+                out.status,
+                stderr.trim()
+            )));
+        }
+        let v = envelope.ok_or_else(|| {
+            DriverError::Transport(format!("parse herdr output: {:?}", stdout.trim()))
+        })?;
         Ok(v["result"].clone())
     }
 
@@ -99,7 +109,60 @@ impl HerdrDriver {
         }
         cmd
     }
+
+    /// A fresh pane for `spec`: a new tab (labelled with the agent name,
+    /// rooted at its workdir) in the `tower-agents` workspace, creating the
+    /// workspace on first use. Serialized so concurrent spawns can't create
+    /// two workspaces.
+    async fn agent_home(&self, spec: &AgentSpec) -> Result<String, DriverError> {
+        static PLACEMENT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+        let _guard = PLACEMENT.lock().await;
+
+        let list = self.run_json(&["workspace", "list"]).await?;
+        let existing = list["workspaces"]
+            .as_array()
+            .and_then(|ws| ws.iter().find(|w| w["label"] == WORKSPACE_LABEL))
+            .and_then(|w| w["workspace_id"].as_str().map(str::to_string));
+
+        let mut args: Vec<&str> = Vec::new();
+        let created = match &existing {
+            Some(ws) => {
+                args.extend(["tab", "create", "--workspace", ws, "--label", &spec.name]);
+                false
+            }
+            None => {
+                args.extend([
+                    "workspace",
+                    "create",
+                    "--label",
+                    WORKSPACE_LABEL,
+                    "--no-focus",
+                ]);
+                true
+            }
+        };
+        if let Some(dir) = &spec.workdir {
+            args.extend(["--cwd", dir]);
+        }
+        let res = self.run_json(&args).await?;
+        let pane = res["root_pane"]["pane_id"]
+            .as_str()
+            .ok_or_else(|| DriverError::Transport("herdr returned no root pane".into()))?
+            .to_string();
+        if created {
+            if let Some(tab) = res["tab"]["tab_id"].as_str() {
+                self.run_json(&["tab", "rename", tab, &spec.name]).await?;
+            }
+        }
+        Ok(pane)
+    }
 }
+
+/// herdr workspace that holds tower-spawned agents.
+pub const WORKSPACE_LABEL: &str = "tower-agents";
+
+/// How long `start` waits for a fresh shell to accept `agent start`.
+const START_READY_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn map_error(code: String, message: String) -> DriverError {
     match code.as_str() {
@@ -117,13 +180,15 @@ fn map_error(code: String, message: String) -> DriverError {
 struct Snapshot {
     #[serde(default)]
     agents: Vec<SnapshotAgent>,
-    #[serde(default)]
-    panes: Vec<SnapshotPane>,
 }
 
 #[derive(Debug, Deserialize)]
 struct SnapshotAgent {
-    name: String,
+    /// Absent for panes herdr detected but nobody named (e.g. a harness
+    /// launched by hand). Unnamed agents aren't addressable by name, so
+    /// tower can neither own nor adopt them; they're skipped.
+    #[serde(default)]
+    name: Option<String>,
     agent: String,
     pane_id: String,
     agent_status: String,
@@ -131,74 +196,69 @@ struct SnapshotAgent {
     cwd: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct SnapshotPane {
-    pane_id: String,
-}
-
-#[async_trait]
-impl Harness for HerdrDriver {
-    async fn snapshot(&self) -> Result<Vec<HarnessAgent>, DriverError> {
-        let result = self.run_json(&["api", "snapshot"]).await?;
-        let snap: Snapshot = serde_json::from_value(result["snapshot"].clone())
-            .map_err(|e| DriverError::Transport(format!("parse snapshot: {e}")))?;
-        Ok(snap
-            .agents
-            .into_iter()
-            .map(|a| HarnessAgent {
-                name: a.name,
+/// Parse the `result` of `herdr api snapshot` into named harness agents.
+pub fn parse_snapshot(result: &serde_json::Value) -> Result<Vec<HarnessAgent>, DriverError> {
+    let snap: Snapshot = serde_json::from_value(result["snapshot"].clone())
+        .map_err(|e| DriverError::Transport(format!("parse snapshot: {e}")))?;
+    Ok(snap
+        .agents
+        .into_iter()
+        .filter_map(|a| {
+            Some(HarnessAgent {
+                name: a.name?,
                 kind: a.agent,
                 pane_id: a.pane_id,
                 state: HarnessState::from_detection(&a.agent_status)
                     .unwrap_or(HarnessState::Unknown),
                 cwd: a.cwd,
             })
-            .collect())
+        })
+        .collect())
+}
+
+#[async_trait]
+impl Harness for HerdrDriver {
+    async fn snapshot(&self) -> Result<Vec<HarnessAgent>, DriverError> {
+        parse_snapshot(&self.run_json(&["api", "snapshot"]).await?)
     }
 
     async fn start(&self, spec: &AgentSpec) -> Result<String, DriverError> {
-        // 1. find a home: use a pane from the first workspace, else split
-        let snap_result = self.run_json(&["api", "snapshot"]).await?;
-        let snap: Snapshot = serde_json::from_value(snap_result["snapshot"].clone())
-            .map_err(|e| DriverError::Transport(format!("parse snapshot: {e}")))?;
+        let pane_id = self.agent_home(spec).await?;
 
-        let pane_id = if let Some(pane) = snap.panes.first() {
-            // split an existing pane to get a fresh shell
-            let split = self
-                .run_json(&[
-                    "pane",
-                    "split",
-                    "--pane",
-                    &pane.pane_id,
-                    "--direction",
-                    "right",
-                ])
-                .await?;
-            split["pane"]["pane_id"]
-                .as_str()
-                .ok_or_else(|| DriverError::Transport("split returned no pane id".into()))?
-                .to_string()
-        } else {
-            return Err(DriverError::Transport("no panes to split from".into()));
-        };
-
-        // 2. start the agent in the new pane (detection-wait ≤ 60s)
-        let result = self
-            .run_json(&[
-                "agent",
-                "start",
-                &spec.name,
-                "--kind",
-                &spec.kind,
-                "--pane",
-                &pane_id,
-                "--timeout",
-                "60000",
-            ])
-            .await?;
-
-        let _ = result; // agent_started envelope; pane_id is what we need
-        Ok(pane_id)
+        let mut args = vec![
+            "agent",
+            "start",
+            spec.name.as_str(),
+            "--kind",
+            spec.kind.as_str(),
+            "--pane",
+            pane_id.as_str(),
+            "--timeout",
+            "60000",
+        ];
+        if !spec.args.is_empty() {
+            args.push("--");
+            args.extend(spec.args.iter().map(String::as_str));
+        }
+        // A fresh tab's shell needs a moment to reach its prompt; herdr
+        // answers `agent_pane_busy` until then (S1.A: pane must be at the
+        // shell prompt).
+        let deadline = std::time::Instant::now() + START_READY_WAIT;
+        loop {
+            match self.run_json(&args).await {
+                Ok(_) => return Ok(pane_id),
+                Err(DriverError::Herdr { code, .. })
+                    if code == "agent_pane_busy" && std::time::Instant::now() < deadline =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+                Err(e) => {
+                    // leave nothing behind in the operator's herdr session
+                    let _ = self.run_json(&["pane", "close", &pane_id]).await;
+                    return Err(e);
+                }
+            }
+        }
     }
 
     async fn prompt(&self, name: &str, text: &str, wait: bool) -> Result<(), DriverError> {
@@ -264,14 +324,10 @@ impl Harness for HerdrDriver {
 
     async fn stop(&self, name: &str) -> Result<(), DriverError> {
         // find the agent's pane, close it
-        let snap_result = self.run_json(&["api", "snapshot"]).await?;
-        let snap: Snapshot = serde_json::from_value(snap_result["snapshot"].clone())
-            .map_err(|e| DriverError::Transport(format!("parse snapshot: {e}")))?;
-        let pane = snap
-            .agents
-            .iter()
+        let pane = parse_snapshot(&self.run_json(&["api", "snapshot"]).await?)?
+            .into_iter()
             .find(|a| a.name == name)
-            .map(|a| a.pane_id.clone())
+            .map(|a| a.pane_id)
             .ok_or_else(|| DriverError::NotFound(format!("agent {name}")))?;
         self.run_json(&["pane", "close", &pane]).await?;
         Ok(())
