@@ -16,6 +16,11 @@ use anyhow::{anyhow, Context};
 pub struct Client {
     base: reqwest::Url,
     token: String,
+    /// Request/response calls: bounded total time.
+    http: reqwest::Client,
+    /// SSE: no total deadline (streams run for hours); a read timeout
+    /// longer than the server's 15s keep-alive detects a dead peer.
+    sse: reqwest::Client,
 }
 
 impl Client {
@@ -29,15 +34,31 @@ impl Client {
                 Err(_) => read_token_file()?,
             },
         };
-        Ok(Self {
-            base: base_url()?,
-            token,
-        })
+        Ok(Self::with_base(base_url()?, token))
+    }
+
+    /// Explicit server address + token (tests, embedding).
+    pub fn with_base(base: reqwest::Url, token: impl Into<String>) -> Self {
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(65))
+            .build()
+            .expect("reqwest client");
+        let sse = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .read_timeout(std::time::Duration::from_secs(45))
+            .build()
+            .expect("reqwest client");
+        Self {
+            base,
+            token: token.into(),
+            http,
+            sse,
+        }
     }
 
     pub async fn get(&self, path: &str) -> anyhow::Result<serde_json::Value> {
         let resp = self
-            .client()
+            .http
             .get(self.url(path)?)
             .bearer_auth(&self.token)
             .send()
@@ -50,7 +71,7 @@ impl Client {
         path: &str,
         body: Option<serde_json::Value>,
     ) -> anyhow::Result<serde_json::Value> {
-        let mut req = self.client().post(self.url(path)?).bearer_auth(&self.token);
+        let mut req = self.http.post(self.url(path)?).bearer_auth(&self.token);
         if let Some(b) = body {
             req = req.json(&b);
         }
@@ -60,7 +81,7 @@ impl Client {
 
     pub async fn delete(&self, path: &str) -> anyhow::Result<serde_json::Value> {
         let resp = self
-            .client()
+            .http
             .delete(self.url(path)?)
             .bearer_auth(&self.token)
             .send()
@@ -71,7 +92,7 @@ impl Client {
     /// SSE stream: raw response for line iteration.
     pub async fn stream(&self, path: &str) -> anyhow::Result<reqwest::Response> {
         let resp = self
-            .client()
+            .sse
             .get(self.url(path)?)
             .bearer_auth(&self.token)
             .header("accept", "text/event-stream")
@@ -81,13 +102,6 @@ impl Client {
             anyhow::bail!("stream {} failed: {}", path, resp.status());
         }
         Ok(resp)
-    }
-
-    fn client(&self) -> reqwest::Client {
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(65))
-            .build()
-            .expect("reqwest client")
     }
 
     fn url(&self, path: &str) -> anyhow::Result<reqwest::Url> {

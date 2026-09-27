@@ -32,9 +32,9 @@ fn state_row_to_agent(r: &sqlx::sqlite::SqliteRow) -> Agent {
         name: r.get("name"),
         kind: r.get("kind"),
         machine_id: MachineId::from(r.get::<String, _>("machine_id")),
-        pane_id: r.try_get("pane_id").ok(),
-        workdir: r.try_get("workdir").ok(),
-        worktree: r.try_get("worktree").ok(),
+        pane_id: r.try_get::<Option<String>, _>("pane_id").ok().flatten(),
+        workdir: r.try_get::<Option<String>, _>("workdir").ok().flatten(),
+        worktree: r.try_get::<Option<String>, _>("worktree").ok().flatten(),
         state: serde_json::from_value(serde_json::Value::String(state_str))
             .unwrap_or(AgentState::Unknown),
         desired_state: serde_json::from_value(serde_json::Value::String(desired))

@@ -169,6 +169,9 @@ async fn spawn_prompt_stop_routes() {
     let (status, v) = json_req(&app, "GET", "/v1/agents/writer", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["agent"]["name"], "writer");
+    // unset columns are null, not "" (clients render "worktree " otherwise)
+    assert!(v["agent"]["worktree"].is_null(), "{v}");
+    assert!(v["agent"]["workdir"].is_null(), "{v}");
     // prompt flipped the fake's state to Working
     assert_eq!(v["agent"]["state"], "working");
 
