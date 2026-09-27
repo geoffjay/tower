@@ -12,11 +12,14 @@ pub struct Ctx {
     pub state: AppState,
     pub harness: FakeHarness,
     pub router: axum::Router,
-    _dir: tempdir::TempDir,
+    _dir: tempfile::TempDir,
 }
 
 pub async fn boot() -> Ctx {
-    let dir = tempdir::TempDir::new("tower-it").unwrap();
+    let dir = tempfile::Builder::new()
+        .prefix("tower-it")
+        .tempdir()
+        .unwrap();
     let paths = Paths {
         config_file: dir.path().join("config.toml"),
         db_file: dir.path().join("tower.db"),

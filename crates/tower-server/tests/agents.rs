@@ -10,8 +10,8 @@ use tower_driver::HarnessState;
 use tower_server::AppState;
 use tower_server::{Config, Paths};
 
-fn temp_paths(n: &str) -> (Paths, tempdir::TempDir) {
-    let dir = tempdir::TempDir::new(n).unwrap();
+fn temp_paths(n: &str) -> (Paths, tempfile::TempDir) {
+    let dir = tempfile::Builder::new().prefix(n).tempdir().unwrap();
     let paths = Paths {
         config_file: dir.path().join("config.toml"),
         db_file: dir.path().join("tower.db"),
@@ -23,7 +23,7 @@ fn temp_paths(n: &str) -> (Paths, tempdir::TempDir) {
     (paths, dir)
 }
 
-async fn boot(harness: FakeHarness) -> (AppState, FakeHarness, tempdir::TempDir) {
+async fn boot(harness: FakeHarness) -> (AppState, FakeHarness, tempfile::TempDir) {
     static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let (paths, dir) = temp_paths(&format!("tower-m5-{n}"));

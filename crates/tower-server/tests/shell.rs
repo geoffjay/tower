@@ -17,9 +17,12 @@ use tower_server::{Config, Paths};
 
 static TEST_N: AtomicU32 = AtomicU32::new(0);
 
-async fn test_state() -> (AppState, tempdir::TempDir) {
+async fn test_state() -> (AppState, tempfile::TempDir) {
     let n = TEST_N.fetch_add(1, Ordering::SeqCst);
-    let dir = tempdir::TempDir::new(&format!("tower-it-{n}")).unwrap();
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("tower-it-{n}"))
+        .tempdir()
+        .unwrap();
     let paths = Paths {
         config_file: dir.path().join("config.toml"),
         db_file: dir.path().join("tower.db"),

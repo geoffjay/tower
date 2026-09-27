@@ -1,0 +1,9 @@
+# cargo audit policy (the hk pre-commit hook runs `cargo audit`).
+[advisories]
+ignore = [
+  # rsa "Marvin attack" — no fixed release exists. Not compiled into tower:
+  # sqlx's weak optional features record sqlx-mysql (→ rsa) in Cargo.lock
+  # even for this SQLite-only build; `cargo tree -i rsa -e all --target all`
+  # prints nothing. Revisit if tower ever enables a MySQL driver.
+  "RUSTSEC-2023-0071",
+]

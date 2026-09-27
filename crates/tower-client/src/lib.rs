@@ -4,6 +4,11 @@
 //! with the token auto-loaded from the tower data dir (or TOWER_TOKEN).
 //! The unix socket remains available for agents/tools that can use UDS.
 //! The token is read once at startup — no config needed, same UX.
+//!
+//! Paths resolve exactly like the server's (`TOWER_HOME`, else the platform
+//! dirs — `~/Library/Application Support/tower` on macOS), and the address
+//! comes from the same `config.toml` (`[server] bind_tcp`), so the CLI
+//! finds whichever server that home configures. `TOWER_URL` overrides.
 
 use anyhow::{anyhow, Context};
 
@@ -25,7 +30,7 @@ impl Client {
             },
         };
         Ok(Self {
-            base: "http://127.0.0.1:8266".parse().unwrap(),
+            base: base_url()?,
             token,
         })
     }
@@ -93,20 +98,48 @@ impl Client {
     }
 }
 
+/// (config file, token file) — same resolution as the server's `Paths`.
+fn home_files() -> anyhow::Result<(std::path::PathBuf, std::path::PathBuf)> {
+    if let Ok(home) = std::env::var("TOWER_HOME") {
+        let home = std::path::PathBuf::from(home);
+        return Ok((home.join("config.toml"), home.join("token")));
+    }
+    let dirs = directories::ProjectDirs::from("", "", "tower").ok_or_else(|| {
+        anyhow!("cannot resolve the tower data dir; set TOWER_HOME or TOWER_TOKEN")
+    })?;
+    Ok((
+        dirs.config_dir().join("config.toml"),
+        dirs.data_dir().join("token"),
+    ))
+}
+
+/// `TOWER_URL`, else `http://<[server].bind_tcp>` from config.toml (a
+/// wildcard bind is reached on loopback), else the default port.
+fn base_url() -> anyhow::Result<reqwest::Url> {
+    if let Ok(u) = std::env::var("TOWER_URL") {
+        return u.parse().with_context(|| format!("TOWER_URL {u:?}"));
+    }
+    let (config, _) = home_files()?;
+    let bind = std::fs::read_to_string(&config)
+        .ok()
+        .and_then(|s| s.parse::<toml::Table>().ok())
+        .and_then(|t| {
+            t.get("server")?
+                .get("bind_tcp")?
+                .as_str()
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "127.0.0.1:8266".into());
+    let bind = bind
+        .replace("0.0.0.0:", "127.0.0.1:")
+        .replace("[::]:", "127.0.0.1:");
+    format!("http://{bind}")
+        .parse()
+        .with_context(|| format!("bind_tcp {bind:?} in {}", config.display()))
+}
+
 fn read_token_file() -> anyhow::Result<String> {
-    let file = if let Ok(home) = std::env::var("TOWER_HOME") {
-        std::path::PathBuf::from(home).join("token")
-    } else {
-        match std::env::var("XDG_DATA_HOME") {
-            Ok(x) => std::path::PathBuf::from(x).join("tower").join("token"),
-            Err(_) => {
-                let home = std::env::var("HOME").context("$HOME unset; set TOWER_TOKEN")?;
-                std::path::PathBuf::from(home)
-                    .join(".local/share/tower")
-                    .join("token")
-            }
-        }
-    };
+    let (_, file) = home_files()?;
     let token = std::fs::read_to_string(&file).with_context(|| {
         format!(
             "cannot read token file {} (is the server started?)",
