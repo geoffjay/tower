@@ -162,6 +162,7 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
 | 2026-09-27 | T4.1 restart: server killed with the page open, back after ~15 s; the runtime retried at 1 / 2 / 4 / 8 / 16 s and reconnected; 4 points, 0 duplicates, 0 errors, ribbon shows `server.started` | pass |
 | 2026-09-27 | T4.2 glance test, first run (15-agent demo: indexer + mobile blocked, review waiting on an answer): the operator named mobile, one wrong agent, and missed two | **fail** — the amber halos were seen but names were not readable; fix `cd75257`: the badge names them (`3 need you: indexer, mobile, review`), their labels turn amber and bold. Re-run pending |
 | 2026-09-27 | T4.2 glance re-run on the operator's live fleet (after `cd75257`): 1 agent, `dead`, inbox empty — the operator answered "none need me" | correct, but not the 15-agent mixed-state cloud the test specifies; that run is still open |
+| 2026-09-27 | T4.2 glance test, 15-agent mixed-state demo (new names and shuffled states; atlas + nova blocked, kestrel idle but waiting on an answer), 10 s look: the operator answered "kestral, astra, nova" | **pass** — all three found and nothing wrong named; two spelling slips ("astra" = atlas, the only name starting with *a*) |
 
 ## Spike findings
 
