@@ -27,6 +27,11 @@ local linters = new Mapping<String, Step> {
     glob = List("docs/knowledgebase/**/*.md")
     check = "okf validate docs/knowledgebase/"
   }
+  ["biome"] {
+    glob = List("crates/tower-web/**/*.css")
+    check = "biome check crates/tower-web"
+    fix = "biome check --write crates/tower-web"
+  }
 }
 
 hooks {
