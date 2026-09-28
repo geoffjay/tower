@@ -138,3 +138,9 @@ PRAGMA journal_mode=WAL;
 Single-writer discipline: one write connection behind a tokio mutex; readers on
 the pool. Write volume is low (state changes, message posts), so this is not a
 bottleneck.
+
+Migrations (`crates/tower-server/migrations/`, embedded with `sqlx::migrate!`)
+are frozen once shipped. sqlx checksums the whole file, comments included,
+and refuses to start a database whose applied migration no longer matches.
+Change the schema with a new numbered migration; a test pins every shipped
+checksum (`storage::tests::applied_migrations_are_never_edited`).

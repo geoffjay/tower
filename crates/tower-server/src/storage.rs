@@ -193,6 +193,41 @@ pub fn parse_enum<T: serde::de::DeserializeOwned>(s: String) -> T {
 mod tests {
     use super::*;
 
+    /// sqlx refuses to start on a database whose applied migration no
+    /// longer matches its file ("migration N was previously applied but
+    /// has been modified") — and it checksums the whole file, comments
+    /// included. Shipped migrations are therefore frozen: change the
+    /// schema with a new migration, then add its checksum here.
+    #[test]
+    fn applied_migrations_are_never_edited() {
+        const PINNED: &[(i64, &str)] = &[
+            (1, "9d4cace00f87ef7b2eca1e6c7ebc76e21df07424fc608c320fa96984257c9640656ea1b37ca25f7faa405f8a3d00fcc5"),
+            (2, "1bd6e1cc770cb0b9b49dfb50935dda5ab687aacf1e4b814cc6ffa0d442910490dfac096bd687be1d51a7d72c5dc48000"),
+            (3, "f5f7e03ae540168951ef6715d73f776d1e417503fcb381c0b622501900cf228fa6c74780eb9ce696ed715b9aa0f37e99"),
+            (4, "48f64541fb76afce36672da5867964280010e7b5ba57076a9c17c28cdfa1cb4f5e9d5c9a20ed408870f8d7f2e39048cc"),
+        ];
+        let found: Vec<(i64, String)> = sqlx::migrate!("./migrations")
+            .iter()
+            .map(|m| {
+                let hex = m.checksum.iter().map(|b| format!("{b:02x}")).collect();
+                (m.version, hex)
+            })
+            .collect();
+        for (version, sum) in PINNED {
+            let got = found.iter().find(|(v, _)| v == version);
+            assert_eq!(
+                got.map(|(_, s)| s.as_str()),
+                Some(*sum),
+                "migration {version} changed after it shipped; add a new migration instead"
+            );
+        }
+        assert_eq!(
+            found.len(),
+            PINNED.len(),
+            "new migration: pin its checksum in PINNED"
+        );
+    }
+
     #[tokio::test]
     async fn migrations_and_event_log() {
         let dir = std::env::temp_dir().join(format!("tower-test-{}", tower_core::new_id()));
