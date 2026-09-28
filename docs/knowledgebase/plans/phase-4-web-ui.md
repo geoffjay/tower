@@ -101,9 +101,14 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
   sparkline, last output snippet. Closes on deselect/Esc. Updates live
   while open. Verify: panel binds to a fixture agent and reflects scripted
   state changes; lease countdown ticks from `lease_expires_at`.
-- **T3.2** Read-only guard pass: UI client code exposes GET-only access;
-  no mutation routes referenced anywhere in `tower-web` (grep test);
-  token handling per S4.C outcome.
+- **T3.2** Read-only guard pass: the browser holds only the S4.C UI token;
+  it opens `/ui` reads and nothing else. Verify: every mutating route in
+  the schema registry refuses the UI token (cookie and bearer); `/v1`
+  reads refuse it too; `tower-web` registers no procedures. (Replaces the
+  planned grep test: the registry sweep checks behavior — a grep for route
+  strings misses a mutation reached any other way. `tower-web` depends on
+  neither `tower-server` nor `tower-client`, so it has no mutating code to
+  call.)
 
 ## Milestone 4 — Phase exit verification
 
@@ -123,14 +128,26 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
 - Job queue board view
 - Historical charts from the event log
 - Points ↔ table view toggle
-- Edges: message-volume lines between agents (defined in S4.B, v2 wiring)
+- Edges: message-volume lines between agents (defined in S4.B, v2 wiring;
+  compute the pair volumes in the metrics cache with it)
+- The panel covers the right edge of the cloud; shift the view when a
+  point under it is selected
 
 ## Verification log
 
-(filled during execution)
-
 | Date | Check | Result |
 |---|---|---|
+| 2026-09-27 | S4.A throwaway: 80 / 200 SVG points, all rewritten every 250 / 100 ms, Topcoat inside axum; reconnect across a server kill | pass — 60 fps, 0 long tasks, stable DOM; see findings |
+| 2026-09-27 | T1.3 clock-injected sweep: rows with `ts < now − 14 d` deleted, `ts == horizon` kept, an old cursor resumes at the oldest kept event; an open stream's unread rows survive until it closes; `seq` never reused after pruning everything | pass (`tests/sweeper.rs`, 3 tests) |
+| 2026-09-27 | T1.2 metrics: 5-min window drains with time, id + name keys merge, message rate, fault window + health factors + clamp, radius curve, removal + prune bound memory, ribbon keeps 10 non-output events | pass (`metrics.rs`, 7 tests) |
+| 2026-09-27 | Layout: deterministic, 100 points on canvas with no overlap, agents nearest their own machine's center, viewBox framing | pass (`layout.rs`, 4 tests) |
+| 2026-09-27 | T1.1 roster of 12 renders 12 points server-side; runtime script served from memory at the URL the page references; vendored script == pinned crate's | pass (`tests/cloud.rs`, `assets.rs`) |
+| 2026-09-27 | T2.1 10-agent fixture, all 7 states: class per state, amber `needs` for blocked and for a pending question, red `fault` after `task.failed`, `2 need you · 1 in inbox`, queue bar counts a blocked owner's job as blocked, dead at 0.35 brightness, active agent larger | pass (`tests/cloud.rs`) |
+| 2026-09-27 | T2.2 over the real WebSocket protocol: working → blocked → idle each in < 2 s with the ribbon entry; a 41-event burst + queue + machine change lands in one coalesced render < 2 s; server restart + state change while down → reconnect shows 8 points once, new state | pass (`tests/cloud.rs`) |
+| 2026-09-27 | T3.1 panel for a selected fixture agent: job + `lease 1:30`, output snippet; clock +5 s → `lease 1:25`; blocked while open → "needs you"; a non-agent selection renders no panel | pass (`tests/cloud.rs`) |
+| 2026-09-27 | T3.2 UI token: `/ui`, runtime asset, re-render `POST` → 200; other `POST /ui` → 401; `/v1/agents`, `/v1/events`, `/v1/ui/token` → 401 (cookie and bearer); all 20 mutating registry routes → 401; login link sets `HttpOnly; SameSite=Strict; Path=/ui`, bad link and the bearer token as link → 401 with a `tower ui` hint | pass (`tests/ui.rs`, 4 tests) |
+| 2026-09-27 | Real UI in Chrome, 80-agent churn fixture (`N=80`): 60 fps, 0 long tasks, 5 class flips in 12 s applied in place on the same elements (transitions run), `<svg>` and `<g>` identity kept across swaps, 5.4 MB heap | pass |
+| 2026-09-27 | Live server (isolated home, port 8277, herdr + omp/claude agents): `tower ui` → link → cookie → cloud with 4 agents, a claude agent blocked at startup pulses amber, `1 need you · 1 in inbox` | pass |
 
 ## Spike findings
 

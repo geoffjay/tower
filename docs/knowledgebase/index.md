@@ -52,6 +52,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [Scheduled jobs](decisions/scheduled-jobs.md) - reserved delivery when an agent is free, `not_before`, cron schedules with skip / replace / coalesce / pause policies.
 * [Operator skills](decisions/operator-skills.md) - five repo-local skills drive the CLI so an agent can operate tower; a stack is a naming convention.
 * [Job queue dispatch](decisions/job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
+* [Web UI](decisions/web-ui.md) - Topcoat inside the server under `/ui`, live regions over its WebSocket, server-side layout, derived read-only UI token.
 
 ## Patterns
 

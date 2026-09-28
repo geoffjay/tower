@@ -67,6 +67,7 @@ Conventions:
 | `GET /v1/machines` | inventory |
 | `GET /v1/schedules` · `GET /v1/schedules/{id}` | schedules with next run; detail adds the jobs it created |
 | `GET /healthz`, `GET /v1/schema` | health, contract |
+| `GET /v1/ui/token` | the scoped read-only UI token + login path, for `tower ui` (bearer only, [D§13](13-security.md)) |
 
 ## Streaming (GET, SSE)
 
@@ -79,6 +80,18 @@ Conventions:
 Backpressure: slow SSE consumers get disconnected (with a `resume` hint carrying
 their cursor); clients re-request from the log. Output chunks are also appended
 to artifacts storage so replay is lossless for subscribed tasks.
+
+## Web UI (browser)
+
+| Route | Notes |
+|---|---|
+| `GET /` | redirect to `/ui` |
+| `GET /ui/login?token=` | valid UI token → sets the `tower_ui` cookie, redirects to `/ui` |
+| `GET /ui` | the agent cloud ([D§12](12-web-ui.md)); the page's Topcoat runtime opens a WebSocket at the same URL and may `POST` re-renders (`X-Topcoat-Runtime: true`) |
+| `GET /ui/assets/*` | the vendored Topcoat runtime script, served from memory |
+
+The UI token opens only these (`GET`/`HEAD`, the WebSocket upgrade, the
+runtime re-render `POST`); the bearer token opens everything.
 
 ## MCP (for agents)
 

@@ -46,6 +46,7 @@ tower service install | uninstall | status          # run `tower serve` as a use
 tower machines                      # machine inventory
 tower machines add <name>           # issue a node token (prints once)
 tower tui                           # launch TUI
+tower ui                            # print a login link for the web UI (scoped read-only token, D§13)
 tower serve / node / doctor / schema
 ```
 

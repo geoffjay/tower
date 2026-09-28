@@ -31,6 +31,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trail), events (filters, follow), machines; command palette; follows
   `/v1/events` with cursor resume across server restarts
 - `GET /v1/messages?agent=<name|id>`: an agent's message history
+- Web UI (phase 4) at `/ui`: the agent cloud — agents as SVG points
+  (state = color, activity = size, needs-you = amber pulse, recent fault =
+  red ring, health = brightness), clustered by machine; queue bar, machine
+  strip, event ribbon; floating panel with job, live lease countdown,
+  message rate, sparkline, and output snippet. Topcoat 0.9 (pinned) inside
+  the same server and port; live over Topcoat's WebSocket, reconnects by
+  itself after a server restart
+- `tower ui`: prints a login link; the browser gets a derived, read-only UI
+  token that opens only `/ui` (`GET /v1/ui/token` for scripts)
+- Event retention: the sweeper deletes events older than
+  `event_retention_days` (default 14, `0` keeps all) hourly, never past an
+  open `/v1/events` stream
 
 ### Fixed
 

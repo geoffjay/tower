@@ -8,3 +8,4 @@ Decisions for the tower project.
 * [Scheduled jobs](scheduled-jobs.md) - reserved delivery when an agent is free, `not_before`, cron schedules with skip / replace / coalesce / pause policies.
 * [Operator skills](operator-skills.md) - five repo-local skills drive the CLI so an agent can operate tower; a stack is a naming convention; MCP gains stop, cancel, inbox, schedule show.
 * [Job queue dispatch](job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
+* [Web UI](web-ui.md) - Topcoat bridged into the axum app under `/ui`, live regions over Topcoat's WebSocket, server-side layout, derived read-only UI token.
