@@ -42,6 +42,7 @@ tower-tui = { version = "0.1.0", path = "../tower-tui" }
 parking_lot = "0.12"
 hmac = "0.12"
 sha2 = "0.10"
+tower-web = { version = "0.1.0", path = "../tower-web" }
 
 [lints]
 workspace = true

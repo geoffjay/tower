@@ -10,8 +10,9 @@ use crate::sse;
 use crate::state::AppState;
 use crate::storage::{open as open_db, EventLog};
 
-/// The full `/v1` + `/mcp` app (no auth layer) — serve and tests mount the
-/// same routes, so the schema registry can be checked against it.
+/// The full `/v1` + `/mcp` + `/ui` app (no auth layer) — serve and tests
+/// mount the same routes, so the schema registry can be checked against it.
+/// Starts the web UI's event follower: call inside a tokio runtime.
 pub fn router(state: AppState) -> axum::Router {
     api::router()
         .merge(crate::agents_api::router())
@@ -20,7 +21,16 @@ pub fn router(state: AppState) -> axum::Router {
         .merge(crate::schedules::router())
         .merge(crate::mcp::router())
         .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
-        .with_state(state)
+        .with_state(state.clone())
+        .merge(crate::ui::router(state))
+}
+
+/// What the TCP listener serves: `routes` behind bearer / UI-token auth.
+pub fn with_tcp_auth(routes: axum::Router, token: &str) -> axum::Router {
+    routes.layer(axum::middleware::from_fn_with_state(
+        auth::Auth::new(token),
+        auth::tcp_auth,
+    ))
 }
 
 pub async fn serve() -> anyhow::Result<()> {
@@ -54,6 +64,7 @@ pub async fn serve() -> anyhow::Result<()> {
 
     let pump_state = state.clone();
     let routes = router(state);
+    let tcp_app = with_tcp_auth(routes.clone(), &token);
 
     // TCP: bearer-token auth (D§13).
     let tcp_addr: std::net::SocketAddr = config
@@ -61,13 +72,6 @@ pub async fn serve() -> anyhow::Result<()> {
         .bind_tcp
         .parse()
         .context("invalid server.bind_tcp address")?;
-    let tcp_app = routes.clone().layer(axum::middleware::from_fn_with_state(
-        auth::Auth {
-            token: token.clone(),
-        },
-        auth::tcp_auth,
-    ));
-
     let tcp_listener = tokio::net::TcpListener::bind(tcp_addr).await?;
     tracing::info!(%tcp_addr, "listening (tcp, token required)");
 
@@ -101,6 +105,10 @@ pub async fn serve() -> anyhow::Result<()> {
     );
     println!("  socket  {}", paths.socket_file.display());
     println!("  tcp     {} (token required)", tcp_addr);
+    println!(
+        "  ui      http://{}/ui (run `tower ui` for a login link)",
+        tcp_addr
+    );
     println!("  db      {}", paths.db_file.display());
     println!("  token   {} (0600)", paths.token_file.display());
 

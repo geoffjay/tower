@@ -876,6 +876,16 @@ pub async fn list(state: &AppState, f: &ListFilter) -> anyhow::Result<Vec<Task>>
     Ok(rows.iter().map(row_to_task).collect())
 }
 
+/// Every job not yet terminal (the web UI's queue bar and lease view).
+pub async fn open_jobs(state: &AppState) -> anyhow::Result<Vec<Task>> {
+    let rows = sqlx::query(&format!(
+        "SELECT * FROM tasks WHERE state NOT IN {TERMINAL} ORDER BY priority DESC, created_at ASC"
+    ))
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(rows.iter().map(row_to_task).collect())
+}
+
 pub async fn get_task(state: &AppState, id: &TaskId) -> anyhow::Result<Option<Task>> {
     let row = sqlx::query("SELECT * FROM tasks WHERE id = ?1")
         .bind(id.0.as_str())

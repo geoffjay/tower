@@ -87,6 +87,8 @@ pub enum Command {
     Doctor,
     /// Route + event-type registry
     Schema,
+    /// Print a login link for the web UI (read-only agent cloud)
+    Ui,
 
     /// Job queue: create, assign, list, show, cancel, release
     Task {
@@ -153,6 +155,7 @@ async fn main_async(cli: Cli) -> anyhow::Result<()> {
         Command::Stop { .. } => stop(cli).await,
         Command::Doctor => doctor().await,
         Command::Schema => schema().await,
+        Command::Ui => ui(cli.json).await,
         Command::Inbox => inbox(cli.json).await,
         Command::Service { cmd } => service::run(cmd).await,
         Command::Schedule { cmd } => schedule::run(&client(cli.token).await?, cmd, cli.json).await,
@@ -554,6 +557,22 @@ fn which(bin: &str) -> bool {
                 .any(|dir| std::path::Path::new(dir).join(bin).exists())
         })
         .unwrap_or(false)
+}
+
+/// `tower ui`: the server's scoped UI token as a login link (D§13).
+async fn ui(json_out: bool) -> anyhow::Result<()> {
+    let c = client(None).await?;
+    let v = c.get("/v1/ui/token").await?;
+    let path = v["login_path"].as_str().unwrap_or("/ui/login");
+    let mut url = c.url(path)?;
+    url.query_pairs_mut()
+        .append_pair("token", v["token"].as_str().unwrap_or_default());
+    if json_out {
+        println!("{}", serde_json::json!({ "url": url.as_str() }));
+    } else {
+        println!("{url}");
+    }
+    Ok(())
 }
 
 async fn schema() -> anyhow::Result<()> {

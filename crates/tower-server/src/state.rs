@@ -15,7 +15,7 @@ pub struct Inner {
     pub pool: SqlitePool,
     pub events: EventLog,
     pub config: Config,
-    pub _token: String,
+    pub token: String,
     pub driver: Arc<dyn Harness>,
     pub started_at: i64,
 }
@@ -39,7 +39,7 @@ impl AppState {
             pool,
             events,
             config,
-            _token: token,
+            token,
             driver,
             started_at: tower_core::now_ms(),
         }))

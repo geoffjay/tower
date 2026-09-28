@@ -104,7 +104,8 @@ impl Client {
         Ok(resp)
     }
 
-    fn url(&self, path: &str) -> anyhow::Result<reqwest::Url> {
+    /// Absolute URL of `path` on this server (e.g. links for a browser).
+    pub fn url(&self, path: &str) -> anyhow::Result<reqwest::Url> {
         Ok(self.base.join(path.trim_start_matches('/'))?)
     }
 

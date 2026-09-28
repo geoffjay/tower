@@ -2,12 +2,27 @@
 name = "tower-web"
 description = "tower web UI (agent cloud, phase 4)"
 version.workspace = true
-edition.workspace = true
+# Topcoat macros expand against the 2024 prelude (e.g. `Future`).
+edition = "2024"
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
 tower-core = { workspace = true }
+# Pinned: early-stage framework; its types never leave this crate (D§12.3).
+topcoat = { version = "=0.9.0", default-features = false, features = ["view", "router", "runtime", "asset"] }
+axum = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+parking_lot = "0.12"
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
+futures = { workspace = true }
+tokio-tungstenite = "0.29"
 
 [lints]
 workspace = true
