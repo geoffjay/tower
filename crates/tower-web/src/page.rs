@@ -97,6 +97,17 @@ fn point_class(p: &Point) -> String {
     format!("pt {}{halo}", p.state.as_str())
 }
 
+/// `2 need you: api, web` — names shown up to five, then `+N`.
+fn needs_label(names: &[String]) -> String {
+    const SHOWN: usize = 5;
+    let mut s = format!("{} need you: ", names.len());
+    s.push_str(&names[..names.len().min(SHOWN)].join(", "));
+    if names.len() > SHOWN {
+        s.push_str(&format!(" +{}", names.len() - SHOWN));
+    }
+    s
+}
+
 fn tooltip(p: &Point) -> String {
     let halo = match p.attention {
         Attention::Needs => "\nneeds you (blocked or waiting on an answer)",
@@ -124,9 +135,9 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
                 <b>(queue.working)</b>" working · "
                 <b class="warn">(queue.blocked)</b>" blocked"
             </span>
-            if model.needs_you > 0 {
+            if !model.needs_you.is_empty() {
                 <span class="needs-badge" title="blocked agents and agents waiting on an answer; answer in the TUI or `tower inbox`">
-                    (model.needs_you)" need you · "(model.inbox)" in inbox"
+                    (needs_label(&model.needs_you))" · "(model.inbox)" in inbox"
                 </span>
             }
             <span class="machines">

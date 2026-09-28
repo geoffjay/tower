@@ -69,7 +69,8 @@ pub struct Cloud {
     pub queue: QueueCounts,
     /// Pending questions/approvals from agents.
     pub inbox: usize,
-    pub needs_you: usize,
+    /// Names of the agents that need the operator, by name.
+    pub needs_you: Vec<String>,
     pub machines: Vec<Chip>,
     /// Newest first.
     pub ribbon: Vec<RibbonItem>,
@@ -240,10 +241,15 @@ pub fn cloud(snap: &Snapshot, metrics: &Metrics, now: i64) -> Cloud {
         .collect();
 
     Cloud {
-        needs_you: points
-            .iter()
-            .filter(|p| p.attention == Attention::Needs)
-            .count(),
+        needs_you: {
+            let mut n: Vec<String> = points
+                .iter()
+                .filter(|p| p.attention == Attention::Needs)
+                .map(|p| p.name.clone())
+                .collect();
+            n.sort();
+            n
+        },
         points,
         view_box: format!("{vx:.0} {vy:.0} {vw:.0} {vh:.0}"),
         clusters,

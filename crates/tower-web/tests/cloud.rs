@@ -284,7 +284,7 @@ async fn mixed_states_render_color_halo_and_brightness() {
         "pending question"
     );
     assert_eq!(point_class(&html, "faulty"), "pt idle fault");
-    assert!(html.contains("2 need you · 1 in inbox"));
+    assert!(html.contains("2 need you: asker, b · 1 in inbox"));
     // blocked owner's job counts as blocked, like the TUI banner
     assert!(html.contains("<b>1</b> queued · <b>1</b> working · <b class=\"warn\">1</b> blocked"));
     // brightness: dead is dimmest; a working agent with fresh output is full

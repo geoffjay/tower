@@ -48,6 +48,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 @keyframes pulse { 0%, 100% { opacity: .15; stroke-width: 2; } 50% { opacity: 1; stroke-width: 5; } }
 .pt .label { fill: var(--dim); font-size: 11px; text-anchor: middle; pointer-events: none; }
 .pt:hover .label, .pt[data-selected] .label { fill: #fff; }
+.pt.needs .label { fill: var(--blocked); font-size: 14px; font-weight: 700; }
 .pt[data-selected] .core { stroke: #fff; stroke-width: 2; }
 
 .ribbon { display: flex; gap: 16px; padding: 8px 16px; border-top: 1px solid var(--line);
