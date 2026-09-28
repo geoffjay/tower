@@ -10,8 +10,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use tower_core::{
-    Agent, AgentId, AgentState, Event, EventKind, Machine, Message, Schedule, Task, TaskId,
-    TaskState,
+    Agent, AgentId, AgentState, Event, EventKind, Machine, Message, QueueCounts, Schedule, Task,
+    TaskId,
 };
 
 /// Events kept for the events view.
@@ -67,14 +67,6 @@ pub struct TaskDetail {
     pub task: Task,
     pub trail: Vec<Event>,
     pub messages: Vec<Message>,
-}
-
-/// Open jobs by state, for the queue banner (D§11).
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct QueueCounts {
-    pub queued: usize,
-    pub working: usize,
-    pub blocked: usize,
 }
 
 #[derive(Debug, Default)]
@@ -281,28 +273,14 @@ impl Store {
     }
 
     pub fn queue_counts(&self) -> QueueCounts {
-        let mut c = QueueCounts::default();
-        for t in self.tasks.values() {
-            let owner_blocked = t
-                .owner_id
-                .as_ref()
-                .and_then(|o| self.agent(o))
-                .is_some_and(|a| a.state == AgentState::Blocked);
-            match t.state {
-                TaskState::Queued => c.queued += 1,
-                TaskState::InputRequired => c.blocked += 1,
-                TaskState::Assigned | TaskState::Working if owner_blocked => c.blocked += 1,
-                TaskState::Assigned | TaskState::Working => c.working += 1,
-                _ => {}
-            }
-        }
-        c
+        QueueCounts::count(self.tasks.values(), |id| self.agent(id).map(|a| a.state))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tower_core::TaskState;
 
     fn task(n: i64, state: TaskState) -> Task {
         serde_json::from_value(serde_json::json!({

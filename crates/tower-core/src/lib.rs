@@ -3,11 +3,13 @@
 pub mod error;
 pub mod ids;
 pub mod objects;
+pub mod queue;
 pub mod states;
 
 pub use error::{ErrorCode, TowerError};
 pub use ids::{AgentId, EventSeq, MachineId, MessageId, ScheduleId, TaskId};
 pub use objects::{Agent, Artifact, Event, Machine, Message, Schedule, Task};
+pub use queue::QueueCounts;
 pub use states::{
     AgentState, DesiredState, EventKind, MessageKind, MessageStatus, Part, PartyKind, Permissions,
     TaskState,
