@@ -340,6 +340,12 @@ cannot call the API), so later visits go straight to
 `http://127.0.0.1:8266/ui`. The page reconnects by itself when the server
 restarts.
 
+`Cmd+K` (`Ctrl+K` on Linux) or the `⌘K` button opens a command palette:
+type to search, arrows to move, `Enter` to go. Search `settings` for the
+settings page, where the theme dropdown switches between Tower Dark (the
+default), Tokyo Night Storm and Tokyo Night Light. The choice is kept by
+that browser and applies on every page.
+
 ## 9. Later: more machines
 
 ```console

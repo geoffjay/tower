@@ -88,3 +88,35 @@ full detail lives in the TUI, by design.
 - Job queue board and task trails
 - Historical charts (event rate, throughput) from the event log
 - Config: points vs table view toggle
+
+## 12.5 Settings, themes, command palette
+
+- **Pages**: one file per page in `tower-web/src/pages/` (`cloud.rs` =
+  `/ui`, `settings.rs` = `/ui/settings`), re-exported from `pages/mod.rs`
+  and registered on the Topcoat router. Shared chrome (`<head>`, theme
+  boot script, palette) lives in `shell.rs`
+- **Command palette**: `Cmd+K` (macOS) / `Ctrl+K` (Linux, Windows) or the
+  `⌘K` header button opens a `<dialog>` with a search input; results
+  (subsequence match on title + hint) list beneath it; arrows move,
+  `Enter`/click navigates, `Esc` or a second `Cmd+K` closes. The command
+  list is `shell::COMMANDS` — a new page registers itself there. Plain
+  JS rendered once per page outside the live regions: no signals, no
+  server round trip, and the button uses a delegated listener so the
+  cloud's live re-renders never unwire it
+- **Themes**: `theme::THEMES` is the registry — `tower-dark` (the
+  original colors, default), `tokyo-night-storm`, `tokyo-night-light`
+  (chrome colors from the Tokyo Night palette site). A theme sets only
+  chrome variables (`--bg --fg --dim --hi --card --line --accent
+  --on-accent`); the §12.1 state colors are identical in every theme, so
+  the glance channels (amber = needs you) never change meaning. Only the
+  default carries `:root`; the others match `[data-theme=…]` on `<html>`
+- **Persistence: browser `localStorage`** (`tower.theme`, JSON string),
+  not a cookie or the DB. The theme is a per-browser preference, and
+  writing a cookie or a row would need a mutating endpoint under `/ui` —
+  exactly what the read-only guard (§12.3, plan T3.2) forbids. A
+  synchronous boot script in `<head>` applies the stored theme before
+  first paint (no flash of the default), and falls back to the default
+  on junk. The browser scripts take their id list from the registry
+  (`theme::ids_json`), so a new theme is one registry entry + one CSS
+  block. A later server-side settings store can seed or replace this
+  without changing the settings page's contract

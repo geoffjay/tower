@@ -1,9 +1,7 @@
 :root {
-  --bg: #0b0e14;
-  --fg: #c9d1d9;
-  --dim: #6e7681;
-  --card: #151a23;
-  --line: #262d38;
+  /* state colors (D§12.1) — identical in every theme; the theme registry
+     (theme.rs) supplies --bg/--fg/--dim/--hi/--card/--line/--accent/
+     --on-accent and data-theme=[theme] on <html> */
   --working: #3b82f6;
   --blocked: #f59e0b;
   --idle: #6b7280;
@@ -47,7 +45,7 @@ body {
   letter-spacing: 0.08em;
 }
 .pool b {
-  color: #fff;
+  color: var(--hi);
 }
 .pool b.warn {
   color: var(--blocked);
@@ -222,7 +220,7 @@ body {
 }
 .pt:hover .label,
 .pt[data-selected] .label {
-  fill: #fff;
+  fill: var(--hi);
 }
 .pt.needs .label {
   fill: var(--blocked);
@@ -230,7 +228,7 @@ body {
   font-weight: 700;
 }
 .pt[data-selected] .core {
-  stroke: #fff;
+  stroke: var(--hi);
   stroke-width: 2;
 }
 
@@ -330,4 +328,151 @@ body {
 .offline {
   padding: 40px;
   color: var(--dead);
+}
+
+/* ---- command palette (D§12.5) ---- */
+.kbtn {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--dim);
+  padding: 3px 10px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.kbtn:hover {
+  color: var(--fg);
+}
+.kbtn kbd {
+  font: inherit;
+  color: var(--fg);
+}
+/* the cloud legend already pushes right; sit flush after it */
+.legend + .kbtn {
+  margin-left: 0;
+}
+a.brand {
+  color: inherit;
+  text-decoration: none;
+}
+.palette {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.palette::backdrop {
+  background: #0007;
+}
+.palette > div {
+  position: fixed;
+  top: 15vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(440px, calc(100vw - 32px));
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px #000a;
+  overflow: hidden;
+}
+.palette input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.palette input::placeholder {
+  color: var(--dim);
+}
+.palette .results {
+  max-height: 46vh;
+  overflow: auto;
+  margin: 4px;
+}
+.palette .cmd {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+  align-items: baseline;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+.palette .cmd small {
+  color: var(--dim);
+}
+.palette .cmd:hover,
+.palette .cmd[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.palette .cmd:hover small,
+.palette .cmd[aria-selected="true"] small {
+  color: var(--on-accent);
+}
+.palette .none {
+  padding: 10px 12px;
+  color: var(--dim);
+}
+
+/* ---- settings page ---- */
+.settings {
+  flex: 1;
+  overflow: auto;
+  padding: 28px 16px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.settings section {
+  width: min(520px, 100%);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+.settings h1 {
+  margin: 0 0 14px;
+  font-size: 18px;
+}
+.settings h2 {
+  margin: 18px 0 6px;
+  font-size: 13px;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.settings label {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin: 8px 0;
+}
+.settings select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  padding: 4px 8px;
+}
+.settings .saved {
+  color: var(--done);
+  font-size: 12px;
+  margin-left: 8px;
+  visibility: hidden;
+}
+.settings .saved.show {
+  visibility: visible;
 }

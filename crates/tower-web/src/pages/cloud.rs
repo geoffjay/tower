@@ -16,12 +16,7 @@ use topcoat::view::*;
 use crate::Ui;
 use crate::metrics::BUCKETS;
 use crate::model::{Attention, Cloud, Panel, Point};
-
-const CSS: &str = include_str!("style.css");
-/// Windows drain and ages grow without events: re-render at least this often.
-const CLOUD_REFRESH: Duration = Duration::from_secs(5);
-/// The panel's lease countdown ticks.
-const PANEL_TICK: Duration = Duration::from_secs(1);
+use crate::shell;
 
 /// Legend order = the D§12.1 color table.
 const STATES: [&str; 7] = [
@@ -34,6 +29,11 @@ const STATES: [&str; 7] = [
     "unknown",
 ];
 
+/// Windows drain and ages grow without events: re-render at least this often.
+const CLOUD_REFRESH: Duration = Duration::from_secs(5);
+/// The panel's lease countdown ticks.
+const PANEL_TICK: Duration = Duration::from_secs(1);
+
 #[page("/ui")]
 pub async fn cloud_page(cx: &Cx) -> Result<impl View> {
     // the selected agent's id; "" = none. Browser-held: validated by lookup.
@@ -44,11 +44,7 @@ pub async fn cloud_page(cx: &Cx) -> Result<impl View> {
         <!DOCTYPE html>
         <html lang="en">
             <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>"tower · agent cloud"</title>
-                topcoat::runtime::script()
-                <style>(CSS)</style>
+                (shell::head(cx, "agent cloud")?)
             </head>
             <body @keydown=$(|e: Event| if e.key == "Escape" { selected.set("".to_owned()) } else {})>
                 (live! {
@@ -83,6 +79,7 @@ pub async fn cloud_page(cx: &Cx) -> Result<impl View> {
                         }
                     }
                 })
+                (shell::palette(cx)?)
             </body>
         </html>
     })
@@ -152,6 +149,7 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
                     <span><i class=(format!("dot {s}"))></i>(s)</span>
                 }
             </span>
+            (shell::palette_button())
         </header>
         <svg id="cloud" viewBox=(model.view_box) preserveAspectRatio="xMidYMid meet">
             <rect class="bg" x="-5000" y="-5000" width="10000" height="10000" @click=$(|_e| selected.set("".to_owned()))></rect>

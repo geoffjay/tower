@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Event retention: the sweeper deletes events older than
   `event_retention_days` (default 14, `0` keeps all) hourly, never past an
   open `/v1/events` stream
+- Web UI command palette: `Cmd+K` / `Ctrl+K` (or the `⌘K` header button)
+  searches commands and navigates; arrows + `Enter`, `Esc` closes
+- Web UI settings page (`/ui/settings`) with a theme dropdown: Tower Dark
+  (default), Tokyo Night Storm, Tokyo Night Light; kept in the browser's
+  localStorage and applied before first paint
 
 ### Fixed
 

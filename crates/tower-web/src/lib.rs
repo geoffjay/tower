@@ -8,8 +8,10 @@ mod assets;
 mod layout;
 mod metrics;
 mod model;
-mod page;
+mod pages;
+mod shell;
 mod source;
+mod theme;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -123,7 +125,8 @@ pub fn router(source: Arc<dyn UiSource>) -> axum::Router {
     tokio::spawn(follow(ui.clone()));
 
     let app = topcoat::router::Router::builder()
-        .page(page::cloud_page)
+        .page(pages::cloud_page)
+        .page(pages::settings_page)
         .assets(assets::config())
         .app_context(ui)
         .runtime()

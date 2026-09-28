@@ -1,5 +1,8 @@
 # Knowledge Base Update Log
 
+## 2026-09-28
+* **Web UI QOL — themes + command palette**: ([design §12.5](concepts/design/12-web-ui.md), [plan](plans/phase-4-web-ui.md) verification log): `tower-web/src/pages/` (one file per page), `Cmd/Ctrl+K` command palette, `/ui/settings` with Tower Dark / Tokyo Night Storm / Tokyo Night Light kept in localStorage (no mutating endpoint, read-only guard intact). `docs/getting-started.md` §8.
+
 ## 2026-09-27
 * **Phase 4 complete**: ([plan](plans/phase-4-web-ui.md)) hour soak with real pi agents passed (55 live color changes, restart reconnect, flat memory); glance test passed on the 15-agent cloud. Overview status updated.
 * **Phase 3 complete**: ([plan](plans/phase-3-tui.md), verification log filled incl. the 8h soak): `tower tui` — fleet, agent detail, inbox, jobs, events, machines, command palette — on one `/v1/events` stream with cursor resume. Design D§11 (herdr focus vs attach, queue banner meaning) + new D§11.1 (data flow, output re-read on `agent.output`, memory bounds), D§7 (`GET /v1/messages?agent=`), D§17.6 (client side bounded). Fixes found along the way: `EventKind::as_str` leak, NULL agent columns as `""`, SSE cut at 65s, prompt route skipping its `prompt` message. `docs/getting-started.md` §8 TUI section.
