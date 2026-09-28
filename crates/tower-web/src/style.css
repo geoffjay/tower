@@ -1,14 +1,8 @@
 :root {
-  /* state colors (D§12.1) — identical in every theme; the theme registry
-     (theme.rs) supplies --bg/--fg/--dim/--hi/--card/--line/--accent/
-     --on-accent and data-theme=[theme] on <html> */
-  --working: #3b82f6;
-  --blocked: #f59e0b;
-  --idle: #6b7280;
-  --done: #22c55e;
-  --dead: #ef4444;
-  --launching: #14b8a6;
-  --unknown: #8b5cf6;
+  /* state colors (D§12.1) and chrome colors live in the theme registry
+     (theme.rs): --working/--blocked/--idle/--done/--dead/--launching/
+     --unknown and --bg/--fg/--dim/--hi/--card/--line/--accent/
+     --on-accent, defined per theme with tower-dark as the default */
 }
 
 * {
@@ -141,6 +135,18 @@ body {
   text-anchor: middle;
 }
 
+.spoke {
+  stroke: var(--dim);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+.hub-core {
+  fill: var(--dim);
+  stroke: var(--bg);
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
 .pt {
   cursor: pointer;
   transition: transform 1.2s ease;
@@ -167,17 +173,17 @@ body {
   --c: var(--unknown);
 }
 .pt .drift {
-  animation: drift 12s ease-in-out infinite;
+  animation: drift 30s ease-in-out infinite;
 }
 @keyframes drift {
   25% {
-    translate: 3px -2px;
+    translate: 1.5px -1px;
   }
   50% {
-    translate: -2px 3px;
+    translate: -1px 1.5px;
   }
   75% {
-    translate: -3px -1px;
+    translate: -1.5px -0.5px;
   }
 }
 .pt .core {
@@ -214,9 +220,15 @@ body {
 }
 .pt .label {
   fill: var(--dim);
-  font-size: 11px;
+  font-size: 9px;
   text-anchor: middle;
   pointer-events: none;
+  /* names arrive truncated server-side (LABEL_MAX); the small size keeps
+     neighbors readable when points sit close */
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
 }
 .pt:hover .label,
 .pt[data-selected] .label {
@@ -224,7 +236,7 @@ body {
 }
 .pt.needs .label {
   fill: var(--blocked);
-  font-size: 14px;
+  font-size: 10px;
   font-weight: 700;
 }
 .pt[data-selected] .core {

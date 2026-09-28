@@ -24,18 +24,20 @@ text. Drill-down is deliberately minimal and optional.
 
 ## 12.1 The agent cloud (primary view)
 
-Agents rendered as **points in a 2D cloud** (force-directed layout; agents
- drift toward their machine cluster, away from crowded neighbors, settle
- under a light repulsion simulation):
+Agents rendered as **points in a 2D cloud** (server-side deterministic layout,
+[§12.3](#123-technology); agents gather around their machine's hub, spread on
+a golden-angle spiral, repulsion passes keep points apart):
 
 | Visual channel | Encodes |
 |---|---|
-| Point **color** (hue) | agent state: working=blue, blocked=amber, idle=gray, done=green, dead=red, launching=teal, unknown=violet |
+| Point **color** (hue) | agent state: working=blue, blocked=amber, idle=gray, done=green, dead=red, launching=teal, unknown=violet. The hue keeps its meaning in every theme; the exact values are theme-defined (§12.5) |
 | Point **size** | activity volume — event/message/output rate over a rolling window (bigger = busier) |
 | Point **halo/pulse** | attention needed: blocked or expired items glow/pulse |
 | Point **brightness** | health/quality score (recency of heartbeats/stale detection = dim) |
-| Cluster position | machine grouping (local vs node machines, phase 5) |
-| Edge lines (optional) | message volume between agents in the last N minutes (thicker = more traffic); toggleable |
+| **Machine hub** + spoke lines | each machine is a small central node; thin lines bind its agents' points to it, so multi-machine grouping reads at a glance; the hub carries the machine name as tooltip |
+| **Point label** | agent name under the point, truncated to keep neighbors readable; the full name lives in the tooltip and panel |
+| Drift | a slow, small per-point CSS animation (± ~1.5 units, 24–35 s) keeps the cloud alive without hiding the spokes |
+| Edge lines by message volume (backlog) | thickness = traffic between agents; toggleable |
 
 A **floating side panel** appears when a point is selected: agent name, kind,
 machine, state, current task + lease countdown, message rate, recent event
@@ -105,11 +107,14 @@ full detail lives in the TUI, by design.
   cloud's live re-renders never unwire it
 - **Themes**: `theme::THEMES` is the registry — `tower-dark` (the
   original colors, default), `tokyo-night-storm`, `tokyo-night-light`
-  (chrome colors from the Tokyo Night palette site). A theme sets only
-  chrome variables (`--bg --fg --dim --hi --card --line --accent
-  --on-accent`); the §12.1 state colors are identical in every theme, so
-  the glance channels (amber = needs you) never change meaning. Only the
-  default carries `:root`; the others match `[data-theme=…]` on `<html>`
+  (colors from the Tokyo Night palette site). A theme sets the chrome
+  variables (`--bg --fg --dim --hi --card --line --accent --on-accent`)
+  **and** the §12.1 state colors (`--working --blocked --idle --done
+  --dead --launching --unknown`): the hue meaning stays fixed in every
+  theme (amber = needs you, blue = working, …) but the exact values come
+  from the theme's palette, so Tokyo Night themes are rendered in Tokyo
+  Night colors. Only the default carries `:root`; the others match
+  `[data-theme=…]` on `<html>`
 - **Persistence: browser `localStorage`** (`tower.theme`, JSON string),
   not a cookie or the DB. The theme is a per-browser preference, and
   writing a cookie or a row would need a mutating endpoint under `/ui` —

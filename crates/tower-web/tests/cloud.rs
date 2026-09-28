@@ -230,6 +230,47 @@ async fn roster_renders_one_point_per_agent_server_side() {
     assert!(ctype.starts_with("text/javascript"));
     assert!(js.len() > 10_000);
 }
+#[tokio::test]
+async fn hub_and_spokes_bind_each_point_to_its_machine() {
+    let mut snap = roster(6);
+    snap.machines.push(machine("node-a", "node", "online"));
+    for a in snap.agents.iter_mut().take(3) {
+        a.machine_id = MachineId("node-a".into());
+    }
+    let fx = Fixture::new(snap);
+    let app = tower_web::router(fx.clone());
+    let (_, _, html) = get(&app, "/ui").await;
+
+    // one hub per machine, with the agent-count tooltip
+    assert!(html.contains("local — 3 agents"));
+    assert!(html.contains("node-a — 3 agents"));
+    assert_eq!(html.matches("class=\"hub\"").count(), 2);
+    // every point gets a spoke line to its hub
+    assert_eq!(html.matches("<line class=\"spoke\"").count(), 6);
+    // machine labels still render above each cluster
+    assert!(html.matches("<text class=\"cluster\"").count() == 2);
+}
+
+#[tokio::test]
+async fn long_names_get_truncated_labels_but_full_tooltips() {
+    let mut snap = roster(1);
+    snap.agents[0].name = "very-long-agent-name-here".into();
+    let fx = Fixture::new(snap);
+    let app = tower_web::router(fx.clone());
+    let (_, _, html) = get(&app, "/ui").await;
+    // label truncates with an ellipsis; the tooltip keeps the full name
+    assert!(html.contains("very-long-a…</text>"), "{}", html);
+    assert!(
+        html.contains("very-long-agent-name-here · idle"),
+        "{}",
+        html
+    );
+    // short names render whole
+    let fx = Fixture::new(roster(1));
+    let app = tower_web::router(fx.clone());
+    let (_, _, html) = get(&app, "/ui").await;
+    assert!(html.contains("ag00</text>"));
+}
 
 #[tokio::test]
 async fn mixed_states_render_color_halo_and_brightness() {

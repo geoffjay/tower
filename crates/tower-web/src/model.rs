@@ -23,9 +23,15 @@ pub enum Attention {
 pub struct Point {
     pub id: String,
     pub name: String,
+    /// Display name: truncated so neighbors' labels stay readable; the
+    /// full name is in the tooltip and panel.
+    pub label: String,
     pub state: AgentState,
     pub x: f64,
     pub y: f64,
+    /// The cluster hub this point binds to (D§12.1 spokes).
+    pub hub_x: f64,
+    pub hub_y: f64,
     pub r: f64,
     /// Brightness (health), 0.35–1.
     pub health: f64,
@@ -36,6 +42,20 @@ pub struct Point {
     pub drift_phase_s: u32,
 }
 
+/// A machine's central node (D§12.1): every point of the machine binds
+/// to it with a spoke line.
+#[derive(Debug, Clone)]
+pub struct Hub {
+    pub id: String,
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+    /// Points bound to this hub, in draw order.
+    pub agents: usize,
+}
+
+/// Cluster label (kept for the machine-name text when several machines
+/// exist; the hub carries the line binding).
 #[derive(Debug, Clone)]
 pub struct Cluster {
     pub name: String,
@@ -64,6 +84,9 @@ pub struct Cloud {
     pub points: Vec<Point>,
     /// SVG viewBox framing the points.
     pub view_box: String,
+    /// One per machine, in display order — the central nodes the points
+    /// bind to (D§12.1 spokes).
+    pub hubs: Vec<Hub>,
     /// Labeled only when there is more than one machine.
     pub clusters: Vec<Cluster>,
     pub queue: QueueCounts,
@@ -123,6 +146,20 @@ fn lease_left(job: Option<&Task>, now: i64) -> Option<f64> {
     let job = job?;
     let exp = job.lease_expires_at?;
     Some((exp - now) as f64 / (job.lease_s.max(1) * 1000) as f64)
+}
+
+/// Label shown under a point: names longer than `LABEL_MAX` chars become
+/// `prefix…` so one long name can't crowd its neighbors (D§12.1). The
+/// full name stays in the tooltip and the panel.
+const LABEL_MAX: usize = 12;
+
+fn display_label(name: &str) -> String {
+    if name.chars().count() <= LABEL_MAX {
+        name.to_owned()
+    } else {
+        let cut: String = name.chars().take(LABEL_MAX - 1).collect();
+        format!("{cut}…")
+    }
 }
 
 fn attention(snap: &Snapshot, agent: &Agent, m: &AgentMetrics) -> Attention {
@@ -189,19 +226,34 @@ pub fn cloud(snap: &Snapshot, metrics: &Metrics, now: i64) -> Cloud {
             points.push(Point {
                 id: a.id.0.clone(),
                 name: a.name.clone(),
+                label: display_label(&a.name),
                 state: a.state,
                 x: pos.x,
                 y: pos.y,
+                hub_x: centers[ci].x,
+                hub_y: centers[ci].y,
                 r: metrics::radius(m.activity),
                 health,
                 attention: attention(snap, a, &m),
                 activity: m.activity,
-                drift_s: 9 + h % 7,
-                drift_phase_s: (h / 7) % 15,
+                // slow drift (D§12.1): 24-35 s per cycle, small offsets
+                drift_s: 24 + h % 12,
+                drift_phase_s: (h / 12) % 35,
             });
         }
     }
 
+    let hubs: Vec<Hub> = order
+        .iter()
+        .zip(&centers)
+        .map(|(id, c)| Hub {
+            id: id.clone(),
+            name: machine_name(id),
+            x: c.x,
+            y: c.y,
+            agents: groups.get(id.as_str()).map_or(0, Vec::len),
+        })
+        .collect();
     let clusters = if order.len() > 1 {
         order
             .iter()
@@ -221,6 +273,7 @@ pub fn cloud(snap: &Snapshot, metrics: &Metrics, now: i64) -> Cloud {
             .iter()
             .flatten()
             .copied()
+            .chain(hubs.iter().map(|h| layout::Pos { x: h.x, y: h.y }))
             .chain(clusters.iter().map(|c| layout::Pos { x: c.x, y: c.y })),
     );
 
@@ -252,6 +305,7 @@ pub fn cloud(snap: &Snapshot, metrics: &Metrics, now: i64) -> Cloud {
         },
         points,
         view_box: format!("{vx:.0} {vy:.0} {vw:.0} {vh:.0}"),
+        hubs,
         clusters,
         queue: QueueCounts::count(&snap.open_tasks, |id| {
             snap.agents.iter().find(|a| &a.id == id).map(|a| a.state)

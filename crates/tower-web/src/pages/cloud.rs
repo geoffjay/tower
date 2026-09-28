@@ -153,6 +153,21 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
         </header>
         <svg id="cloud" viewBox=(model.view_box) preserveAspectRatio="xMidYMid meet">
             <rect class="bg" x="-5000" y="-5000" width="10000" height="10000" @click=$(|_e| selected.set("".to_owned()))></rect>
+            // spokes first: lines bind every point to its machine's hub
+            #[key(format!("spoke-{}", p.id.clone()))]
+            for p in &model.points {
+                if p.hub_x != p.x || p.hub_y != p.y {
+                    <line class="spoke" x1=(format!("{:.1}", p.hub_x)) y1=(format!("{:.1}", p.hub_y)) x2=(format!("{:.1}", p.x)) y2=(format!("{:.1}", p.y))></line>
+                }
+            }
+            // machine hubs: small central nodes the points bind to
+            #[key(format!("hub-{}", h.id.clone()))]
+            for h in model.hubs {
+                <g class="hub" transform=(format!("translate({:.1} {:.1})", h.x, h.y))>
+                    <title>(format!("{} — {} agent{}", h.name, h.agents, if h.agents == 1 { "" } else { "s" }))</title>
+                    <circle class="hub-core" r="5"></circle>
+                </g>
+            }
             for c in model.clusters {
                 <text class="cluster" x=(format!("{:.0}", c.x)) y=(format!("{:.0}", c.y))>(c.name)</text>
             }
@@ -170,7 +185,7 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
                     <g class="drift" style=(format!("animation-duration: {}s; animation-delay: -{}s", p.drift_s, p.drift_phase_s))>
                         <circle class="halo" style=(format!("r: {:.1}px", p.r + 7.0))></circle>
                         <circle class="core" style=(format!("r: {:.1}px; fill-opacity: {:.2}", p.r, p.health))></circle>
-                        <text class="label" y=(format!("{:.1}", p.r + 16.0))>(p.name)</text>
+                        <text class="label" y=(format!("{:.1}", p.r + 14.0))>(p.label.clone())</text>
                     </g>
                 </g>
             }

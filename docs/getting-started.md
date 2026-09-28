@@ -325,10 +325,14 @@ restarts, the TUI shows `reconnecting` and resumes from where the stream
 left off.
 
 The web UI is the **agent cloud** — a single highly graphical page:
-every agent a colored point in a drifting cloud (state = color, activity =
-size, attention = pulsing halo, health = brightness), with a floating panel
-for the agent you click. Read-only by design: it answers "who needs me right
-now?" at a glance; configuration and control stay in the CLI and TUI.
+every agent a colored point in a slowly drifting cloud (state = color,
+activity = size, attention = pulsing halo, health = brightness). Each
+machine is a small central node its agents bind to with spoke lines, so
+you can see the grouping at a glance; agent names sit under their points,
+truncated if long (the full name is in the hover tooltip and the floating
+panel for the agent you click). Read-only by design: it answers "who
+needs me right now?" at a glance; configuration and control stay in the
+CLI and TUI.
 
 ```console
 $ tower ui

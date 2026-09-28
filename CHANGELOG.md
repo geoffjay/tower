@@ -48,6 +48,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Web UI settings page (`/ui/settings`) with a theme dropdown: Tower Dark
   (default), Tokyo Night Storm, Tokyo Night Light; kept in the browser's
   localStorage and applied before first paint
+- Web UI cloud: each machine is a central hub node its agents bind to
+  with spoke lines, so multi-machine grouping reads at a glance; agent
+  name labels truncate past 12 chars (full name in the tooltip/panel) and
+  render smaller with a contrast halo; the drift animation is slower
+  (30 s cycle) and subtler; themes now set the agent state colors too —
+  Tokyo Night Storm/Light use their palette's blue/amber/green/red/
+  teal/violet while hue meaning stays fixed across themes
 
 ### Fixed
 
