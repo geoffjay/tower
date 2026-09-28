@@ -6,7 +6,7 @@ tags:
   - plan
   - phase-3
   - tui
-status: draft
+status: stable
 sources:
   - resource: git:340c189:plans/phase-3.md
     title: Original plan (removed from repo; full text in git history)
@@ -146,3 +146,4 @@ have no CLI verb to ask the operator (d2 had to curl `/mcp`).
 | 2026-09-27 | T4.1 events filters (type substring, subject by agent name, output toggle), follow/pause; T4.2 `local` + offline node row | pass |
 | 2026-09-27 | Feed resume across a server crash (HTTP task aborted, an event appended while down, same port back): the missed event is replayed via `?cursor=` exactly once | pass (`tests/tui.rs`) |
 | 2026-09-27 | T5.1 dogfood (see friction notes): full session from the TUI + one herdr attach; the live server was restarted mid-session and the TUI went `reconnecting` → `● live` with the rebuilt server's data | pass; 5 friction fixes `8530591` |
+| 2026-09-27 | **T5.2** soak, 13:51–21:51 (8h): `tower tui` against the live server with idle omp/claude agents, a prompt to d1 every 30 min, a job created + canceled every 5s and a question asked + answered every 30s (5668 rounds), the view switched every minute. RSS sampled every minute (473 samples): median 16.7 MB in hour 1, 17.5 MB in hours 2–4, 16.6 MB in hours 6–8, never above 22.3 MB — no growth. Server killed and restarted at 2h, 4h and 6h: each time `○ reconnecting` during the outage, then `● live` within 18s | pass |
