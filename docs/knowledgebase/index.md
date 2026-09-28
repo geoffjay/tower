@@ -65,7 +65,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [Phase 2 — Messaging + job queue](plans/phase-2-messaging-task-pool.md) - complete; messages, blocked inbox, assignment-only job queue, MCP.
 * [Phase 2b — Scheduled jobs](plans/phase-2b-scheduled-jobs.md) - complete; reserved delivery, one job per agent, recurring cron schedules, `tower service`.
 * [Phase 3 — TUI](plans/phase-3-tui.md) - daily monitoring from the TUI.
-* [Phase 4 — Web UI](plans/phase-4-web-ui.md) - read-only agent cloud via Topcoat.
+* [Phase 4 — Web UI](plans/phase-4-web-ui.md) - complete; read-only agent cloud via Topcoat at `/ui`, scoped UI token, event retention.
 * [Phase 5 — Multi-machine](plans/phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.
 * [Phase 6 — A2A edge](plans/phase-6-a2a-edge.md) - Agent Card + A2A delegation.
 

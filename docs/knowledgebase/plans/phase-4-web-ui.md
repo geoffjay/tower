@@ -7,7 +7,7 @@ tags:
   - phase-4
   - web-ui
   - topcoat
-status: draft
+status: stable
 sources:
   - resource: git:340c189:plans/phase-4.md
     title: Original plan (removed from repo; full text in git history)
@@ -159,6 +159,7 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
 | 2026-09-27 | Live server (isolated home, port 8277, herdr + omp/claude agents): `tower ui` → link → cookie → cloud with 4 agents, a claude agent blocked at startup pulses amber, `1 need you · 1 in inbox` | pass |
 | 2026-09-27 | T4.1 real-agent soak, 18:01–20:01: page open 1 h 58 m against the isolated server; 3 omp agents did 31 real jobs through the work loop (assign → start → complete; 283 output chunks), a claude agent sat blocked (amber pulse) until its approval expired (→ `dead`). Page: one WebSocket the whole time, 0 closes, 0 console errors, 0 error frames, 1650 frames, DOM 90 nodes flat, heap 3.9–4.6 MB (first/last sample 4.04 / 4.07). Server RSS 21.9–23.7 MB over 66 one-minute samples | pass for stability; **partial** for state changes: only launching → idle / blocked, blocked → dead occurred — omp never reports `working` (backlog), pi has no provider auth, claude spawned from this environment fails its API config |
 | 2026-09-27 | T4.1 state-churn soak, 53 min: the real UI in Chrome over a 40-agent fixture flipping working / idle / blocked (throwaway harness): 431 point class flips applied in place, one WebSocket, 0 closes, 0 errors, 0 error frames, 4510 frames, 40 points and 0 duplicates in every sample, DOM 302–311 nodes, heap 1.9–2.9 MB (first/last 2.81 / 2.41) | pass (stopped at 53 min, not 60) |
+| 2026-09-27 | **T4.1 hour soak (exit run)**, 21:41–22:41: real herdr + 2 pi agents (ollama-cloud/glm-5.3) + 1 omp agent; a job every 100 s, round-robin — 36 jobs, all completed through the work loop; 66 `agent.state` events. Page open 59.7 min: 55 point color changes applied live (24 → working, 24 → done, 7 → idle), 1545 frames, 0 console errors, 0 error frames, DOM 84 nodes flat, heap 1.65–2.67 MB (first/last 1.76 / 2.04), 3 points and 0 duplicates in all 119 samples. Scripted server restart at 30 min: the page lost the socket at 22:12:11, retried at 1 / 2 / 4 s, and reconnected on the new server. Server RSS 21.8–24.4 MB over 60 one-minute samples, across both processes | **pass** |
 | 2026-09-27 | T4.1 restart: server killed with the page open, back after ~15 s; the runtime retried at 1 / 2 / 4 / 8 / 16 s and reconnected; 4 points, 0 duplicates, 0 errors, ribbon shows `server.started` | pass |
 | 2026-09-27 | T4.2 glance test, first run (15-agent demo: indexer + mobile blocked, review waiting on an answer): the operator named mobile, one wrong agent, and missed two | **fail** — the amber halos were seen but names were not readable; fix `cd75257`: the badge names them (`3 need you: indexer, mobile, review`), their labels turn amber and bold. Re-run pending |
 | 2026-09-27 | T4.2 glance re-run on the operator's live fleet (after `cd75257`): 1 agent, `dead`, inbox empty — the operator answered "none need me" | correct, but not the 15-agent mixed-state cloud the test specifies; that run is still open |
