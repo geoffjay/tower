@@ -55,6 +55,10 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
   rolling). Output: short spec table appended here; becomes tooltips in
   the UI and stays out of the hot path (computed on event append, cached
   per agent, not per render).
+- **S4.C** **UI token** ([D§17.5](../concepts/design/17-open-questions.md)): scoped read-only
+  UI token vs the full bearer token; how a browser gets it without the
+  full token ever reaching the browser. Output: decision appended here,
+  [D§13](../concepts/design/13-security.md) amended.
 
 ## Milestone 1 — Server-side groundwork ([D§12.3](../concepts/design/12-web-ui.md))
 
@@ -62,10 +66,11 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
   (`/` redirect); server-rendered initial cloud from the DB roster.
   Isolation rule: no other crate imports topcoat types (framework churn
   stays local). Verify: roster fixture renders N points server-side.
-- **T1.2** Metrics queries (per S4.B): event-log rollups per agent —
-  activity rate, health score, edge volumes — computed incrementally and
-  cached; exposed only via the UI's render data (no new public API in v1;
-  if a route is needed, GET-only under `/v1/ui/*` per [D§12](../concepts/design/12-web-ui.md) amendment rules).
+- **T1.2** Metrics (per S4.B): event-log rollups per agent — activity,
+  health, message rate, sparkline buckets, output snippet — computed
+  incrementally and cached; exposed only via the UI's render data (no new
+  public API in v1). Edge volumes are specified in S4.B and computed when
+  the edge lines are wired (backlog) — no consumer before that.
   Verify: fixture events produce expected cached values; staleness handled.
 - **T1.3** Event retention ([D§17.6](../concepts/design/17-open-questions.md), carried from phase 3): prune
   events older than `event_retention_days` (default 14) in the sweeper,
@@ -82,9 +87,10 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
   machine groups so phase 5 slots in). Layout per S4.A decision.
   Verify: mixed-state fixture (10 agents, all states represented) renders
   correctly; transitions animate on event arrival.
-- **T2.2** Live updates: SSE `/v1/events` consumer with cursor resume;
-  state color flips working↔blocked↔idle in < 2s of the event; queue bar,
-  machine strip, event ribbon widgets fed from the same stream.
+- **T2.2** Live updates (S4.A data path): a connected `live!` region
+  follows the event log by `seq` and re-renders on each batch; state color
+  flips working↔blocked↔idle in < 2s of the event; queue bar, machine
+  strip, event ribbon widgets fed from the same loop.
   Verify: scripted event bursts drive all widgets; reconnect-after-server-
   restart resumes without duplicate points.
 
@@ -128,6 +134,120 @@ Reference: [D§12](../concepts/design/12-web-ui.md) (agent cloud, widgets, Topco
 
 ## Spike findings
 
-### S4.A — Topcoat validation (filled during execution)
+### S4.A — Topcoat validation (2026-09-27)
 
-### S4.B — metric semantics (filled during execution)
+Question: can Topcoat 0.9 carry an 80-point live cloud inside tower's axum
+server and single binary; SVG or DOM points; where the layout runs.
+
+Throwaway (`/tmp/s4a`, not committed): axum 0.8 app with a Topcoat router
+bridged in (`Router::handle` behind an axum `any` route), a `live!` region
+that re-emits the whole cloud on a `tokio::sync::watch` tick, and a mock
+sim that rewrites random points (state, size, brightness, position).
+Measured in headless Chromium with an in-page probe (rAF frame times,
+`longtask` observer, DOM node count, JS heap).
+
+| Run | fps | longest frame | long tasks | DOM nodes | heap |
+|---|---|---|---|---|---|
+| SVG, 80 points, all 80 rewritten every 250 ms, 10 s | 60.1 | 17 ms | 0 | 247 stable | 3.0 → 4.2 MB |
+| DOM divs, same load | 60.1 | 17 ms | 0 | 86 stable | 5.0 → 4.9 MB |
+| SVG, 200 points, all rewritten every 100 ms | 59.9 | 25 ms | 0 | 607 stable | 18 MB |
+| DOM divs, 200 points / 100 ms | 60.0 | 17 ms | 0 | 206 stable | 20 MB |
+
+Findings:
+
+- **Live updates** come from Topcoat's own mechanism, not a browser
+  EventSource: a `live!` region that calls `runtime::connected(cx)` makes
+  the page open a WebSocket (`topcoat-runtime` subprotocol) at its own URL;
+  the connected render loops `emit!` → await change. Each emission is a
+  `swap` frame the runtime morphs in place (idiomorph-style, matched by
+  `id`), so CSS transitions and keyframe animations run on the kept
+  elements. The worst case (every agent changes every tick) costs nothing
+  measurable at 80 points; 200 points at 10 Hz still hold 60 fps.
+- **Reconnect**: killing the server mid-session and starting it again, the
+  runtime reconnected by itself (1 s, 2 s, … backoff) and a fresh render
+  replaced the cloud: 80 points before and after, no duplicates, the
+  selection signal kept its value.
+- **Selection**: a client signal read on the server inside a `live!` region
+  triggers a page re-render over the open socket — click → panel content
+  for the new agent in 6 ms. `$(...)` handlers survive morphs.
+- **axum bridge works**, including the WebSocket upgrade (hyper's
+  `OnUpgrade` extension passes through `axum::serve`). No `topcoat::serve`,
+  no second port.
+- **Single binary: one gap.** The browser runtime script is a Topcoat asset
+  (`topcoat::runtime::SCRIPT`), normally written to disk by the
+  `topcoat asset bundle` CLI after each build. Fix: vendor the runtime's
+  `browser/dist/index.js` (MIT, 35 KB) into `tower-web`, serve it from
+  memory, and hand Topcoat an in-code catalog
+  (`AssetConfig::hosted_at("/ui/assets", Manifest { … SCRIPT.id() … })`).
+  A test compares the vendored bytes to the registry copy (found through
+  the asset record in the test binary), so a version bump cannot ship a
+  stale script. No build step, no `topcoat` CLI.
+- **Test harness caveat**: the headless browser throttles a page between
+  tool calls, so the socket looked stalled from outside. Measure with
+  in-page probes (one `evaluate` that samples for N seconds); the soak
+  (T4.1) must do the same.
+
+Decisions:
+
+- **Topcoat passes; no fallback.** Pin `topcoat = "=0.9.0"`
+  (`default-features = false`, features `view`, `router`, `runtime`,
+  `asset`). MSRV 1.98, edition 2024 inside the dependency only.
+- **SVG** points: a `<g>` per agent (core circle + halo ring); the viewBox
+  scales with the window and edge lines (backlog) are native. DOM divs
+  were cheaper per node but both are far inside budget.
+- **Layout runs server-side, deterministic**: machine cluster centers,
+  golden-angle spiral per cluster, a few repulsion passes; recomputed per
+  render from the roster (≤100 points: microseconds), so a reconnect or a
+  second browser gets identical positions. "Alive" is a per-point CSS
+  drift animation (duration and phase from the agent id) — no client code.
+- **Data path**: the server-side live loop follows the event log (the same
+  `seq` cursor `/v1/events` uses) and pushes rendered HTML; the browser
+  never parses events. D§12.3 amended.
+- **Breaking-change risk**: 0.7 (09-04), 0.8 (09-09), 0.9 (09-24) each
+  broke APIs. Topcoat types stay inside `tower-web`; upgrades are a
+  one-crate job plus re-vendoring the script (the drift test fails
+  until done).
+
+### S4.B — metric semantics (2026-09-27)
+
+Computed incrementally as events are appended (one pass per event, cached
+per agent in fixed-size 10 s buckets), read at render time relative to
+`now`. Attribution: an event belongs to an agent when its subject is
+`agent:<id>`, or its payload names the agent (`owner_id`, `prior_owner`,
+`agent_id`, `from`/`to` of an agent message).
+
+| Channel | Formula | Window | Tooltip |
+|---|---|---|---|
+| Activity → point radius | `n` = events attributed to the agent (output chunks, state changes, messages to/from it, its job events); radius = `7 + 11 · min(1, ln(1+n) / ln(121))` px | 5 min (30 × 10 s buckets) | "events in the last 5 min" |
+| Health → brightness | `h = 1`; × 0.5 if state `unknown`; × 0.6 if its owned job has < 25 % of `lease_s` left (heartbeat overdue); × 0.6 per fault (`task.leased_out`, `task.failed`, `approval.expired`) in the window, at most two; × 0.7 if `working` with no activity in the last 2 min. Clamp to [0.35, 1]; `dead` = 0.35 | 15 min faults, 2 min silence | "health: lease, faults, silence" |
+| Attention → halo | **amber pulse**: state `blocked`, or a pending question/approval from the agent. **red steady ring**: a fault in the last 15 min | live / 15 min | "needs you" / "recent fault" |
+| Message volume → edge (backlog) | agent↔agent `message.created` per unordered pair; stroke = `1 + 3 · min(1, n/20)` px | 15 min | "messages in 15 min" |
+| Panel message rate | messages to/from the agent per minute | 5 min | "msgs/min" |
+| Panel sparkline | the activity buckets | 5 min (30 bars) | — |
+
+Memory bound: per agent 30 activity + 30 message buckets, ≤ 2 fault
+timestamps, one output snippet (last 6 lines, ≤ 600 bytes); dropped on
+`agent.removed` and pruned to the live roster. On boot the cache replays
+only the last 15 min of the log, so retention (T1.3, 14 days) never
+touches rows it needs.
+
+### S4.C — UI token (2026-09-27)
+
+Decision: **a scoped read-only UI token**, never the bearer token.
+
+- Derived, not stored: `hex(HMAC-SHA256(key = bearer token,
+  "tower-ui-read-v1"))`. Rotating the bearer token rotates it; no new file.
+- Scope: only `/ui` and `/ui/*`, methods `GET`/`HEAD` (the runtime's
+  WebSocket is a `GET` upgrade) plus Topcoat's page re-render `POST`
+  (`X-Topcoat-Runtime: true`), which Topcoat rewrites to a `GET` before
+  any handler runs. Everything else answers `401` with the UI token.
+  `tower-web` registers no procedures, the only Topcoat mechanism that runs
+  server code on a browser call.
+- Delivery: `tower ui` asks the server (`GET /v1/ui/token`, bearer auth) and
+  prints `http://<server>/ui/login?token=<ui token>`. `/ui/login` sets
+  `tower_ui` (HttpOnly, SameSite=Strict, Path=/ui, 30 days) and redirects to
+  `/ui`, so the token leaves the address bar. The bearer token also opens
+  `/ui` (curl, tests); the unix socket stays exempt.
+- Cross-site: SameSite=Strict keeps the cookie off cross-site requests, and
+  Topcoat's default origin policy rejects cross-origin WebSocket handshakes
+  and state-changing requests.

@@ -21,20 +21,21 @@ generated:
    spike: validate CLI-driver first, socket later. (Owning risk.)
 2. pi RPC runner surface (0.87) — is pane prompt/read enough, or does the
    adapter need pi's programmatic mode? Phase 1 spike.
-3. Web UI: Topcoat is chosen ([§12.3](12-web-ui.md)); spike S4.B (phase 4) validates
-   cloud-scale reactivity + layout approach (SVG vs DOM, where the force
-   sim runs) before full build-out.
+3. ~~Web UI: Topcoat cloud-scale reactivity + layout approach~~ — closed
+   by phase-4 spike S4.A: Topcoat 0.9 holds 60 fps at 200 points × 10 Hz;
+   SVG points, server-side deterministic layout, live updates over
+   Topcoat's WebSocket, runtime script vendored ([§12.3](12-web-ui.md)).
 4. Node transport security: TLS + token vs requiring SSH tunnel — phase 5.
-5. Scoped read-only UI token vs full token — phase 4.
+5. ~~Scoped read-only UI token vs full token~~ — closed by S4.C: a derived,
+   scoped read-only UI token that opens only `/ui` ([§13](13-security.md)).
 6. Event/artifact retention defaults and pruning UX — phase 3 bounded the
    client side (TUI keeps the last 2000 events and 100 closed jobs,
    [§11.1](11-tui.md)). Server-side pruning is still open:
    `event_retention_days` (default 14) is parsed but nothing deletes events
    yet — phase 4, where the web UI's soak exercises the same log.
-7. Cloud metrics semantics: exact formulas for "activity volume" (size),
-   "quality/health" (brightness), and message-volume edges — defined as
-   event-log queries in phase 4 spike S4.B (the phase-4 plan owns it);
-   documented in the UI as tooltips.
+7. ~~Cloud metrics semantics~~ — closed by S4.B: formulas and windows in
+   the [phase-4 plan](../../plans/phase-4-web-ui.md#s4b--metric-semantics-2026-09-27),
+   shown in the UI as tooltips.
 8. Orchestrator agent + agent router: which decision model dispatches jobs
    (jev vs laya — both have Rust libraries; laya can run locally as a GGUF
    via ollama/llama.cpp), and how the orchestrator's still-working checks

@@ -324,11 +324,21 @@ views, `j`/`k`/`g`/`G` move, `?` lists every key, `q` quits. If the server
 restarts, the TUI shows `reconnecting` and resumes from where the stream
 left off.
 
-The web UI (phase 4) is the **agent cloud** — a single highly graphical page:
+The web UI is the **agent cloud** — a single highly graphical page:
 every agent a colored point in a drifting cloud (state = color, activity =
 size, attention = pulsing halo, health = brightness), with a floating panel
 for the agent you click. Read-only by design: it answers "who needs me right
 now?" at a glance; configuration and control stay in the CLI and TUI.
+
+```console
+$ tower ui
+http://127.0.0.1:8266/ui/login?token=3f9c…
+```
+
+Open the link once; the browser keeps a read-only cookie for `/ui` (it
+cannot call the API), so later visits go straight to
+`http://127.0.0.1:8266/ui`. The page reconnects by itself when the server
+restarts.
 
 ## 9. Later: more machines
 
@@ -405,7 +415,7 @@ it to run outside the sandbox.
 | `tower machines add/remove/list` | node registry |
 | `tower schema` | route + event-type registry |
 | `tower tui` | the TUI: every view above, live |
-| browser → `/ui` | the agent cloud (phase 4, read-only) |
+| `tower ui` | print a login link for the agent cloud (read-only, `/ui`) |
 
 Everything above also exists as `--json` for scripting, as REST under
 `/v1` for tools, and as MCP tools for the agents themselves.

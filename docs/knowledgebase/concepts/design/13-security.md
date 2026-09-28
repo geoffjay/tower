@@ -20,6 +20,16 @@ generated:
 
 - Unix socket: filesystem permissions (0600 dir) are the auth; no token needed
 - TCP: bearer token (generated first run, 0600); bind 127.0.0.1 by default
+- Web UI (phase 4, [§12.3](12-web-ui.md)): the browser never sees the bearer token. It
+  holds a scoped read-only UI token, `hex(HMAC-SHA256(bearer token,
+  "tower-ui-read-v1"))` — derived, so it rotates with the bearer token.
+  It opens only `/ui` and `/ui/*` with `GET`/`HEAD` (incl. the runtime's
+  WebSocket upgrade) and Topcoat's page re-render `POST`
+  (`X-Topcoat-Runtime: true`, rewritten to `GET`); anything else is `401`.
+  `tower ui` fetches it (`GET /v1/ui/token`, bearer) and prints a
+  `/ui/login?token=…` link; login sets an HttpOnly, SameSite=Strict cookie
+  scoped to `/ui` and redirects the token out of the address bar.
+  Topcoat's origin policy rejects cross-origin WebSocket handshakes
 - Nodes: per-machine tokens issued by the operator
   (`tower machines add <name>` prints a token); WS over TLS or SSH tunnel
 - A2A endpoint: bearer token required (declared in agent card auth)

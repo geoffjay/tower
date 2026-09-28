@@ -52,22 +52,35 @@ full detail lives in the TUI, by design.
 
 ## 12.3 Technology
 
-- **Topcoat** (tokio-rs/topcoat, v0.9): full-stack Rust, server-rendered
-  with client-side reactivity, no WASM/JS bundle, keeps the whole server +
-  UI in Rust and the single-binary story intact
-- Rendering: cloud points as absolutely-positioned DOM/SVG nodes updated
-  via Topcoat reactive expressions; layout simulation computed server-side
-  or client-side in Rust-compiled reactivity (Spike S4.B decides: SVG vs
-  DOM points, and where the force layout runs)
-- Data: initial render server-side from the DB; live updates by consuming
-  the same SSE `/v1/events` stream every client uses (cursor resume on
-  reconnect, [D§7](07-server-api.md))
+- **Topcoat** (tokio-rs/topcoat, pinned `=0.9.0`): full-stack Rust,
+  server-rendered with client-side reactivity, no WASM/JS bundle, keeps
+  the whole server + UI in Rust and the single-binary story intact. The
+  Topcoat router is bridged into the axum app under `/ui` (same port, same
+  auth layer); the browser runtime script is vendored into `tower-web` and
+  served from memory with an in-code asset catalog — no `topcoat` CLI, no
+  asset directory
+- Rendering (spike S4.A): cloud points are SVG `<g>` nodes; the layout is
+  computed server-side and deterministically per render (machine cluster
+  centers, golden-angle spiral, repulsion passes), so every browser and
+  every reconnect sees the same positions; a per-point CSS drift animation
+  keeps the cloud alive without client code. State changes animate through
+  CSS transitions on morphed elements
+- Data: initial render server-side from the DB; live updates through a
+  Topcoat `live!` region on a connected page: the server follows the event
+  log (the same `seq` cursor `/v1/events` serves, [D§7](07-server-api.md)) and pushes re-rendered
+  HTML over Topcoat's WebSocket, which the runtime morphs in place. The
+  browser never parses events; after a server restart the runtime
+  reconnects and the fresh render rebuilds the cloud from current state.
+  Metrics (§12.1 channels) are rolled up incrementally as events arrive,
+  cached per agent, and defined in the phase-4 plan (S4.B) and as tooltips
 - Risk accepted: Topcoat is explicitly early-stage ("expect breaking
-  changes") — pin the version; isolate UI code in `tower-web` so framework
-  churn is one crate's problem ([D§2](02-stack.md)). Spike S4.B verifies canvas-scale
-  reactivity (~50–100 points) before committing
-- Read-only enforced as before: UI data routes are GET-only; no mutation
-  routes in the UI bundle; token per [D§13](13-security.md)/[§17.5](17-open-questions.md)
+  changes"; 0.7→0.9 broke APIs three times in three weeks) — the version is
+  pinned and Topcoat types never leave `tower-web` ([D§2](02-stack.md)); an upgrade is
+  a one-crate change plus re-vendoring the runtime script (a test fails
+  while the vendored copy differs from the pinned crate's)
+- Read-only enforced: the UI registers no Topcoat procedures and calls no
+  mutating service code; the browser holds only the scoped UI token
+  ([D§13](13-security.md)), which opens `/ui` and nothing else
 
 ## 12.4 Backlog (drill-down, later if ever)
 
