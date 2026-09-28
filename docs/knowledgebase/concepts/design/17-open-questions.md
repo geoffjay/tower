@@ -28,11 +28,13 @@ generated:
 4. Node transport security: TLS + token vs requiring SSH tunnel — phase 5.
 5. ~~Scoped read-only UI token vs full token~~ — closed by S4.C: a derived,
    scoped read-only UI token that opens only `/ui` ([§13](13-security.md)).
-6. Event/artifact retention defaults and pruning UX — phase 3 bounded the
-   client side (TUI keeps the last 2000 events and 100 closed jobs,
-   [§11.1](11-tui.md)). Server-side pruning is still open:
-   `event_retention_days` (default 14) is parsed but nothing deletes events
-   yet — phase 4, where the web UI's soak exercises the same log.
+6. ~~Event retention defaults and pruning~~ — closed in phase 4 (T1.3):
+   the sweeper deletes events older than `event_retention_days` (default
+   14, `0` keeps everything) once an hour, never past what an open
+   `/v1/events` stream has yet to send; `seq` is never reused, so an old
+   cursor resumes at the oldest kept event. The TUI bounds its side (last
+   2000 events, 100 closed jobs, [§11.1](11-tui.md)). Artifact retention
+   stays open until artifacts are written (no producer yet).
 7. ~~Cloud metrics semantics~~ — closed by S4.B: formulas and windows in
    the [phase-4 plan](../../plans/phase-4-web-ui.md#s4b--metric-semantics-2026-09-27),
    shown in the UI as tooltips.

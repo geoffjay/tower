@@ -24,17 +24,81 @@ pub async fn open(db_file: &Path) -> anyhow::Result<SqlitePool> {
 }
 
 /// Event log writer: all writes go through one mutex-guarded connection
-/// (single-writer discipline, D§6). `seq` is AUTOINCREMENT — monotonic.
+/// (single-writer discipline, D§6). `seq` is AUTOINCREMENT — monotonic,
+/// never reused after pruning.
 pub struct EventLog {
     write: tokio::sync::Mutex<sqlx::SqliteConnection>,
+    /// Latest appended `seq`, for in-process followers (the web UI).
+    head: tokio::sync::watch::Sender<i64>,
+    /// Cursors of open `/v1/events` streams; pruning never passes them.
+    cursors: parking_lot::Mutex<Vec<std::sync::Weak<std::sync::atomic::AtomicI64>>>,
 }
+
+/// A live stream's position, registered with [`EventLog::track_cursor`].
+pub type CursorHandle = std::sync::Arc<std::sync::atomic::AtomicI64>;
 
 impl EventLog {
     pub async fn attach(pool: &SqlitePool) -> anyhow::Result<Self> {
-        let conn = pool.acquire().await?.detach();
+        let mut conn = pool.acquire().await?.detach();
+        let head: i64 = sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM events")
+            .fetch_one(&mut conn)
+            .await?;
         Ok(Self {
             write: tokio::sync::Mutex::new(conn),
+            head: tokio::sync::watch::channel(head).0,
+            cursors: parking_lot::Mutex::new(Vec::new()),
         })
+    }
+
+    /// Follow appends: the receiver sees the latest `seq`.
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<i64> {
+        self.head.subscribe()
+    }
+
+    /// Register a live stream's cursor; drop the handle to unregister.
+    pub fn track_cursor(&self, cursor: i64) -> CursorHandle {
+        let handle = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(cursor));
+        let mut cursors = self.cursors.lock();
+        cursors.retain(|w| w.strong_count() > 0);
+        cursors.push(std::sync::Arc::downgrade(&handle));
+        handle
+    }
+
+    /// Lowest cursor of an open stream, if any.
+    fn min_live_cursor(&self) -> Option<i64> {
+        let mut cursors = self.cursors.lock();
+        cursors.retain(|w| w.strong_count() > 0);
+        cursors
+            .iter()
+            .filter_map(|w| w.upgrade())
+            .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+            .min()
+    }
+
+    /// Delete events older than `horizon` (epoch ms), except those an open
+    /// stream has not read yet. Returns the number deleted (D§17.6).
+    pub async fn prune(&self, horizon: i64) -> anyhow::Result<u64> {
+        let floor = self.min_live_cursor().unwrap_or(i64::MAX);
+        let mut conn = self.write.lock().await;
+        let res = sqlx::query("DELETE FROM events WHERE ts < ?1 AND seq <= ?2")
+            .bind(horizon)
+            .bind(floor)
+            .execute(&mut *conn)
+            .await?;
+        Ok(res.rows_affected())
+    }
+
+    /// Cursor that replays every event at or after `ts` (epoch ms).
+    pub async fn cursor_at(&self, ts: i64) -> anyhow::Result<i64> {
+        let mut conn = self.write.lock().await;
+        let first: Option<i64> = sqlx::query_scalar("SELECT MIN(seq) FROM events WHERE ts >= ?1")
+            .bind(ts)
+            .fetch_one(&mut *conn)
+            .await?;
+        match first {
+            Some(seq) => Ok(seq - 1),
+            None => Ok(*self.head.borrow()),
+        }
     }
 
     /// Append one event and return the stored row.
@@ -60,9 +124,13 @@ impl EventLog {
         .bind(payload.to_string())
         .fetch_one(&mut *conn)
         .await?;
+        let seq = row.get::<i64, _>("seq");
+        // under the write lock, so followers see seqs in order
+        self.head.send_replace(seq);
+        drop(conn);
 
         Ok(Event {
-            seq: row.get::<i64, _>("seq"),
+            seq,
             ts: now,
             kind,
             subject_type: subject_type.map(str::to_string),

@@ -35,7 +35,7 @@ Config file (all keys optional; defaults in parentheses):
 [server]
 bind_socket   = true          # unix socket
 bind_tcp      = "127.0.0.1:8266"
-event_retention_days = 14     # event log pruning
+event_retention_days = 14     # sweeper deletes older events hourly; 0 keeps all
 
 [herdr]
 socket_path   = "~/.config/herdr/herdr.sock"  # driver target

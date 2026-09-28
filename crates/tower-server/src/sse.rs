@@ -95,9 +95,11 @@ pub async fn events(
         None => state.events.latest_seq().await.unwrap_or(0),
     };
 
+    // retention pruning never deletes what this stream has yet to send
+    let tracked = state.events.track_cursor(start_cursor);
     let stream = futures::stream::unfold(
-        (state, start_cursor, req.filter, req.subject),
-        |(state, cursor, filter, subject)| async move {
+        (state, start_cursor, req.filter, req.subject, tracked),
+        |(state, cursor, filter, subject, tracked)| async move {
             loop {
                 let batch = state.events.since(cursor, 64).await.unwrap_or_default();
                 if batch.is_empty() {
@@ -113,11 +115,12 @@ pub async fn events(
                     }
                     new_cursor = e.seq;
                 }
+                tracked.store(new_cursor, std::sync::atomic::Ordering::Relaxed);
                 let item = SseEvent::default()
                     .id(new_cursor.to_string())
                     .event("tower-batch")
                     .data(payload.trim_end());
-                return Some((Ok(item), (state, new_cursor, filter, subject)));
+                return Some((Ok(item), (state, new_cursor, filter, subject, tracked)));
             }
         },
     );

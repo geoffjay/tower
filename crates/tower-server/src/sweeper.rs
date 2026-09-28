@@ -15,6 +15,10 @@ use crate::storage::parse_enum;
 /// Sweep cadence (D§9.4: ~10s).
 pub const TICK: Duration = Duration::from_secs(10);
 
+/// Event retention runs this often (D§17.6); deletes are cheap but hourly
+/// is plenty for a day-granular horizon.
+pub const PRUNE_EVERY_MS: i64 = 60 * 60 * 1000;
+
 /// Prompt sent to an agent whose question expired unanswered (D§9.3).
 pub const EXPIRED_QUESTION_PROMPT: &str =
     "No answer arrived before the deadline. Proceed with your default or fallback approach, or stop if you cannot.";
@@ -22,9 +26,16 @@ pub const EXPIRED_QUESTION_PROMPT: &str =
 pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(TICK);
+        let mut last_prune = i64::MIN;
         loop {
             tick.tick().await;
             let now = tower_core::now_ms();
+            if now.saturating_sub(last_prune) >= PRUNE_EVERY_MS {
+                last_prune = now;
+                if let Err(e) = sweep_events(&state, now).await {
+                    tracing::warn!(error = %e, "sweeper: event retention failed");
+                }
+            }
             if let Err(e) = sweep_deadlines(&state, now).await {
                 tracing::warn!(error = %e, "sweeper: deadline sweep failed");
             }
@@ -39,6 +50,21 @@ pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
             }
         }
     })
+}
+
+/// Delete events older than `server.event_retention_days` (0 keeps
+/// everything); open `/v1/events` streams hold back what they have not
+/// sent. Returns the number deleted.
+pub async fn sweep_events(state: &AppState, now: i64) -> anyhow::Result<u64> {
+    let days = i64::from(state.config.server.event_retention_days);
+    if days == 0 {
+        return Ok(0);
+    }
+    let deleted = state.events.prune(now - days * 86_400_000).await?;
+    if deleted > 0 {
+        tracing::info!(deleted, days, "sweeper: pruned expired events");
+    }
+    Ok(deleted)
 }
 
 /// Expire `pending` questions/approvals with `deadline_at <= now`; returns

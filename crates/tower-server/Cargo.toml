@@ -39,6 +39,9 @@ croner = "4.0.0"
 chrono-tz = "0.10.4"
 iana-time-zone = "0.1.65"
 tower-tui = { version = "0.1.0", path = "../tower-tui" }
+parking_lot = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
 
 [lints]
 workspace = true
