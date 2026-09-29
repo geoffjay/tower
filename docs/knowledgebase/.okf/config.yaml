@@ -7,13 +7,13 @@ site:
       label: "Tokyo Night"
       scheme: dark
       colors:
-        surface: "#24283b"
+        surface: "#1a1b26"
         ink: "#c0caf5"
         edge: "#565f89"
         link: "#7aa2f7"
-        panel-bg: "#24283b"
-        code-bg: "#24283b"
-        mermaid-bg: "#24283b"
+        panel-bg: "#1a1b26"
+        code-bg: "#1a1b26"
+        mermaid-bg: "#1a1b26"
         tier-unverified: "#ff9e64"
         tier-machine: "#bb9af7"
         tier-human: "#9ece6a"
@@ -30,7 +30,11 @@ site:
       colors:
         surface: "#e6e7ed"
         ink: "#343b58"
+        edge: "#6c6e75"
         link: "#2959aa"
+        panel-bg: "#e6e7ed"
+        code-bg: "#e6e7ed"
+        mermaid-bg: "#e6e7ed"
         tier-unverified: "#965027"
         tier-machine: "#5a3e8e"
         tier-human: "#385f0d"
@@ -68,7 +72,7 @@ site:
 
   fonts:
     # CSS font-family lists for the two typography tokens.
-    body: "MapleMono, Georgia, serif"
+    # body: "MapleMono, Georgia, serif"
     code: "MapleMono, ui-monospace, monospace"
 
     files:
