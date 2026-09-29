@@ -43,6 +43,7 @@ are recorded as amendments there first, then implemented.
 | [Phase 1 — MVP core](phase-1-mvp-core.md) | MVP core | — | **complete** (2026-09-26) |
 | [Phase 2 — Messaging + job queue](phase-2-messaging-task-pool.md) | Messaging + job queue | phase 1 | **complete** (2026-09-27) |
 | [Phase 2b — Scheduled jobs](phase-2b-scheduled-jobs.md) | Scheduled + recurring jobs | phase 2 | **complete** (2026-09-27) |
+| [Phase 2c — Run outcomes, standing brief, job hold](phase-2c-outcomes-and-brief.md) | Outcomes + brief + hold | phase 2 (TUI/web touch) | not started |
 | [Phase 3 — TUI](phase-3-tui.md) | TUI | phase 2 | **complete** (2026-09-27) |
 | [Phase 4 — Web UI (agent cloud)](phase-4-web-ui.md) | Web UI | phase 2 (independent of 3) | **complete** (2026-09-27) |
 | [Phase 5 — Multi-machine](phase-5-multi-machine.md) | Multi-machine | phase 2 | not started |
@@ -51,16 +52,20 @@ are recorded as amendments there first, then implemented.
 ## Dependency graph
 
 ```
-phase-1 ──► phase-2 ──┬──► phase-3 (TUI)
-                       ├──► phase-4 (web UI)
-                       ├──► phase-5 (multi-machine)
-                       └──► phase-6 (A2A edge)
+phase-1 ──► phase-2 ──► phase-2b ──► phase-2c ──┬──► phase-3 (TUI)
+                                               ├──► phase-4 (web UI)
+                                               ├──► phase-5 (multi-machine)
+                                               └──► phase-6 (A2A edge)
 ```
 
 Phases 3–6 are parallelizable after phase 2, though recommended order is
 3 → 4 → 5 → 6 (monitoring before distribution before external exposure).
 Phase 1 spike A (herdr CLI driver) should be done first of all — it gates the
 whole project.
+
+Phase 2c slots after 2b although phases 3–4 shipped. It touches the TUI
+and web inbox views they built, but needs no re-plan; its milestones carry
+those surface changes.
 
 ## Cross-cutting rules (all phases)
 

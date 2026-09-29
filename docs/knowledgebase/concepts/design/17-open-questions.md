@@ -43,3 +43,14 @@ generated:
    via ollama/llama.cpp), and how the orchestrator's still-working checks
    are rate-limited — after the job-queue primitive is proven (phase 2);
    see the [job-queue decision](../../decisions/job-queue.md).
+9. Supervisor agent for fleet self-governance: whether tower needs a
+   dedicated agent (possibly pi with custom extensions, surfaced as a
+   distinct harness type) that watches the fleet — decides context
+   compaction or reset before a job, records run questions and results,
+   and holds an agent that waits on a human. The phase-2c
+   [outcomes-and-brief decision](../../decisions/outcomes-and-brief.md)
+   solves the data side without it: results are durable, open questions
+   hold the job, the brief is restated per delivery. Revisit when fleet
+   self-governance (auto-assign, compaction control) is wanted; the
+   [job-queue decision](../../decisions/job-queue.md) already reserves an
+   orchestrator role that may absorb this.

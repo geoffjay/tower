@@ -6,6 +6,7 @@ Plans for the tower project.
 * [Phase 1 — MVP core](phase-1-mvp-core.md) - complete; herdr driver, server, CLI, restart rebind.
 * [Phase 2 — Messaging + job queue](phase-2-messaging-task-pool.md) - complete; messages, blocked inbox, assignment-only job queue, MCP.
 * [Phase 2b — Scheduled jobs](phase-2b-scheduled-jobs.md) - complete; reserved delivery, one job per agent, recurring cron schedules, `tower service`.
+* [Phase 2c — Run outcomes, standing brief, job hold](phase-2c-outcomes-and-brief.md) - not started; mandatory results, questions that hold the job, brief restated per delivery, `task hold/resume`.
 * [Phase 3 — TUI](phase-3-tui.md) - daily monitoring from the TUI.
 * [Phase 4 — Web UI](phase-4-web-ui.md) - read-only agent cloud via Topcoat.
 * [Phase 5 — Multi-machine](phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.
