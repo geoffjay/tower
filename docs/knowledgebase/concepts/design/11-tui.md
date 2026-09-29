@@ -25,7 +25,9 @@ Views:
 
 - **Fleet**: agents table — name, machine, kind, state glyph
   (`●` working, `○` idle, `◉` blocked, `✓` done, `✗` dead), current task,
-  context note
+  context note. A one-line detail strip sits under the table showing the
+  selected row's full name, machine, kind, state and untruncated task
+  title — long names stay identifiable even when the column truncates.
 - **Agent detail**: live output tail, prompt input line, message history;
   `o` opens the actual pane in herdr: `herdr agent focus <pane>` when the
   TUI itself runs inside herdr (`HERDR_PANE_ID` set; the TUI keeps its

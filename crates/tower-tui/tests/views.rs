@@ -93,7 +93,7 @@ fn fleet_mixed_states_and_queue_banner() {
     // blocked = input-required (T3) + working under a blocked owner (T2)
     let q = a.store.queue_counts();
     assert_eq!((q.queued, q.working, q.blocked), (1, 1, 2));
-    insta::assert_snapshot!(text(&mut a, 110, 10));
+    insta::assert_snapshot!(text(&mut a, 110, 12));
 }
 
 fn names(a: &tower_tui::app::App) -> Vec<String> {
@@ -102,6 +102,32 @@ fn names(a: &tower_tui::app::App) -> Vec<String> {
         .iter()
         .map(|x| x.name.clone())
         .collect()
+}
+
+#[test]
+fn fleet_detail_strip_shows_the_full_selected_name() {
+    let mut a = mixed();
+    a.store.load(Loaded::Agents(vec![agent(
+        "a-very-long-agent-name-that-truncates",
+        AgentState::Idle,
+        "local",
+    )]));
+    let frame = text(&mut a, 110, 12);
+    // the table truncates the name; the detail strip under it does not
+    let rows: Vec<&str> = frame.lines().collect();
+    assert!(
+        rows.iter().any(|r| r.contains("a-very-long-ag ")),
+        "{}",
+        frame
+    );
+    let strip = rows
+        .iter()
+        .find(|r| r.contains("a-very-long-agent-name-that-truncates"))
+        .expect("detail strip with the full name");
+    assert!(
+        strip.contains("local · claude · idle"),
+        "strip shows machine/kind/state: {strip}"
+    );
 }
 
 #[test]

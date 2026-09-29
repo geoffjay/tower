@@ -311,7 +311,7 @@ enter open · i prompt · x interrupt · o herdr · f state · m machine · s so
 
 | View | What you do there |
 |---|---|
-| `1` Fleet | agents with state, job and why they wait; `f`/`m`/`s` filter by state or machine, sort; `enter` opens an agent |
+| `1` Fleet | agents with state, job and why they wait; the line under the table shows the selected agent's full name and task; `f`/`m`/`s` filter by state or machine, sort; `enter` opens an agent |
 | Agent | its live screen (colors kept), message history; `i` prompt, `x` interrupt, `o` jump to the pane in herdr (focus when the TUI runs inside herdr, else attach; herdr's detach key brings you back) |
 | `2` Inbox | questions and approvals with deadlines and the agent's screen; `y`/`n` approve/deny (or yes/no), `r` answer in words |
 | `3` Tasks | owned jobs with live lease countdowns, the queue (with reservations), recently closed, schedules; `n` new job, `a` assign (`<name> later` reserves), `x x` cancel, `enter` trail; on a schedule `p` pause/resume, `R` run now |

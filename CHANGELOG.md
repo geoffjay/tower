@@ -55,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (30 s cycle) and subtler; themes now set the agent state colors too —
   Tokyo Night Storm/Light use their palette's blue/amber/green/red/
   teal/violet while hue meaning stays fixed across themes
+- TUI fleet: a detail line under the table shows the selected agent's
+  full name, machine, kind, state and untruncated task title — long names
+  stay identifiable when the NAME column cuts them off
+  (`docs/getting-started.md` updated; D§11 amended)
+
+### Changed
+
+- Web UI cloud: agent name labels under each dot render smaller
+  (8px, 9px when attention-needed) so close neighbors stay readable
 
 ### Fixed
 

@@ -3,7 +3,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table, TableState};
 use ratatui::Frame;
@@ -202,8 +202,12 @@ impl Fleet {
     }
 
     pub fn render(&mut self, f: &mut Frame, area: Rect, ctx: &Ctx) {
-        let [banner, body] =
-            Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).areas(area);
+        let [banner, body, detail] = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .areas(area);
         self.render_banner(f, banner, ctx.store);
 
         let rows = self.rows(ctx.store);
@@ -213,10 +217,13 @@ impl Fleet {
             } else {
                 "no agents match the filter — `c` clears it"
             };
+            let [body, _] =
+                Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(body);
             f.render_widget(Paragraph::new(Span::styled(msg, super::dim())), body);
             return;
         }
         let ids: Vec<&AgentId> = rows.iter().map(|a| &a.id).collect();
+        let sel = super::index_of(&ids, &self.sel.as_ref()).map(|i| rows[i]);
         self.table.select(super::index_of(&ids, &self.sel.as_ref()));
         let table_rows: Vec<Row> = rows.iter().map(|a| row(a, ctx.store)).collect();
         let table = Table::new(
@@ -237,6 +244,30 @@ impl Fleet {
         )
         .row_highlight_style(super::selected());
         f.render_stateful_widget(table, body, &mut self.table);
+
+        // full detail of the selected row: the NAME column truncates long
+        // names, the strip keeps the selection identifiable (D§11)
+        if let Some(a) = sel {
+            let style = super::state_style(a.state);
+            let task = ctx
+                .store
+                .current_task(&a.id)
+                .map(|t| t.title.clone())
+                .unwrap_or_else(|| "—".into());
+            let line = Line::from(vec![
+                Span::styled(a.state.glyph(), style),
+                Span::raw(" "),
+                Span::styled(a.name.clone(), Style::new().add_modifier(Modifier::BOLD)),
+                Span::raw(format!(
+                    " · {} · {} · ",
+                    ctx.store.machine_name(&a.machine_id),
+                    a.kind.as_str(),
+                )),
+                Span::styled(a.state.as_str().to_string(), style),
+                Span::raw(format!(" · task: {task}")),
+            ]);
+            f.render_widget(Paragraph::new(line), detail);
+        }
     }
 
     fn render_banner(&self, f: &mut Frame, area: Rect, store: &Store) {

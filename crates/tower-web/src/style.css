@@ -220,7 +220,7 @@ body {
 }
 .pt .label {
   fill: var(--dim);
-  font-size: 9px;
+  font-size: 8px;
   text-anchor: middle;
   pointer-events: none;
   /* names arrive truncated server-side (LABEL_MAX); the small size keeps
@@ -236,7 +236,7 @@ body {
 }
 .pt.needs .label {
   fill: var(--blocked);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
 }
 .pt[data-selected] .core {
