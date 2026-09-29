@@ -1,0 +1,85 @@
+site:
+  title: "Tower Knowledgebase"
+  theme: tokyonight
+
+  themes:
+    - id: tokyonight
+      label: "Tokyo Night"
+      scheme: dark
+      colors:
+        surface: "#24283b"
+        ink: "#c0caf5"
+        edge: "#565f89"
+        link: "#7aa2f7"
+        panel-bg: "#24283b"
+        code-bg: "#24283b"
+        mermaid-bg: "#24283b"
+        tier-unverified: "#ff9e64"
+        tier-machine: "#bb9af7"
+        tier-human: "#9ece6a"
+        status-draft: "#ff9e64"
+        status-stable: "#9ece6a"
+        status-deprecated: "#f7768e"
+        status-other: "#a9b1d6"
+        sev-info: "#7dcfff"
+        sev-warning: "#ff9e64"
+        sev-error: "#f7768e"
+        danger: "#f7768e"
+    - id: tokyonight
+      scheme: light
+      colors:
+        surface: "#e6e7ed"
+        ink: "#343b58"
+        link: "#2959aa"
+        tier-unverified: "#965027"
+        tier-machine: "#5a3e8e"
+        tier-human: "#385f0d"
+        status-draft: "#965027"
+        status-stable: "#385f0d"
+        status-deprecated: "#8c4351"
+        status-other: "#6c6e75"
+        sev-info: "#006c86"
+        sev-warning: "#965027"
+        sev-error: "#8c4351"
+        danger: "#8c4351"
+    - id: nord
+      scheme: light
+      colors:
+        surface: "#eceff4"
+        ink: "#2e3440"
+        edge: "#d8dee9"
+        link: "#5e81ac"
+        panel-bg: "#e5e9f0"
+        code-bg: "#e5e9f0"
+        mermaid-bg: "#e5e9f0"
+        tier-human: "#4f6f52"
+    - id: nord
+      label: "Nord"
+      scheme: dark
+      colors:
+        surface: "#2e3440"
+        ink: "#eceff4"
+        edge: "#4c566a"
+        link: "#88c0d0"
+        panel-bg: "#3b4252"
+        code-bg: "#3b4252"
+        mermaid-bg: "#3b4252"
+        tier-human: "#a3be8c"
+
+  fonts:
+    # CSS font-family lists for the two typography tokens.
+    body: "MapleMono, Georgia, serif"
+    code: "MapleMono, ui-monospace, monospace"
+
+    files:
+      - family: MapleMono
+        file: MapleMono-Regular.ttf.woff2
+        weight: 400
+      - family: MapleMono
+        file: MapleMono-Italic.ttf.woff2
+        weight: 400
+        style: italic
+      - family: MapleMono
+        file: MapleMono-Bold.ttf.woff2
+        weight: 700
+        style: oblique
