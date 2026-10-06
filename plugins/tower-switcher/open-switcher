@@ -1,0 +1,11 @@
+#!/bin/sh
+# open-switcher: action entrypoint — plugin actions run without a TTY, so
+# the action just opens the switcher pane (a popup that runs tower-switch).
+set -eu
+HERDR="${HERDR_BIN_PATH:-herdr}"
+exec "$HERDR" plugin pane open \
+  --plugin dev.tower.switcher \
+  --entrypoint switcher \
+  --placement popup \
+  --width 80% \
+  --height 16

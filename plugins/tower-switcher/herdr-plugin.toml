@@ -9,7 +9,7 @@ platforms = ["macos", "linux"]
 id = "switch"
 title = "Switch session/workspace/agent"
 contexts = ["global"]
-command = ["sh", "tower-switch"]
+command = ["sh", "open-switcher"]
 
 [[panes]]
 id = "board"
@@ -18,3 +18,11 @@ placement = "popup"
 width = "80%"
 height = 24
 command = ["sh", "tower-board"]
+
+[[panes]]
+id = "switcher"
+title = "Tower switcher"
+placement = "popup"
+width = "80%"
+height = 16
+command = ["sh", "tower-switch"]

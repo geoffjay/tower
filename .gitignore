@@ -26,6 +26,7 @@ token
 
 # okf
 docs/knowledgebase/site
+docs/notes
 
 # environment
 .env

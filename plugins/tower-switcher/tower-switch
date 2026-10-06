@@ -9,6 +9,18 @@
 
 set -eu
 
+# herdr launches plugin commands with a minimal environment; the
+# operator's shell PATH (mise/homebrew) is not inherited. Add the usual
+# bins and resolve tools up front so the failure is visible, not silent.
+PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.local/share/mise/shims"
+export PATH
+for tool in jq fzf python3; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "tower-switcher: '$tool' not found on PATH" >&2
+    exit 127
+  }
+done
+
 HERDR="${HERDR_BIN_PATH:-herdr}"
 HERE=$(cd "$(dirname "$0")" && pwd)
 QUERY="$HERE/tower-herdr-query"
