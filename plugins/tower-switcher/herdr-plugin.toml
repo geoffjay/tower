@@ -1,0 +1,20 @@
+id = "dev.tower.switcher"
+name = "Tower Switcher"
+version = "0.1.0"
+min_herdr_version = "0.9.3"
+description = "Cross-session overview and switcher for tower stacks: sessions, workspaces, agents, and tower state in one popup."
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "switch"
+title = "Switch session/workspace/agent"
+contexts = ["global"]
+command = ["sh", "tower-switch"]
+
+[[panes]]
+id = "board"
+title = "Tower board"
+placement = "popup"
+width = "80%"
+height = 24
+command = ["sh", "tower-board"]

@@ -1,0 +1,60 @@
+#!/bin/sh
+# tower-board: overview pane — every herdr session, its workspaces, its
+# agents, and the tower fleet view, refreshed on open.
+#
+# Runs as a plugin pane (herdr 0.9.3+). Session queries go through the raw
+# socket protocol (tower-herdr-query) so the board works regardless of
+# CLI/server protocol generation. Requires: jq, python3 (stdlib only).
+
+set -eu
+
+HERDR="${HERDR_BIN_PATH:-herdr}"
+HERE=$(cd "$(dirname "$0")" && pwd)
+QUERY="$HERE/tower-herdr-query"
+
+print_session() {
+  name=$1
+  sock=$2
+  printf '\n\033[1m== session: %s ==\033[0m\n' "$name"
+
+  ws=$("$QUERY" "$sock" workspace.list 2>/dev/null | jq -r '
+    .workspaces[]
+    | "  \(.workspace_id)  \(.label)  [\(.tab_count) tabs, \(.pane_count) panes]  \(.agent_status)"
+  ' || true)
+  [ -n "$ws" ] && printf '%s\n' "$ws"
+
+  agents=$("$QUERY" "$sock" agent.list 2>/dev/null | jq -r '
+    .agents[]
+    | select(.name != null)
+    | "  \(.workspace_id)  \(.name)  \(.agent)  \(.agent_status)  \(.cwd)"
+  ' || true)
+  if [ -n "$agents" ]; then
+    printf '  agents:\n%s\n' "$agents"
+  fi
+}
+
+printf '\033[1mtower board\033[0m  %s\n' "$(date '+%H:%M:%S')"
+
+# enumerate running sessions from the invoking CLI; then query each socket
+sessions=$("$HERDR" session list --json 2>/dev/null | jq -r '
+  .sessions[] | select(.running) | "\(.name)\t\(.socket_path)"
+' || true)
+
+if [ -z "$sessions" ]; then
+  printf 'no running herdr sessions found (is the herdr server up?)\n'
+else
+  printf '%s\n' "$sessions" | while IFS="$(printf '\t')" read -r name sock; do
+    print_session "$name" "$sock"
+  done
+fi
+
+printf '\n\033[1m== tower fleet ==\033[0m\n'
+if command -v tower >/dev/null 2>&1; then
+  tower ps 2>&1 | sed 's/^/  /'
+else
+  printf '  (tower not on PATH)\n'
+fi
+
+printf '\n(press enter to close)\n'
+[ -t 0 ] && read -r _ || true
+exit 0

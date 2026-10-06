@@ -1,0 +1,45 @@
+#!/bin/sh
+# tower-herdr-query: query a herdr session's socket with the raw JSON
+# protocol (works regardless of CLI/server protocol generation).
+#
+# usage: tower-herdr-query <socket_path> <method> [params_json]
+# prints the response's .result as JSON on stdout.
+
+sock=$1
+method=$2
+params=${3:-'{}'}
+
+python3 - "$sock" "$method" "$params" <<'PYEOF'
+import json, socket, sys
+
+sock, method, params = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    req = json.dumps({"id": "tower-plugin", "method": method, "params": json.loads(params)})
+except json.JSONDecodeError:
+    sys.exit(f"invalid params JSON: {params}")
+
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(5)
+s.connect(sock)
+s.sendall(req.encode() + b"\n")
+
+buf = b""
+while True:
+    try:
+        chunk = s.recv(65536)
+    except socket.timeout:
+        break
+    if not chunk:
+        break
+    buf += chunk
+    # responses are newline-delimited; stop at the first complete frame
+    if b"\n" in buf:
+        break
+s.close()
+
+first = buf.split(b"\n")[0].decode(errors="replace")
+d = json.loads(first)
+if "error" in d:
+    sys.exit(f"herdr error: {d['error'].get('code')}: {d['error'].get('message')}")
+print(json.dumps(d.get("result", {})))
+PYEOF

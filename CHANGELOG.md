@@ -73,6 +73,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workdir without the repo; the delegation notice and the
   `tower-agent-add` brief now point at the command instead of a repo path
   (D§10 amended)
+- `plugins/tower-switcher`: herdr plugin (Concept A) — a fuzzy switcher
+  over sessions → workspaces/agents and a popup board overviewing every
+  session plus the tower fleet; reads via the raw per-session socket so
+  it works across herdr protocol generations (needs herdr 0.9.3 server
+  for registration/focus)
+- Knowledgebase: multi-domain operation **decision accepted**
+  (`docs/knowledgebase/decisions/multi-domain-operation.md` §8): phased
+  build — plugin (switcher + board) → tower-primed pi agent (launch
+  recipe) → pi-durable deferred; control-session workflow with one
+  tower server driving multiple herdr sessions (driver session binding +
+  multi-session inventory are the tower prerequisites)
 
 ### Changed
 

@@ -1,0 +1,62 @@
+#!/bin/sh
+# tower-switcher: switch action — pick a session, then a workspace or agent
+# in it, and focus it in the invoking herdr client.
+#
+# Runs as a plugin action (herdr 0.9.3+). Lists go through the raw socket
+# protocol (tower-herdr-query) so it works regardless of CLI/server
+# protocol generation; focus commands go through the CLI in the target
+# session. Requires: jq, fzf, python3 (stdlib only).
+
+set -eu
+
+HERDR="${HERDR_BIN_PATH:-herdr}"
+HERE=$(cd "$(dirname "$0")" && pwd)
+QUERY="$HERE/tower-herdr-query"
+
+sessions=$("$HERDR" session list --json | jq -r '
+  .sessions[]
+  | select(.running)
+  | "\(.name)\t\(.socket_path)"
+')
+[ -n "$sessions" ] || { echo "no running herdr sessions" >&2; exit 1; }
+
+session=$(printf '%s\n' "$sessions" | fzf --prompt='session> ' --delimiter='\t' --with-nth=1 --header='Tower switcher — pick a session')
+name=${session%%	*}
+sock=$(printf '%s\n' "$session" | cut -f2)
+
+ws=$("$QUERY" "$sock" workspace.list 2>/dev/null | jq -r '
+  .workspaces[] | "\(.label)\t\(.workspace_id)\tpanes\t\(.tab_count) tabs, \(.pane_count) panes"
+' || true)
+
+agents=$("$QUERY" "$sock" agent.list 2>/dev/null | jq -r '
+  .agents[]
+  | select(.name != null)
+  | "\(.name)\t\(.workspace_id)\t\(.agent_status)\t\(.agent)  \(.cwd)"
+' || true)
+
+choices=""
+[ -n "$ws" ] && choices="$ws
+$choices"
+[ -n "$agents" ] && choices="$agents
+$choices"
+
+if [ -z "$choices" ]; then
+  echo "session '$name' has no workspaces or agents visible"
+  read -r _
+  exit 0
+fi
+
+pick=$(printf '%s' "$choices" | fzf --prompt="$name> " --delimiter='\t' --with-nth=1,3,4 --header="session: $name — pick a workspace or agent")
+
+# column 3: "panes" marks a workspace row; otherwise it's an agent state
+col3=$(printf '%s\n' "$pick" | cut -f3)
+case "$col3" in
+  panes)
+    ws_id=$(printf '%s\n' "$pick" | cut -f2)
+    "$HERDR" --session "$name" workspace focus "$ws_id"
+    ;;
+  *)
+    agent=$(printf '%s\n' "$pick" | cut -f1)
+    "$HERDR" --session "$name" agent focus "$agent"
+    ;;
+esac

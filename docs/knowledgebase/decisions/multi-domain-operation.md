@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "Multi-domain operation: stacks, a herdr plugin, a primed agent kind, and Pi Durable"
-description: "Concepts for running tower across domains (work/personal, one or more per herdr session): verified session/stack mechanics, a herdr plugin for cross-stack control, a custom tower-primed agent kind, and Pi Durable as a harness base. Research only; no decision taken yet."
+description: "Multi-domain tower operation: verified session/stack mechanics; decision — phased build of (1) a herdr plugin switcher+overview, (2) a tower-primed pi agent, (3) pi-durable later; a control-session workflow with one tower server driving multiple herdr sessions."
 tags:
   - decision
   - research
@@ -11,7 +11,7 @@ tags:
   - plugin
   - harness
   - pi-durable
-status: proposed
+status: accepted
 generated:
   by: omp/ollama-cloud/glm-5.3
   at: "2026-10-05T00:00:00Z"
@@ -19,10 +19,10 @@ generated:
 
 # Multi-domain operation: stacks, a herdr plugin, a primed agent kind, and Pi Durable
 
-Date: 2026-10-05. Research note for a concept exploration; **no decision is
-taken here**. It records what is verifiably true on this machine today, what
-each proposed concept would require, and the open questions that gate a
-decision. Extends the "stack" idea from
+Date: 2026-10-05 research; **decision recorded 2026-10-06** (below, §8).
+This document records what is verifiably true on this machine, what each
+proposed concept requires, and the target workflow the decision serves.
+Extends the "stack" idea from
 [operator skills](operator-skills.md) (a stack is a naming convention) to
 the real multi-domain layout.
 
@@ -42,8 +42,9 @@ Key verified mechanics:
    tabs/workspaces, own workspace-id space (both sessions have a `w1`), own
    `tower-agents` workspace. Shared: global `config.toml`, plugin registry
    (plugins are user-global, available in every session), binary.
-2. **CLI session targeting works via three mechanisms on 0.8.2** (all
-   verified with a scrubbed environment): `--session <name>`,
+2. **CLI session targeting works via three mechanisms** (all verified on
+   herdr 0.8.2 with a scrubbed environment; CLI now 0.9.3):
+   `--session <name>`,
    `HERDR_SESSION=<name>`, and `HERDR_SOCKET_PATH=<path>` each retarget
    `herdr` CLI commands to that session's server; with none set, commands
    hit the default session. Every herdr pane process inherits
@@ -145,11 +146,13 @@ tower-multistack/            # or "tower-switcher"
 
 ### 3.4 Gaps / risks
 
-- herdr 0.9.3 (current stable) is the documented plugin surface; local
-  0.8.2 has a subset. The doc's `min_herdr_version` field exists for
-  exactly this; the plugin should pin to what 0.8.2 verifies.
+- **Server restart pending**: the CLI was updated to 0.9.3 (protocol 22)
+  while both running servers are still the old 0.8.x daemons (protocol
+  20) — `herdr plugin` commands fail with `protocol_mismatch` until each
+  server is restarted (stopping pane processes). The plugin can be
+  authored and linked before that; invocation needs the restart.
 - The plugin cannot extend tower's own TUI; it lives in herdr's UI.
-- Event-hook coverage on 0.8.2 (which `on = …` names exist) is unverified.
+- Event-hook coverage (which `on = …` names exist on 0.9.3) is unverified.
 
 ## 4. Concept B — a tower-primed custom agent kind
 
@@ -290,13 +293,86 @@ flowchart LR
    brief.
 5. **pi-durable trigger**: only if mid-turn crash resume or custom tool
    loops become real requirements. Not justified by the current
-   claude/pi flow, which herdr already detects and tower already drives.
+  claude/pi flow, which herdr already detects and tower already drives.
+
+## 8. Decision (2026-10-06)
+
+Order: **(A) plugin → (B) primed pi agent → (C) pi-durable, later.** An
+experimental library is not the starting point; A needs no tower changes,
+B is a launch recipe first. Versions at decision time: herdr CLI 0.9.3
+(servers pending restart from 0.8.x), pi 1.0.2.
+
+### 8.1 Concept A — both a switcher *and* an overview
+
+The plugin ships two surfaces in one manifest (herdr-bar is the same
+pattern: an action that opens a pane):
+
+- **`[[actions]] switch`** (keybound, e.g. `prefix+t`): a picker popup —
+  sessions → stacks → agents — that focuses/attaches the selection in the
+  invoking herdr client. This is the "drop into a stack" move.
+- **`[[panes]] board`** (placement `popup`): a live overview — every
+  session, its workspaces, its agents with lifecycle states, and the
+  tower view (`tower ps --json`-style) — refreshed on open. Read-mostly;
+  selection reuses the switch action's focus path.
+
+Scope: read + focus/attach. Driving tower verbs (assign/cancel) stays in
+the TUI or CLI; the plugin is the navigator.
+
+### 8.2 Concept B — "kind + primed launch args" first
+
+Spawn `pi` with `--append-system-prompt <tower agent brief>` (the
+work-loop contract, available since the `tower contract` verb) plus
+`$TOWER_AGENT`; claude identically. If per-launch priming proves
+insufficient (e.g. the brief needs tools, not just text), move to the
+**pi extension** form (a `tower` prompt section + tool wrappers under
+`~/.pi/agent/extensions/`, selected per launch with `-e`) — the doc's
+ladder rung 2. No custom herdr kind; `pi` is already detected.
+
+### 8.3 Concept C — deferred until A+B are working
+
+pi-durable is revisited only when mid-turn crash resume or custom tool
+loops become real requirements. Not the starting point; experimental API.
+
+### 8.4 Target workflow (the acceptance shape)
+
+From nothing running:
+
+1. New terminal: `herdr session attach control` — the control session.
+2. First tab: launch the **tower agent** (Concept B) — the primed pi
+   agent that operates tower through the CLI/skills.
+3. New tab: `tower serve`, then `tower tui` — control-side server+TUI.
+4. New terminal: `herdr session attach work`.
+5. From the control session, the tower agent targets the **work**
+   session (driver session binding, §7.1) and constructs a work stack.
+6. New terminal: `herdr session attach personal`; likewise a personal
+   stack.
+7. Control session's TUI shows and drives **both** stacks (one tower
+   server, multiple herdr sessions — §7.2 answered: **single-tower**,
+   which requires the multi-session driver + session-tagged inventory).
+8. The plugin (Concept A) switches/overviews into work/personal from
+   any session when terminal-level presence is needed.
+
+### 8.5 Prerequisites this decision creates in tower
+
+1. **Driver session binding** (§7.1): `tower serve` takes an explicit
+   herdr socket/session (config or flag) instead of inherited env.
+2. **Multi-session driver**: one server driving N named sessions; the
+   inventory records which session each agent pane belongs to
+   (session-tagged, workspace ids disambiguated per session).
+3. **Primed spawn recipe** (§8.2): default spawn args per kind — the
+   contract embedded via `tower contract`'s doc file as the appended
+   system prompt.
+
+The plugin itself is tower-external (herdr plugin directory, linked with
+`herdr plugin link`); it shells out to `herdr` + `tower`.
 
 ## Sources
 
-- Local: `herdr` 0.8.2 binary (`herdr --skill`, `plugin`, `session`,
-  `status server`, raw socket queries to both session sockets);
-  `herdr api schema`; live `tower serve` process and `tower ps`.
+- Local: `herdr` binary (0.9.3 at decision time; running servers were
+  still protocol-20 0.8.x until restart — `herdr --skill`, `plugin`,
+  `session`, `status server`, raw socket queries to both session
+  sockets); `herdr api schema`; live `tower serve` process and
+  `tower ps`; pi 1.0.2.
 - [herdr 0.9.3 docs](https://herdr.dev/llms.txt): Plugins, Agent
   automation, Add Herdr support, Persistence and remote access
   (named sessions), CLI reference (env vars, `--machine`), Marketplace.
