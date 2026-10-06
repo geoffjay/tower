@@ -87,6 +87,8 @@ pub enum Command {
     Doctor,
     /// Route + event-type registry
     Schema,
+    /// Print the agent work-loop contract (docs/agent-loop.md, embedded)
+    Contract,
     /// Print a login link for the web UI (read-only agent cloud)
     Ui,
 
@@ -155,6 +157,10 @@ async fn main_async(cli: Cli) -> anyhow::Result<()> {
         Command::Stop { .. } => stop(cli).await,
         Command::Doctor => doctor().await,
         Command::Schema => schema().await,
+        Command::Contract => {
+            print!("{}", tower_server::contract::AGENT_LOOP);
+            Ok(())
+        }
         Command::Ui => ui(cli.json).await,
         Command::Inbox => inbox(cli.json).await,
         Command::Service { cmd } => service::run(cmd).await,

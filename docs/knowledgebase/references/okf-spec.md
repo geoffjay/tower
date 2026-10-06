@@ -7,6 +7,9 @@ tags:
   - reference
   - okf
   - spec
+generated:
+  by: human:geoff
+  at: "2026-10-05T23:46:56Z"
 ---
 
 The tower knowledge base conforms to OKF v0.2.

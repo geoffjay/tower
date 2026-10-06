@@ -10,6 +10,9 @@ tags:
   - orchestrator
   - router
 status: accepted
+generated:
+  by: human:geoff
+  at: "2026-10-05T23:46:56Z"
 ---
 
 # Job queue — assignment-only dispatch, no self-serve claims

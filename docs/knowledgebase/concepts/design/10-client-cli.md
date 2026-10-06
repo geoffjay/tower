@@ -47,6 +47,8 @@ tower machines                      # machine inventory
 tower machines add <name>           # issue a node token (prints once)
 tower tui                           # launch TUI
 tower ui                            # print a login link for the web UI (scoped read-only token, D§13)
+tower contract                      # print docs/agent-loop.md (embedded at build; the agent
+                                    # contract travels with the binary, not the repo)
 tower serve / node / doctor / schema
 ```
 

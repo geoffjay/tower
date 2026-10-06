@@ -8,6 +8,9 @@ tags:
   - scheduling
   - dispatch
 status: accepted
+generated:
+  by: human:geoff
+  at: "2026-10-05T23:46:56Z"
 ---
 
 # Scheduled and recurring jobs

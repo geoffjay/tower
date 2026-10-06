@@ -59,6 +59,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full name, machine, kind, state and untruncated task title — long names
   stay identifiable when the NAME column cuts them off
   (`docs/getting-started.md` updated; D§11 amended)
+- `docs/mcp.md`: how to wire Claude Code, omp, and pi to `POST /mcp`
+  (transport, bearer-token forms that keep the secret out of configs,
+  agent vs operator identity via `X-Tower-Agent`, per-agent setup for
+  tower-spawned sessions)
+- Knowledgebase: multi-domain operation research
+  (`docs/knowledgebase/decisions/multi-domain-operation.md`) — verified
+  two-herdr-session layout, herdr-plugin cross-stack switcher concept,
+  tower-primed agent launch recipe, Pi Durable harness evaluation, and
+  the gating questions (driver session binding first)
+- `tower contract`: prints the agent work-loop contract from the binary
+  (`docs/agent-loop.md` embedded at build) — agents read it from any
+  workdir without the repo; the delegation notice and the
+  `tower-agent-add` brief now point at the command instead of a repo path
+  (D§10 amended)
 
 ### Changed
 

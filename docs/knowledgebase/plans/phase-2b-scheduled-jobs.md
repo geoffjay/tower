@@ -8,6 +8,9 @@ tags:
   - job-queue
   - scheduling
 status: stable
+generated:
+  by: human:geoff
+  at: "2026-10-05T23:46:56Z"
 ---
 
 # Phase 2b — Scheduled and recurring jobs

@@ -557,6 +557,10 @@ async fn routes_drive_the_work_loop_with_trail() {
     let msgs = v["messages"].as_array().unwrap();
     assert_eq!(msgs.len(), 1);
     assert_eq!(msgs[0]["kind"], "delegation");
+    // the delegation points at the binary-shipped contract, not a repo path
+    let body = msgs[0]["parts"][0]["text"].as_str().unwrap_or_default();
+    assert!(body.contains("tower contract"), "delegation: {body}");
+    assert!(!body.contains("docs/agent-loop.md"), "delegation: {body}");
 }
 
 #[tokio::test]

@@ -1065,7 +1065,8 @@ async fn notify_assignee(state: &AppState, agent: &Agent, task: &Task, by: &str)
          Declare start, heartbeat at least every {}s, and report the outcome \
          (completed|failed); release it if you cannot do it. MCP: tower_task_start / \
          tower_task_heartbeat / tower_task_status / tower_task_release. Shell: \
-         `tower task start|heartbeat|status|release {}`. Contract: docs/agent-loop.md.",
+         `tower task start|heartbeat|status|release {}`. Full contract: run \
+         `tower contract`.",
         (task.lease_s / 3).max(1),
         task.id
     ));

@@ -11,3 +11,4 @@ Decisions for the tower project.
 * [Operator skills](operator-skills.md) - five repo-local skills drive the CLI so an agent can operate tower; a stack is a naming convention; MCP gains stop, cancel, inbox, schedule show.
 * [Job queue dispatch](job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
 * [Web UI](web-ui.md) - Topcoat bridged into the axum app under `/ui`, live regions over Topcoat's WebSocket, server-side layout, derived read-only UI token.
+* [Multi-domain operation](multi-domain-operation.md) - research: verified two-session layout (work/personal), a herdr plugin as cross-stack switcher, a tower-primed agent launch recipe, Pi Durable as a harness substrate; open questions gate each.

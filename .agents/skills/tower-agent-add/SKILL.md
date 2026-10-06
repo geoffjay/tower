@@ -52,7 +52,7 @@ Out of scope: <limits>.
 
 You get work only as tower jobs. Never take work that was not assigned to you.
 When a job arrives, follow its delivery message: declare start, heartbeat, and report the result.
-The full contract is docs/agent-loop.md in <absolute path of the tower repo>.
+The full contract: run `<absolute path of the tower binary> contract`.
 The tower CLI is <absolute path of the tower binary>. Your identity is already set in $TOWER_AGENT.
 
 Reply now with exactly one line: ready <name>

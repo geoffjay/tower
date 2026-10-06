@@ -70,7 +70,8 @@ $ claude mcp add --transport http tower http://127.0.0.1:8266/mcp \
 The endpoint speaks MCP streamable HTTP (JSON responses, tools only). The
 same tools serve the operator: without `X-Tower-Agent` a client acts as the
 operator and may use `tower_task_assign`; an agent-identified client may
-not.
+not. Client-by-client setup for Claude Code, omp, and pi — including
+secret-keeping header forms — is [`docs/mcp.md`](./mcp.md).
 
 ## For the operator
 

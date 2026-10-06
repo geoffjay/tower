@@ -227,7 +227,8 @@ task t_01J9X8A  implement CSV error column names
 How does the agent know it has work? Assignment sends it a **delegation**
 message (a prompt naming the job), the job appears in its MCP view
 (`tower_task_list --mine`), and the agent runs the **work loop** — a
-documented contract (`docs/agent-loop.md`): declare start → heartbeat →
+documented contract (`tower contract` prints it anywhere — it's
+`docs/agent-loop.md`, embedded in the binary): declare start → heartbeat →
 report status → complete. Agents never pull or claim: if two dispatchers
 race to assign one job, exactly one wins and the loser gets a clean
 conflict naming the owner. If an owner dies, its lease expires and the job
@@ -424,8 +425,9 @@ it to run outside the sandbox.
 | `tower events --follow [--filter ...]` | system event stream |
 | `tower machines add/remove/list` | node registry |
 | `tower schema` | route + event-type registry |
-| `tower tui` | the TUI: every view above, live |
+| `tower contract` | print the agent work-loop contract (`docs/agent-loop.md`, embedded in the binary — no repo needed) |
 | `tower ui` | print a login link for the agent cloud (read-only, `/ui`) |
 
 Everything above also exists as `--json` for scripting, as REST under
-`/v1` for tools, and as MCP tools for the agents themselves.
+`/v1` for tools, and as MCP tools for the agents themselves —
+[wiring an MCP client](./mcp.md) covers Claude Code, omp, and pi.

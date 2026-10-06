@@ -109,4 +109,4 @@ Tell the user:
 - Do not put secrets in a title or description. Jobs are stored and shown
   in the event log.
 - The full CLI contract is in `docs/getting-started.md` §7. The agent side
-  is in `docs/agent-loop.md`.
+  is printed by `tower contract`.
