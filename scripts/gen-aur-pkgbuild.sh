@@ -82,21 +82,23 @@ URL_LNX_X86="https://github.com/${REPO}/releases/download/v${VERSION}/tower-x86_
 if [[ "$SRCINFO" -eq 1 ]]; then
     cat <<EOF
 pkgbase = tower-bin
-pkgdesc = Control and visibility for herds of coding agents
-pkgver = ${VERSION}
-pkgrel = 1
-url = https://github.com/${REPO}
-arch = aarch64
-arch = x86_64
-license = MIT
-license = Apache-2.0
-provides = tower
-conflicts = tower
-conflicts = tower-git
-source_aarch64 = ${URL_LNX_ARM}
-sha256sums_aarch64 = ${SHA_LNX_ARM}
-source_x86_64 = ${URL_LNX_X86}
-sha256sums_x86_64 = ${SHA_LNX_X86}
+	pkgdesc = Control and visibility for herds of coding agents
+	pkgver = ${VERSION}
+	pkgrel = 1
+	url = https://github.com/${REPO}
+	arch = aarch64
+	arch = x86_64
+	license = MIT
+	license = Apache-2.0
+	provides = tower
+	conflicts = tower
+	conflicts = tower-git
+	source_aarch64 = ${URL_LNX_ARM}
+	sha256sums_aarch64 = ${SHA_LNX_ARM}
+	source_x86_64 = ${URL_LNX_X86}
+	sha256sums_x86_64 = ${SHA_LNX_X86}
+
+pkgname = tower-bin
 EOF
     echo "Rendered .SRCINFO for v${VERSION}" >&2
 else

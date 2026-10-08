@@ -306,5 +306,5 @@ jobs:
             exit 0
           fi
           git commit -m "tower ${{ needs.release.outputs.version }}"
-          # AUR's git server requires pushes to the 'coordinator' branch.
-          git push origin HEAD:coordinator
+          # AUR's git server only accepts pushes to 'master'.
+          git push origin HEAD:master

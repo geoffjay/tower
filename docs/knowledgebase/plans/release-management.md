@@ -44,7 +44,7 @@ deprecated `brews:` block; cargo-dist was rejected: no AUR support.
   `fail_on_unmatched_files`), `homebrew` job (token gate → render →
   push `Formula/tower.rb` to `geoffjay/homebrew-tap`), `aur` job (key
   gate → render → push PKGBUILD + `.SRCINFO` to
-  `aur@aur.archlinux.org:tower-bin.git`, branch `coordinator`).
+  `aur@aur.archlinux.org:tower-bin.git`, branch `master`).
   Verify: `actionlint` clean (or careful manual review); a `v0.0.0-test`
   dry-run can be inspected via workflow_dispatch without assets.
 

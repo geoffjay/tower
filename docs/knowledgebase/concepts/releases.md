@@ -93,7 +93,7 @@ the job is skipped with a notice. Users install with `yay -S tower-bin`.
 
 The PKGBUILD sources the release tarballs from GitHub (per-`$CARCH`
 sha256), so the GitHub release must exist first — the job depends on the
-release job. AUR requires the push branch be `coordinator`.
+release job. AUR's git server only accepts pushes to the `master` branch.
 
 # Secrets
 
