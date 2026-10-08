@@ -12,6 +12,7 @@ pub struct Paths {
     pub artifacts_dir: PathBuf,
     pub token_file: PathBuf,
     pub socket_file: PathBuf,
+    pub agents_dir: PathBuf,
 }
 
 impl Paths {
@@ -25,6 +26,7 @@ impl Paths {
                 artifacts_dir: home.join("artifacts"),
                 token_file: home.join("token"),
                 socket_file: home.join("tower.sock"),
+                agents_dir: home.join("agents"),
             });
         }
 
@@ -40,6 +42,7 @@ impl Paths {
             artifacts_dir: dirs.data_dir().join("artifacts"),
             token_file: dirs.data_dir().join("token"),
             socket_file: runtime.join("tower.sock"),
+            agents_dir: dirs.config_dir().join("agents"),
         })
     }
 

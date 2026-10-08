@@ -22,7 +22,7 @@ generated:
 ```
 tower ps [-m]                       # agents table w/ state glyphs
 tower spawn <name> --kind claude [--workdir .] [--worktree] [--prompt "..."]
-tower prompt <name> 'text' [--wait] # --wait blocks until settled state
+tower spawn --name foo              # from ~/.config/tower/agents/foo/ (PROMPT.md + config.toml)
 tower read <name> [--source visible] [--format ansi]
 tower stream <name>                 # attach to SSE output (like tail -f)
 tower stop <name> [--remove]

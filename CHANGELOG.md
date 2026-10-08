@@ -63,6 +63,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (transport, bearer-token forms that keep the secret out of configs,
   agent vs operator identity via `X-Tower-Agent`, per-agent setup for
   tower-spawned sessions)
+- Named agent definitions: `~/.config/tower/agents/<name>/` with a
+  `PROMPT.md` (first prompt) and `config.toml` (`kind`, `workdir`,
+  `worktree`); `tower spawn --name foo` expands the definition, and explicit
+  flags override it
+- `/tower-agent-add` offers to save the new agent as a named definition
+  (`~/.config/tower/agents/<name>/`), asks in the same interview message,
+  and spawns with `tower spawn --name <name>` when the user agrees; the
+  definition recreates the agent with its brief after a herdr restart
+  (overwrite requires confirmation; the adopt path is unchanged)
 - Knowledgebase: multi-domain operation research
   (`docs/knowledgebase/decisions/multi-domain-operation.md`) — verified
   two-herdr-session layout, herdr-plugin cross-stack switcher concept,

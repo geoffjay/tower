@@ -39,7 +39,11 @@ pub enum Command {
     },
     /// Spawn an agent
     Spawn {
-        name: String,
+        #[arg(required_unless_present = "def", value_name = "NAME")]
+        name: Option<String>,
+        /// Spawn from the agent definition ~/.config/tower/agents/<name>/
+        #[arg(long = "name")]
+        def: Option<String>,
         /// Harness kind (pi, claude, ...)
         #[arg(long)]
         kind: Option<String>,
@@ -359,6 +363,7 @@ async fn send(
 async fn spawn(cli: Cli) -> anyhow::Result<()> {
     let Command::Spawn {
         name,
+        def: def_name,
         kind,
         workdir,
         worktree,
@@ -368,18 +373,34 @@ async fn spawn(cli: Cli) -> anyhow::Result<()> {
     else {
         unreachable!()
     };
+    if name.is_some() && def_name.is_some() {
+        anyhow::bail!("pass either a positional name or --name, not both");
+    }
+    // A definition (D§4: ~/.config/tower/agents/<name>/) supplies defaults;
+    // explicit flags override. The agent is named after the definition.
+    let resolved = match def_name {
+        Some(def) => Some((
+            def.clone(),
+            tower_server::agent_defs::load(&tower_server::Paths::resolve()?.agents_dir, &def)?,
+        )),
+        None => None,
+    };
+    let name = name.or(resolved.as_ref().map(|(n, _)| n.clone())).unwrap();
+    let def = resolved.as_ref().map(|(_, r)| &r.def);
+    let def_prompt = resolved.as_ref().and_then(|(_, r)| r.prompt.clone());
+
     let c = client(cli.token).await?;
     let mut body = serde_json::json!({"name": name, "adopt": adopt});
-    if let Some(k) = kind {
+    if let Some(k) = kind.or_else(|| def.and_then(|d| d.kind.clone())) {
         body["kind"] = serde_json::json!(k);
     }
-    if let Some(w) = workdir {
+    if let Some(w) = workdir.or_else(|| def.and_then(|d| d.workdir.clone())) {
         body["workdir"] = serde_json::json!(w);
     }
-    if worktree {
+    if worktree || def.is_some_and(|d| d.worktree) {
         body["worktree"] = serde_json::json!(true);
     }
-    if let Some(p) = prompt {
+    if let Some(p) = prompt.or(def_prompt) {
         body["prompt"] = serde_json::json!(p);
     }
     let v = c.post("/v1/agents", Some(body)).await?;

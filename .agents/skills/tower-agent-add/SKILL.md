@@ -1,6 +1,6 @@
 ---
 name: tower-agent-add
-description: Add an agent to the tower fleet. Use when the user wants a new tower-managed agent (a coding harness such as omp, claude, or pi running in a herdr pane) with a role. Collects the name, harness kind, working directory, and role, spawns the agent with a standing brief, and confirms that it started and can reach its model.
+description: Add an agent to the tower fleet. Use when the user wants a new tower-managed agent (a coding harness such as omp, claude, or pi running in a herdr pane) with a role. Collects the name, harness kind, working directory, role, and whether to save a named definition, spawns the agent with a standing brief, and confirms that it started and can reach its model.
 argument-hint: "[name] [kind] [role]"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "[name] [kind] [role]"
 
 Spawn one agent with a clear role, then prove that it works. A spawned
 agent that cannot reach its model looks idle but does nothing, so the
-check in step 4 is required.
+check in step 5 is required.
 
 ## Before you start
 
@@ -35,6 +35,7 @@ one message.
 | Working directory | Absolute path of the project the agent works in | The current project root |
 | Worktree | `--worktree` gives the agent its own git branch and directory. Use it when two agents write in the same repo | Off |
 | Role | What the agent is for, and what is out of its scope | — (required) |
+| Definition | Whether to save the agent as a named definition. A definition makes the agent easy to create again after a restart. Ask the user. Recommend yes. | Ask |
 
 `tower doctor` checks only `pi` and `claude` on `PATH`. For another kind,
 run `command -v <kind>`. If the binary is missing, tell the user and ask
@@ -61,18 +62,43 @@ Reply now with exactly one line: ready <name>
 Always write the absolute path of the binary. `tower` is often not on the
 `PATH` inside agent panes. Show the brief to the user before you spawn.
 
-## 3. Spawn
+## 3. Save the definition (only if the user agreed)
+
+Write the agent as a named definition. Then the user can create it again
+with `tower spawn --name <name>` after a restart. The definition holds
+the brief, so the agent does not lose its role.
 
 ```sh
-tower spawn <name> --kind <kind> --workdir <dir> [--worktree] --prompt '<brief>'
+mkdir -p ~/.config/tower/agents/<name>
 ```
 
+Write the brief from step 2 to `~/.config/tower/agents/<name>/PROMPT.md`.
+Write the facts from step 1 to
+`~/.config/tower/agents/<name>/config.toml`:
+
+```toml
+kind = "<kind>"
+workdir = "<working directory>"
+worktree = true   # write this line only when worktree is on
+```
+
+If a file already exists, show it to the user and ask before you
+overwrite it.
+
+## 4. Spawn
+
+```sh
+# With a definition saved in step 3:
+tower spawn --name <name>
+# Without a definition:
+tower spawn <name> --kind <kind> --workdir <dir> [--worktree] --prompt '<brief>'
+```
 Quote the brief with single quotes. If it contains a single quote, write
 `'\''` in its place. Spawn creates a tab labelled with the agent name in
 the `tower-agents` herdr workspace. It does not change the user's own
 workspaces.
 
-## 4. Confirm that it works
+## 5. Confirm that it works
 
 1. Wait about 15 seconds. Then run `tower ps`. The agent must be `idle` or
    `working`.
@@ -85,16 +111,18 @@ workspaces.
    error. Offer to remove the agent (`tower stop <name> --remove`) and try
    another kind.
 
-## 5. Report
+## 6. Report
 
 Tell the user the name, kind, working directory, and the state from
-`tower ps`. Tell the user how to give it work: `/tower-queue-job`, or
-`tower task create '<title>' --assign <name>`.
+`tower ps`. If you saved a definition, tell the user how to create the
+agent again: `tower spawn --name <name>`. Tell the user how to give it
+work: `/tower-queue-job`, or `tower task create '<title>' --assign <name>`.
 
 ## Rules
 
 - Do not start harness processes yourself. Tower spawns agents through
   herdr only.
 - Do not put secrets in the brief. Prompts are stored in the event log.
+  The same rule applies to `PROMPT.md`.
 - To take over an agent that already runs in herdr, use
   `tower spawn <name> --adopt` instead of a new spawn.

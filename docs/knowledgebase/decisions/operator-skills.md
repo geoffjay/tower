@@ -15,7 +15,9 @@ generated:
 
 # Operator skills
 
-Date: 2026-09-27. Amends [§7](../concepts/design/07-server-api.md) (MCP
+Date: 2026-09-27. Amended 2026-10-06: `/tower-agent-add` offers to save a
+named agent definition ([§4](../concepts/design/04-paths-and-configuration.md)).
+Amends [§7](../concepts/design/07-server-api.md) (MCP
 tools). Skills: `.agents/skills/tower-*/SKILL.md`, linked from
 `.claude/skills/`.
 
@@ -46,7 +48,14 @@ the conventions, and the checks that catch known failures.
    stack record.
 5. **Approval gates.** Each skill that changes state shows its plan and
    waits for the user. No skill answers inbox items for the user.
-6. **MCP stays complete for these operations.** New tools: `tower_stop`,
+6. **`/tower-agent-add` persists on request.** The skill asks whether to
+   save the agent as a named definition under
+   `~/.config/tower/agents/<name>/` (`PROMPT.md` + `config.toml`). It
+   recommends yes. With a definition, the skill spawns with
+   `tower spawn --name <name>`. Without one, it passes `--prompt` as
+   before. A definition recreates the agent with its brief after a
+   herdr restart, where the one-shot prompt is lost.
+7. **MCP stays complete for these operations.** New tools: `tower_stop`,
    `tower_task_cancel`, `tower_inbox`, `tower_schedule_show`. Stop and
    cancel are operator-only. `tower_inbox` returns the caller's messages.
 
@@ -60,6 +69,7 @@ the conventions, and the checks that catch known failures.
 | Claude Code sandbox blocks `127.0.0.1` | `Operation not permitted` → ask the user to allow the command |
 | Schedules fire only while the server runs | Deploy suggests `tower service install` |
 | Removing an agent pauses its schedules | Teardown removes schedules before agents |
+| Herdr panes restart; the one-shot spawn prompt is lost | The skill offers a named definition; `tower spawn --name` recreates the agent with its brief |
 
 ## Rejected alternatives
 

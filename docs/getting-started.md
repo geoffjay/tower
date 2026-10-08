@@ -129,7 +129,7 @@ Useful spawn flags:
 | `--worktree` | isolated git worktree per agent (recommended for coders) |
 | `--permissions yolo` | explicit opt-in to full-bypass mode (recorded in events) |
 | `--machine NAME` | spawn on a remote machine (phase 5) |
-| `--prompt '...'` | first prompt, sent as soon as the agent settles |
+| `--name foo` | spawn from the definition `~/.config/tower/agents/foo/` |
 
 What you configured at spawn can be inspected any time:
 
@@ -137,7 +137,16 @@ What you configured at spawn can be inspected any time:
 $ tower ps --json | jq '.agents[] | {name, kind, worktree, permissions}'
 ```
 
-There is no agent YAML in v1. If you want repeatable fleets, that's a shell
+There is no agent YAML in v1 — except named definitions. Put a folder under
+`~/.config/tower/agents/<name>/` with a `PROMPT.md` (first prompt) and a
+`config.toml` (`kind = "pi"`, `workdir = "..."`, `worktree = true`); then:
+
+```console
+$ tower spawn --name foo   # definition expands: prompt sent, kind applied
+```
+
+Explicit flags override the definition, so a definition plus `--workdir`
+still works. For anything beyond that, repeatable fleets are a shell
 script, spawn from code over `/v1` / MCP, or let an agent build one with
 `/tower-deploy` (§10). (Declarative fleet files are a backlog item; see plans.)
 
@@ -385,8 +394,7 @@ your approval before it changes anything.
 
 | Skill | What it does |
 |---|---|
-| `/tower-queue-job [description]` | Turns a request into a job with done criteria; asks for what's missing; assigns, reserves, holds, or schedules it |
-| `/tower-agent-add [name] [kind] [role]` | Spawns an agent with a standing brief and checks that it can reach its model |
+| `/tower-agent-add [name] [kind] [role]` | Spawns an agent with a standing brief and checks that it can reach its model; asks whether to save a named definition for easy re-creation |
 | `/tower-agent-remove <name>` | Shows the jobs and schedules the removal affects, removes, and offers to reassign |
 | `/tower-status [stack]` | Read-only: what needs you first (inbox, blocked, stalled, failed), then the fleet |
 | `/tower-deploy [purpose \| update S \| teardown S]` | Interviews you, proposes a stack of agents, schedules, and starting jobs, deploys it, and verifies it |

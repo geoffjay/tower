@@ -29,6 +29,7 @@ async fn test_state() -> (AppState, tempfile::TempDir) {
         artifacts_dir: dir.path().join("artifacts"),
         token_file: dir.path().join("token"),
         socket_file: dir.path().join("tower.sock"),
+        agents_dir: dir.path().join("agents"),
     };
     paths.ensure_dirs().unwrap();
     let pool = tower_server::open_db(&paths.db_file).await.unwrap();

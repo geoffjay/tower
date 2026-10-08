@@ -169,7 +169,7 @@ agents rebind.
 | 2026-09-26 | M4: driver fixture + live smoke | PASS — golden-file envelope tests 6/6; live herdr smoke spawn→snapshot→read→prompt→stop (TOWER_E2E=1); **amendment**: `agent read` returns raw text, not JSON (commit 661a211) |
 | 2026-09-26 | M5: inventory + sessions routes | PASS — reconcile dead/adoptable, spawn→prompt→show→read→stop flow, adopt-via-spawn; 3 integration tests (commit 80e0100) |
 | 2026-09-26 | M6: CLI live loop | PASS — spawn live-cli-test (real pi via herdr), ps/prompt/read/doctor 4/4/schema; found+fixed stop-on-dead (commit 51a8129) |
-| 2026-09-26 | T7.1/T7.2 e2e: scripts/e2e.sh | PASS — doctor 4/4; spawn pi; prompt delivered + read back; **restart mid-run: row survives, rebinds**; event log unbroken (2× server.started); stop → seat survives. Exit 0 |
+| 2026-10-05 | Named agent definitions ([D§4](../concepts/design/04-paths-and-configuration.md), [D§10](../concepts/design/10-client-cli.md)): `~/.config/tower/agents/<name>/` (PROMPT.md + config.toml), `tower spawn --name foo` | PASS — 6 unit tests (load/prompt-only/empty-reject/known-names/traversal/sorted-list) + live herdr smoke: definition expanded (kind pi, workdir /tmp, name foo, state idle); lint+test green |
 
 ### E2E transcript (scripts/e2e.sh, 2026-09-26)
 

@@ -24,7 +24,7 @@ XDG layout, zero-config start:
 |---|---|
 | Config | `~/.config/tower/config.toml` |
 | Database | `~/.local/share/tower/tower.db` |
-| Artifacts | `~/.local/share/tower/artifacts/` |
+| Agent definitions | `~/.config/tower/agents/<name>/` (D§10 `spawn --name`) |
 | Auth token | `~/.local/share/tower/token` (0600, generated on first run) |
 | Unix socket | `$XDG_RUNTIME_DIR/tower.sock` (default bind) |
 | TCP listen | `127.0.0.1:8266` (default; node deployments use `0.0.0.0` + token) |
@@ -55,6 +55,10 @@ token        = "<per-machine token>"
 enabled      = true
 external_url = "https://agents.example.com"   # used in agent card
 ```
+
+Agent definitions (one folder per named agent under `agents/`):
+`PROMPT.md` is the first prompt, `config.toml` holds spawn arguments
+(`kind`, `workdir`, `worktree`); explicit `tower spawn` flags override both.
 
 `tower doctor` validates: herdr reachable, socket/CLI, database writable,
 port free, claude/pi executables found.

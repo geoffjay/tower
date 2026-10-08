@@ -18,6 +18,7 @@ fn temp_paths(n: &str) -> (Paths, tempfile::TempDir) {
         artifacts_dir: dir.path().join("artifacts"),
         token_file: dir.path().join("token"),
         socket_file: dir.path().join("tower.sock"),
+        agents_dir: dir.path().join("agents"),
     };
     paths.ensure_dirs().unwrap();
     (paths, dir)

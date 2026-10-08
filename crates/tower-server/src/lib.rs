@@ -1,3 +1,4 @@
+pub mod agent_defs;
 pub mod agents_api;
 pub mod api;
 pub mod auth;
