@@ -43,3 +43,6 @@ generated:
 - Clients are stateless: CLI, TUI, browsers, MCP clients, A2A clients.
 - `tower node` is a stateless relay: it holds no database, executes driver
   calls against its local herdr, and forwards events to the coordinator.
+- Distribution: the single `tower` binary is released as cross-platform
+  tarballs on GitHub releases, plus a Homebrew formula and an AUR package —
+  see [Releases and packaging](../releases.md).

@@ -36,6 +36,28 @@ the [phase 1 plan](docs/knowledgebase/plans/phase-1-mvp-core.md) now in executio
   (IPC, cross-server)
 - [Plans](docs/knowledgebase/plans/index.md) — per-phase execution plans
 
+## Install
+
+Prebuilt binaries ship on [GitHub releases](https://github.com/geoffjay/tower/releases)
+for macOS (arm64/x64) and Linux (arm64/x64) with a `checksums.txt`. Or:
+
+```sh
+brew install geoffjay/tap/tower   # macOS / Linux
+yay -S tower-bin                 # Arch Linux
+```
+
+## Releasing
+
+See [Releases and packaging](docs/knowledgebase/concepts/releases.md).
+Bump `workspace.package.version` in the root `Cargo.toml`, then:
+
+```sh
+git tag v0.X.0 && git push origin v0.X.0
+```
+
+The tag push runs CI, builds the tarballs, publishes the GitHub release,
+and updates the Homebrew tap and the AUR package.
+
 ## Development
 
 ```

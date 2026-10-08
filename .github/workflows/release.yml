@@ -1,0 +1,310 @@
+name: Release
+
+# Tag-push release pipeline (see docs/knowledgebase/concepts/releases.md).
+# v* tag push (or manual workflow_dispatch) → CI gate → cross-platform
+# build matrix → GitHub release → Homebrew tap → AUR.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g., v0.1.0)"
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: tower
+
+permissions: {}
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: ci
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked -p tower-server --target ${{ matrix.target }}
+
+      - name: Package tarball
+        run: |
+          STAGING="target/staging-${{ matrix.target }}"
+          mkdir -p "$STAGING"
+          cp "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}" "$STAGING/"
+          cp LICENSE-APACHE LICENSE-MIT "$STAGING/"
+          (cd "$STAGING" && tar -czf "../../${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz" .)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
+          path: ${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify expected tarballs
+        run: |
+          expected=(
+            tower-aarch64-apple-darwin.tar.gz
+            tower-x86_64-apple-darwin.tar.gz
+            tower-x86_64-unknown-linux-gnu.tar.gz
+            tower-aarch64-unknown-linux-gnu.tar.gz
+          )
+          for f in "${expected[@]}"; do
+            [ -f "artifacts/$f" ] || { echo "::error::missing artifact $f"; exit 1; }
+          done
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      # Re-running a tag build should not silently clobber a published
+      # release. Only the manual (workflow_dispatch) path replaces one.
+      - name: Delete existing release (if any)
+        if: github.event_name == 'workflow_dispatch'
+        run: gh release delete "${{ steps.version.outputs.version }}" --yes || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## Installation
+
+            **Homebrew (macOS / Linux):**
+
+            ```sh
+            brew install geoffjay/tap/tower
+            ```
+
+            **Arch Linux (AUR):**
+
+            ```sh
+            yay -S tower-bin
+            ```
+
+            **Prebuilt binaries:** download the tarball for your platform
+            from the assets below and verify it against `checksums.txt`.
+
+            ```sh
+            tar -xzf tower-<target>.tar.gz
+            ./tower --version
+            ```
+
+            The binary is not code-signed or notarized; on macOS remove the
+            quarantine attribute if Gatekeeper blocks it:
+
+            ```sh
+            xattr -d com.apple.quarantine ./tower
+            ```
+          files: |
+            artifacts/*.tar.gz
+            artifacts/checksums.txt
+
+  homebrew:
+    name: Update Homebrew tap
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check for tap token
+        id: check
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -n "$TAP_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::HOMEBREW_TAP_TOKEN not set; skipping tap update"
+          fi
+
+      - name: Checkout tower
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Download release checksums
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ needs.release.outputs.version }}" \
+            --repo "${{ github.repository }}" --pattern checksums.txt --dir .
+
+      - name: Render formula
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          chmod +x scripts/gen-homebrew-formula.sh
+          scripts/gen-homebrew-formula.sh "${{ needs.release.outputs.version }}" checksums.txt > tower.rb
+          cat tower.rb
+
+      - name: Checkout tap
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: geoffjay/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Commit and push formula
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          mkdir -p tap/Formula
+          cp tower.rb tap/Formula/tower.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/tower.rb
+          # --cached so a brand-new (untracked) formula is detected too.
+          if git diff --cached --quiet; then
+            echo "Formula unchanged; nothing to push"
+            exit 0
+          fi
+          git commit -m "tower ${{ needs.release.outputs.version }}"
+          git push
+
+  aur:
+    name: Update AUR package
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check for AUR key
+        id: check
+        env:
+          AUR_KEY: ${{ secrets.AUR_KEY }}
+        run: |
+          if [ -n "$AUR_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AUR_KEY not set; skipping AUR update"
+          fi
+
+      - name: Checkout tower
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Download release checksums
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ needs.release.outputs.version }}" \
+            --repo "${{ github.repository }}" --pattern checksums.txt --dir .
+
+      - name: Render PKGBUILD
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          chmod +x scripts/gen-aur-pkgbuild.sh
+          scripts/gen-aur-pkgbuild.sh "${{ needs.release.outputs.version }}" checksums.txt > pkgbuild
+          cat pkgbuild
+
+      - name: Clone AUR package
+        if: steps.check.outputs.enabled == 'true'
+        env:
+          AUR_KEY: ${{ secrets.AUR_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$AUR_KEY" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          echo "Host aur.archlinux.org" >> ~/.ssh/config
+          echo "  User aur" >> ~/.ssh/config
+          echo "  IdentityFile ~/.ssh/aur_key" >> ~/.ssh/config
+          echo "  StrictHostKeyChecking accept-new" >> ~/.ssh/config
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/aur_key -o StrictHostKeyChecking=accept-new" \
+            git clone ssh://aur@aur.archlinux.org/tower-bin.git aur
+
+      - name: Commit and push PKGBUILD
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          cp pkgbuild aur/PKGBUILD
+          # .SRCINFO must match the rendered PKGBUILD exactly.
+          scripts/gen-aur-pkgbuild.sh "${{ needs.release.outputs.version }}" checksums.txt --srcinfo > aur/.SRCINFO
+          cd aur
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "PKGBUILD unchanged; nothing to push"
+            exit 0
+          fi
+          git commit -m "tower ${{ needs.release.outputs.version }}"
+          # AUR's git server requires pushes to the 'coordinator' branch.
+          git push origin HEAD:coordinator

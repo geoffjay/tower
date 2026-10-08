@@ -1,5 +1,8 @@
 # Knowledge Base Update Log
 
+## 2026-10-08
+* **Release management added**: ([concept](concepts/releases.md), [plan](plans/release-management.md)): `v*` tag push → CI gate (`workflow_call`) → 4-target native build matrix (macOS arm/x64, Linux arm/x64) → tar.gz + `checksums.txt` GitHub release → `packaging/homebrew/tower.rb.tpl` rendered by `scripts/gen-homebrew-formula.sh` and pushed to `geoffjay/homebrew-tap` (`HOMEBREW_TAP_TOKEN`; skipped with notice if unset) → `packaging/aur/PKGBUILD.tpl` rendered by `scripts/gen-aur-pkgbuild.sh` and pushed to `aur.archlinux.org/tower-bin` (`AUR_KEY`; skipped with notice if unset). Version source of truth is `workspace.package.version`; no crates.io publish (bin-only distribution). Design pointer added at [D§3](concepts/design/03-process-and-deployment.md).
+
 ## 2026-10-06
 * **`/tower-agent-add` offers a named definition**: ([decision](decisions/operator-skills.md) amended, skill `.agents/skills/tower-agent-add/SKILL.md`): the skill asks, in the same interview message, whether to save the agent under `~/.config/tower/agents/<name>/` (`PROMPT.md` brief + `config.toml` kind/workdir/worktree) and recommends yes. With a definition it spawns via `tower spawn --name <name>`; without one, `--prompt` as before. Overwrite of an existing definition file requires confirmation; secrets stay out of `PROMPT.md`. `docs/getting-started.md` §10 skill table.
 
