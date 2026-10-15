@@ -5,7 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::widgets::{Block, Cell, Paragraph, Row, Table, TableState};
 use ratatui::Frame;
 use tower_core::{Message, MessageId, MessageKind};
 
@@ -161,17 +161,13 @@ fn render_detail(f: &mut Frame, area: Rect, m: &Message, ctx: &Ctx) {
         )),
         Span::styled(exp, exp_style),
     ])];
-    let mut context: Vec<Line> = Vec::new();
+    let mut context: Vec<String> = Vec::new();
     for p in &m.parts {
         if let Some(t) = &p.text {
             head.extend(t.lines().map(|l| Line::raw(l.to_string())));
         }
         if let Some(d) = &p.data {
-            context.extend(
-                context_lines(d)
-                    .into_iter()
-                    .map(|l| Line::styled(l, super::dim())),
-            );
+            context.extend(context_lines(d));
         }
     }
     let hint = if m.kind == MessageKind::Approval {
@@ -182,13 +178,119 @@ fn render_detail(f: &mut Frame, area: Rect, m: &Message, ctx: &Ctx) {
     let block = Block::bordered().title(format!(" {hint} "));
     let inner = block.inner(area);
     f.render_widget(block, area);
+    // pre-wrap to the pane width so the row counts below are rows, not
+    // source lines — a long text part must not overflow its allocation
+    let width = inner.width as usize;
+    let head: Vec<Line> = head
+        .iter()
+        .flat_map(|l| {
+            let s = plain(l);
+            wrap(&s, width).into_iter().map(Line::raw)
+        })
+        .collect();
     let [top, rest] = Layout::vertical([
         Constraint::Length((head.len() as u16).min(inner.height)),
         Constraint::Min(0),
     ])
     .areas(inner);
-    f.render_widget(Paragraph::new(head).wrap(Wrap { trim: false }), top);
+    f.render_widget(Paragraph::new(head), top);
+    // long captured-screen lines wrap instead of clipping at the pane edge
+    let context: Vec<Line> = context
+        .iter()
+        .flat_map(|l| wrap(l, rest.width as usize))
+        .map(|l| Line::styled(l, super::dim()))
+        .collect();
     // the screen's last rows hold the dialog being asked about
     let skip = context.len().saturating_sub(rest.height as usize);
     f.render_widget(Paragraph::new(context).scroll((skip as u16, 0)), rest);
+}
+
+/// The rendered text of a line, spans joined.
+fn plain(l: &Line) -> String {
+    l.spans.iter().map(|s| s.content.to_string()).collect()
+}
+
+/// Greedy character wrap, preserving leading indent. Zero-width panes get
+/// the text unchanged.
+fn wrap(s: &str, width: usize) -> Vec<String> {
+    if width == 0 || s.chars().count() <= width {
+        return vec![s.to_string()];
+    }
+    let mut out = Vec::new();
+    let indent_len = s.len() - s.trim_start().len();
+    let (indent, body) = s.split_at(indent_len);
+    let mut line = String::from(indent);
+    let mut cols = indent.chars().count();
+    for word in body.split(' ') {
+        let w = word.chars().count();
+        // an over-long word is hard-split rather than overflowing the pane
+        if w > width.saturating_sub(indent.chars().count()) {
+            for ch in word.chars() {
+                if cols >= width {
+                    out.push(std::mem::take(&mut line));
+                    line = String::from(indent);
+                    cols = indent.chars().count();
+                }
+                line.push(ch);
+                cols += 1;
+            }
+            continue;
+        }
+        let add = w + usize::from(!line.is_empty());
+        if cols + add > width {
+            out.push(std::mem::take(&mut line));
+            line = String::from(indent);
+            cols = indent.chars().count();
+        }
+        if !line.ends_with(char::is_whitespace) && !line.is_empty() {
+            line.push(' ');
+            cols += 1;
+        }
+        line.push_str(word);
+        cols += w;
+    }
+    out.push(line);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap;
+
+    #[test]
+    fn short_lines_pass_through() {
+        assert_eq!(wrap("hello", 10), vec!["hello"]);
+        assert_eq!(wrap("hello", 0), vec!["hello"]);
+    }
+
+    #[test]
+    fn wraps_at_width() {
+        let out = wrap("aaa bbb ccc ddd", 7);
+        assert!(out.iter().all(|l| l.chars().count() <= 7));
+        assert_eq!(out, vec!["aaa bbb", "ccc ddd"]);
+    }
+
+    #[test]
+    fn preserves_indent() {
+        let out = wrap("  aa bb cc", 5);
+        assert_eq!(out, vec!["  aa", "  bb", "  cc"]);
+    }
+
+    #[test]
+    fn hard_splits_overlong_words() {
+        let out = wrap("abcdefghij", 4);
+        assert_eq!(out, vec!["abcd", "efgh", "ij"]);
+    }
+
+    #[test]
+    fn narrow_width_preserves_chars_and_bounds() {
+        let s = "the quick brown fox jumps over the lazy dog";
+        for width in 1..12 {
+            let out = wrap(s, width);
+            assert!(out.iter().all(|l| l.chars().count() <= width));
+            let got: String = out.concat().chars().filter(|c| *c != ' ').collect();
+            let want: String = s.chars().filter(|c| *c != ' ').collect();
+            assert_eq!(got, want, "width {width}");
+        }
+    }
 }
