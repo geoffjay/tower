@@ -190,7 +190,8 @@ One row per communication act, any direction:
 - `parts`: A2A Part array — `[{text:...} | {data:...} | {raw:...} | {url:...},
   media_type?, filename?, metadata?]`
 - `status`: `pending | delivered | answered | expired | failed`
-- `deadline_at`: questions/approvals expire (default 5 min, configurable)
+- `deadline_at`: questions/approvals expire (default 5 min, configurable);
+  blocked-agent inbox items use `[inbox].blocked_deadline_s` (default 24 h)
 
 ## 5.4 Event
 

@@ -4,6 +4,7 @@
 mod common;
 
 use axum::http::StatusCode;
+use tower_driver::HarnessState;
 use tower_server::sweeper::{sweep_deadlines, sweep_events, EXPIRED_QUESTION_PROMPT};
 
 #[tokio::test]
@@ -102,6 +103,114 @@ async fn respond_after_expiry_conflicts() {
     assert_eq!(status, StatusCode::CONFLICT, "{v}");
     // only the expiry prompt reached the agent, never the late answer
     assert_eq!(ctx.harness.prompts().len(), 1);
+}
+
+#[tokio::test]
+async fn expired_blocked_inbox_does_not_notify_after_agent_unblocks() {
+    let ctx = common::boot().await;
+    ctx.spawn("backend", "pi").await;
+    ctx.harness.set_state("backend", HarnessState::Blocked);
+    tower_server::inventory::reconcile(&ctx.state)
+        .await
+        .unwrap();
+    let id: String = sqlx::query_scalar(
+        "SELECT id FROM messages WHERE from_id='backend' AND kind='question' AND status='pending'",
+    )
+    .fetch_one(&ctx.state.pool)
+    .await
+    .unwrap();
+
+    // Simulate the state pump updating the agent row before a delayed sweep.
+    sqlx::query("UPDATE agents SET state='working' WHERE name='backend'")
+        .execute(&ctx.state.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE messages SET deadline_at=0 WHERE id=?1")
+        .bind(&id)
+        .execute(&ctx.state.pool)
+        .await
+        .unwrap();
+
+    assert_eq!(sweep_deadlines(&ctx.state, 1).await.unwrap(), 0);
+    assert_eq!(ctx.status_of(&id).await, "answered");
+    assert!(ctx.harness.prompts().is_empty());
+    assert_eq!(ctx.event_count("approval.expired").await, 0);
+}
+
+#[tokio::test]
+async fn unblocking_transition_wins_over_waiting_expiry_sweep() {
+    let ctx = common::boot().await;
+    ctx.spawn("backend", "pi").await;
+    ctx.harness.set_state("backend", HarnessState::Blocked);
+    tower_server::inventory::reconcile(&ctx.state)
+        .await
+        .unwrap();
+    let id: String = sqlx::query_scalar(
+        "SELECT id FROM messages WHERE from_id='backend' AND kind='question' AND status='pending'",
+    )
+    .fetch_one(&ctx.state.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE messages SET deadline_at=0 WHERE id=?1")
+        .bind(&id)
+        .execute(&ctx.state.pool)
+        .await
+        .unwrap();
+    let agent = tower_server::inventory::get_agent(&ctx.state, "backend")
+        .await
+        .unwrap()
+        .unwrap();
+
+    let lock = tower_server::sessions::lock_for("backend");
+    let held = lock.lock().await;
+    let transition_state = ctx.state.clone();
+    let transition = tokio::spawn(async move {
+        tower_server::inventory::transition(
+            &transition_state,
+            &agent,
+            tower_core::AgentState::Working,
+        )
+        .await
+    });
+    tokio::task::yield_now().await;
+
+    let sweep_state = ctx.state.clone();
+    let sweep =
+        tokio::spawn(async move { sweep_deadlines(&sweep_state, tower_core::now_ms()).await });
+    tokio::task::yield_now().await;
+    drop(held);
+
+    assert!(transition.await.unwrap().unwrap());
+    assert_eq!(sweep.await.unwrap().unwrap(), 0);
+    assert_eq!(ctx.status_of(&id).await, "answered");
+    assert!(ctx.harness.prompts().is_empty());
+}
+
+#[tokio::test]
+async fn expired_blocked_inbox_notifies_while_agent_remains_blocked() {
+    let ctx = common::boot().await;
+    ctx.spawn("backend", "pi").await;
+    ctx.harness.set_state("backend", HarnessState::Blocked);
+    tower_server::inventory::reconcile(&ctx.state)
+        .await
+        .unwrap();
+    let id: String = sqlx::query_scalar(
+        "SELECT id FROM messages WHERE from_id='backend' AND kind='question' AND status='pending'",
+    )
+    .fetch_one(&ctx.state.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE messages SET deadline_at=0 WHERE id=?1")
+        .bind(&id)
+        .execute(&ctx.state.pool)
+        .await
+        .unwrap();
+
+    assert_eq!(sweep_deadlines(&ctx.state, 1).await.unwrap(), 1);
+    assert_eq!(ctx.status_of(&id).await, "expired");
+    assert_eq!(ctx.harness.prompts().len(), 1);
+    assert_eq!(ctx.harness.prompts()[0].1, EXPIRED_QUESTION_PROMPT);
+    assert_eq!(ctx.event_count("approval.expired").await, 1);
 }
 
 const DAY: i64 = 86_400_000;

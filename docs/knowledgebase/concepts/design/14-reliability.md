@@ -25,7 +25,7 @@ generated:
 | Node offline | Its agents → `dead/unreachable` view state; queued prompts to it fail fast with `machine_offline` |
 | Coordinator offline (node view) | Node keeps agents alive via herdr; reconnects, resyncs snapshot |
 | Slow SSE client | Disconnect with resume cursor; lossless replay from event log + artifacts |
-| Approval timeout | Sweeper expires it; agent notified; event emitted |
+| Blocked-agent inbox timeout | A 24-hour configurable deadline; leaving `blocked` closes the tagged pending item. Expiry notification is serialized with state transitions and sent only while the agent remains blocked |
 | Task lease expiry | Owner crashed/quiet → requeue within one lease window; `task.leased_out` event; max-attempts → `failed` |
 | Assignment race (two assigns, one job) | SQLite CAS loses exactly one bidder → clean `conflict`; a job with a live owner can never be double-assigned |
 | DB write failure | Server degrades read-only + logs loudly; driver calls paused (never silently drop) |

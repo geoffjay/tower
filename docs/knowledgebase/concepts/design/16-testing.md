@@ -18,7 +18,7 @@ generated:
 # 16. Testing
 
 - **Unit**: state machines, assign/start CAS + lease sweeper + max-attempts,
-  message/timeout sweeper, event cursor math
+  message/timeout sweeper including blocked-agent state/expiry races, event cursor math
 - **Integration**: `FakeHarness` implementing the trait — scripted state
   transitions; full API + SSE flow against in-memory SQLite; concurrent-assign
   race tests (N assigners target one queued job, exactly one wins; losers get

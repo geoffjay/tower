@@ -34,6 +34,7 @@ pub fn router() -> Router<AppState> {
 
 /// Default question/approval deadline (D§5.3).
 pub const DEFAULT_DEADLINE_S: i64 = 5 * 60;
+const BLOCKED_INBOX_SOURCE: &str = "blocked_inbox";
 
 // ---- request shapes ------------------------------------------------------
 
@@ -298,7 +299,10 @@ pub async fn inbox_for_blocked(state: &AppState, agent: &tower_core::Agent) -> a
     let task_id = task_id.map(TaskId::from);
     let parts = [
         Part::text(format!("{} is blocked and waiting for input.", agent.name)),
-        Part::data(serde_json::json!({ "context": context_tail })),
+        Part {
+            metadata: Some(serde_json::json!({ "source": BLOCKED_INBOX_SOURCE })),
+            ..Part::data(serde_json::json!({ "context": context_tail }))
+        },
     ];
     insert(
         state,
@@ -310,11 +314,70 @@ pub async fn inbox_for_blocked(state: &AppState, agent: &tower_core::Agent) -> a
             to_id: "me",
             kind,
             parts: &parts,
-            deadline_s: None,
+            deadline_s: Some(state.config.inbox.blocked_deadline_s),
         },
     )
     .await?;
     Ok(())
+}
+
+pub(crate) fn is_blocked_inbox(parts: &[Part]) -> bool {
+    parts.iter().any(|part| {
+        part.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("source"))
+            .and_then(serde_json::Value::as_str)
+            == Some(BLOCKED_INBOX_SOURCE)
+    })
+}
+
+/// Close pending auto-generated inbox items after the agent leaves `blocked`.
+/// The caller holds the per-agent lock shared with deadline notification.
+pub(crate) async fn close_blocked_inbox(
+    state: &AppState,
+    agent: &tower_core::Agent,
+) -> anyhow::Result<usize> {
+    let rows = sqlx::query(
+        "SELECT id, parts FROM messages
+         WHERE from_kind='agent' AND from_id IN (?1, ?2)
+           AND to_kind='human' AND to_id='me'
+           AND kind IN ('question', 'approval') AND status='pending'",
+    )
+    .bind(&agent.name)
+    .bind(&agent.id.0)
+    .fetch_all(&state.pool)
+    .await?;
+    let now = tower_core::now_ms();
+    let mut closed = 0;
+    for row in rows {
+        let parts: Vec<Part> = serde_json::from_str(&row.get::<String, _>("parts"))?;
+        if !is_blocked_inbox(&parts) {
+            continue;
+        }
+        let id: String = row.get("id");
+        let res = sqlx::query(
+            "UPDATE messages SET status='answered', responded_at=?1
+             WHERE id=?2 AND status='pending'",
+        )
+        .bind(now)
+        .bind(&id)
+        .execute(&state.pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            continue;
+        }
+        closed += 1;
+        state
+            .events
+            .append(
+                tower_core::EventKind::MessageStatusChange,
+                Some("message"),
+                Some(&id),
+                serde_json::json!({ "status": MessageStatus::Answered, "source": "agent_state" }),
+            )
+            .await?;
+    }
+    Ok(closed)
 }
 
 /// Set a message status + `message.status` event.
@@ -342,6 +405,19 @@ pub async fn set_status(
 
 /// Prompt an agent with the text parts (serialized per agent, D§9.2).
 pub async fn deliver_prompt(state: &AppState, to: &str, parts: &[Part]) -> anyhow::Result<()> {
+    let agent = crate::inventory::get_agent(state, to)
+        .await?
+        .ok_or_else(|| TowerError::not_found(format!("agent {to} not found")))?;
+    let guard = crate::sessions::lock_for(&agent.name);
+    let _guard = guard.lock().await;
+    deliver_prompt_locked(state, &agent.name, parts).await
+}
+
+pub(crate) async fn deliver_prompt_locked(
+    state: &AppState,
+    to: &str,
+    parts: &[Part],
+) -> anyhow::Result<()> {
     let text = parts
         .iter()
         .filter_map(|p| p.text.as_deref())
@@ -350,8 +426,6 @@ pub async fn deliver_prompt(state: &AppState, to: &str, parts: &[Part]) -> anyho
     let agent = crate::inventory::get_agent(state, to)
         .await?
         .ok_or_else(|| TowerError::not_found(format!("agent {to} not found")))?;
-    let guard = crate::sessions::lock_for(&agent.name);
-    let _guard = guard.lock().await;
     state.driver.prompt(&agent.name, &text, false).await?;
     Ok(())
 }
@@ -365,6 +439,17 @@ pub async fn answer_dialog(state: &AppState, to: &str, approve: bool) -> anyhow:
         .ok_or_else(|| TowerError::not_found(format!("agent {to} not found")))?;
     let guard = crate::sessions::lock_for(&agent.name);
     let _guard = guard.lock().await;
+    answer_dialog_locked(state, &agent.name, approve).await
+}
+
+pub(crate) async fn answer_dialog_locked(
+    state: &AppState,
+    to: &str,
+    approve: bool,
+) -> anyhow::Result<()> {
+    let agent = crate::inventory::get_agent(state, to)
+        .await?
+        .ok_or_else(|| TowerError::not_found(format!("agent {to} not found")))?;
     let screen = if approve {
         state
             .driver

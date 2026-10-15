@@ -198,6 +198,8 @@ pub async fn adopt(state: &AppState, name: &str) -> anyhow::Result<Agent> {
 /// follows (`blocked` ↔ `input-required`, D§5.2), and entering `blocked`
 /// opens the operator's inbox item (D§9.3). Returns whether it changed.
 pub async fn transition(state: &AppState, agent: &Agent, new: AgentState) -> anyhow::Result<bool> {
+    let guard = crate::sessions::lock_for(&agent.name);
+    let transition = guard.lock().await;
     if agent.state == new {
         return Ok(false);
     }
@@ -222,15 +224,22 @@ pub async fn transition(state: &AppState, agent: &Agent, new: AgentState) -> any
             serde_json::json!({"from": agent.state.as_str(), "to": new.as_str()}),
         )
         .await?;
-    crate::tasks::sync_agent_state(state, &agent.id, new, now).await?;
-    // an agent that just became free takes its next reserved job (D§5.2.2)
-    if matches!(new, AgentState::Idle | AgentState::Done) {
-        crate::tasks::dispatch_for(state, &agent.id, now).await?;
+    if agent.state == AgentState::Blocked && new != AgentState::Blocked {
+        if let Err(e) = crate::messaging::close_blocked_inbox(state, agent).await {
+            tracing::warn!(error = %e, agent = %agent.name, "unblocked → inbox close failed");
+        }
     }
     if new == AgentState::Blocked {
         if let Err(e) = crate::messaging::inbox_for_blocked(state, agent).await {
             tracing::warn!(error = %e, agent = %agent.name, "blocked → inbox failed");
         }
+    }
+    drop(transition);
+
+    crate::tasks::sync_agent_state(state, &agent.id, new, now).await?;
+    // an agent that just became free takes its next reserved job (D§5.2.2)
+    if matches!(new, AgentState::Idle | AgentState::Done) {
+        crate::tasks::dispatch_for(state, &agent.id, now).await?;
     }
     Ok(true)
 }
