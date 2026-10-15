@@ -46,3 +46,12 @@ generated:
 - Distribution: the single `tower` binary is released as cross-platform
   tarballs on GitHub releases, plus a Homebrew formula and an AUR package —
   see [Releases and packaging](../releases.md).
+
+`tower service install` writes the running binary's path into the launchd
+plist / systemd unit. The pinned path must survive package upgrades: when the
+executable (or an ancestor on its resolution chain) is a symlink — Homebrew's
+`/opt/homebrew/bin/tower`, `/usr/local/bin/tower`, the AUR `/usr/bin/tower` —
+the **symlink path** is pinned, not its resolved target (the versioned Cellar
+path is deleted by `brew upgrade`). Only a real, non-symlink binary (a
+cargo build under `target/`) pins its canonicalized path. (Amendment
+2026-10-15, issue #12.)
