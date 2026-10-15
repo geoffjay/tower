@@ -54,7 +54,15 @@ token        = "<per-machine token>"
 [a2a]
 enabled      = true
 external_url = "https://agents.example.com"   # used in agent card
+
+[inbox]
+blocked_deadline_s = 86400   # blocked-agent questions/approvals (24h)
 ```
+
+The blocked-agent inbox deadline defaults to 24 hours so operators can
+answer from the harness pane without a five-minute expiry; it remains
+configurable. Other questions and approvals retain the general five-minute
+default unless their sender supplies `deadline_s`.
 
 Agent definitions (one folder per named agent under `agents/`):
 `PROMPT.md` is the first prompt, `config.toml` holds spawn arguments

@@ -16,6 +16,10 @@ pub struct Ctx {
 }
 
 pub async fn boot() -> Ctx {
+    boot_with_config(Config::default()).await
+}
+
+pub async fn boot_with_config(config: Config) -> Ctx {
     let dir = tempfile::Builder::new()
         .prefix("tower-it")
         .tempdir()
@@ -32,13 +36,7 @@ pub async fn boot() -> Ctx {
     let pool = tower_server::open_db(&paths.db_file).await.unwrap();
     let events = tower_server::EventLog::attach(&pool).await.unwrap();
     let harness = FakeHarness::new();
-    let state = AppState::new(
-        pool,
-        events,
-        Config::default(),
-        "t".into(),
-        Arc::new(harness.clone()),
-    );
+    let state = AppState::new(pool, events, config, "t".into(), Arc::new(harness.clone()));
     tower_server::inventory::ensure_local_machine(&state)
         .await
         .unwrap();

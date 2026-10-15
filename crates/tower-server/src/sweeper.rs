@@ -71,8 +71,8 @@ pub async fn sweep_events(state: &AppState, now: i64) -> anyhow::Result<u64> {
 /// the number expired. Each expiry is a CAS on `status='pending'`, so a
 /// response racing the sweep wins or loses cleanly — never both.
 pub async fn sweep_deadlines(state: &AppState, now: i64) -> anyhow::Result<usize> {
-    let due: Vec<(String, String, String, String)> = sqlx::query_as(
-        "SELECT id, kind, from_kind, from_id FROM messages
+    let due: Vec<(String, String, String, String, String)> = sqlx::query_as(
+        "SELECT id, kind, from_kind, from_id, parts FROM messages
          WHERE status='pending' AND deadline_at IS NOT NULL AND deadline_at <= ?1",
     )
     .bind(now)
@@ -80,7 +80,49 @@ pub async fn sweep_deadlines(state: &AppState, now: i64) -> anyhow::Result<usize
     .await?;
 
     let mut expired = 0;
-    for (id, kind, from_kind, from_id) in due {
+    for (id, kind, from_kind, from_id, parts_json) in due {
+        let kind: MessageKind = parse_enum(kind);
+        let from_kind: PartyKind = parse_enum(from_kind);
+        let parts: Vec<Part> = serde_json::from_str(&parts_json)?;
+        let blocked_inbox = messaging::is_blocked_inbox(&parts);
+        let agent_lock = if blocked_inbox && from_kind == PartyKind::Agent {
+            Some(crate::sessions::lock_for(&from_id))
+        } else {
+            None
+        };
+        let _agent_guard = match agent_lock.as_ref() {
+            Some(lock) => Some(lock.lock().await),
+            None => None,
+        };
+
+        if blocked_inbox && from_kind == PartyKind::Agent {
+            let still_blocked = crate::inventory::get_agent(state, &from_id)
+                .await?
+                .is_some_and(|agent| agent.state == tower_core::AgentState::Blocked);
+            if !still_blocked {
+                let res = sqlx::query(
+                    "UPDATE messages SET status='answered', responded_at=?1
+                     WHERE id=?2 AND status='pending'",
+                )
+                .bind(now)
+                .bind(&id)
+                .execute(&state.pool)
+                .await?;
+                if res.rows_affected() > 0 {
+                    state
+                        .events
+                        .append(
+                            tower_core::EventKind::MessageStatusChange,
+                            Some("message"),
+                            Some(&id),
+                            serde_json::json!({ "status": MessageStatus::Answered, "source": "agent_state" }),
+                        )
+                        .await?;
+                }
+                continue;
+            }
+        }
+
         let res =
             sqlx::query("UPDATE messages SET status='expired' WHERE id=?1 AND status='pending'")
                 .bind(&id)
@@ -101,13 +143,23 @@ pub async fn sweep_deadlines(state: &AppState, now: i64) -> anyhow::Result<usize
             )
             .await?;
 
-        if parse_enum::<PartyKind>(from_kind) != PartyKind::Agent {
+        if from_kind != PartyKind::Agent {
             continue;
         }
-        let kind: MessageKind = parse_enum(kind);
         let notified = if kind == MessageKind::Approval {
             // an unattended permission is never granted: deny = esc (D§9.3)
-            messaging::answer_dialog(state, &from_id, false).await
+            if blocked_inbox {
+                messaging::answer_dialog_locked(state, &from_id, false).await
+            } else {
+                messaging::answer_dialog(state, &from_id, false).await
+            }
+        } else if blocked_inbox {
+            messaging::deliver_prompt_locked(
+                state,
+                &from_id,
+                &[Part::text(EXPIRED_QUESTION_PROMPT)],
+            )
+            .await
         } else {
             messaging::deliver_prompt(state, &from_id, &[Part::text(EXPIRED_QUESTION_PROMPT)]).await
         };

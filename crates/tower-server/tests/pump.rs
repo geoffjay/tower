@@ -6,6 +6,7 @@ mod common;
 use std::time::Duration;
 
 use tower_driver::{HarnessEvent, HarnessState};
+use tower_server::Config;
 
 fn blocked(name: &str, from: HarnessState) -> HarnessEvent {
     HarnessEvent::StateChange {
@@ -29,6 +30,16 @@ async fn wait_count(ctx: &common::Ctx, sql: &str) -> i64 {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     0
+}
+
+async fn wait_status(ctx: &common::Ctx, id: &str, status: &str) -> bool {
+    for _ in 0..50 {
+        if ctx.status_of(id).await == status {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    false
 }
 
 #[tokio::test]
@@ -95,4 +106,90 @@ async fn blocked_first_seen_by_reconcile_then_pump_opens_one_item() {
         2,
         "launching→idle, idle→blocked"
     );
+}
+
+#[tokio::test]
+async fn blocked_inbox_keeps_pane_context_and_uses_configured_deadline() {
+    let mut config = Config::default();
+    config.inbox.blocked_deadline_s = 7_200;
+    let ctx = common::boot_with_config(config).await;
+    ctx.spawn("backend", "pi").await;
+    ctx.harness
+        .append_output("backend", "Which approach should I take?");
+    ctx.harness
+        .push_event(blocked("backend", HarnessState::Working));
+    let _pump = tower_server::pump::spawn(ctx.state.clone());
+
+    let sql = "SELECT COUNT(*) FROM messages WHERE kind='question' AND status='pending'";
+    assert_eq!(wait_count(&ctx, sql).await, 1);
+    let id: String =
+        sqlx::query_scalar("SELECT id FROM messages WHERE kind='question' AND status='pending'")
+            .fetch_one(&ctx.state.pool)
+            .await
+            .unwrap();
+    let (status, response) = ctx
+        .req("GET", "/v1/messages?to=me&status=pending", None)
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    let message = &response["messages"][0];
+    assert_eq!(message["id"], id);
+    assert_eq!(
+        message["parts"][1]["data"]["context"],
+        "Which approach should I take?"
+    );
+    assert_eq!(message["parts"][1]["metadata"]["source"], "blocked_inbox");
+    let (created_at, deadline_at): (i64, i64) =
+        sqlx::query_as("SELECT created_at, deadline_at FROM messages WHERE id=?1")
+            .bind(&id)
+            .fetch_one(&ctx.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(deadline_at - created_at, 7_200_000);
+}
+
+#[tokio::test]
+async fn pane_answer_closes_blocked_inbox_before_expiry() {
+    let ctx = common::boot().await;
+    ctx.spawn("backend", "pi").await;
+    ctx.harness
+        .append_output("backend", "Which approach should I take?");
+    ctx.harness
+        .push_event(blocked("backend", HarnessState::Working));
+    let _pump = tower_server::pump::spawn(ctx.state.clone());
+
+    let sql = "SELECT COUNT(*) FROM messages WHERE from_id='backend' AND kind='question' AND status='pending'";
+    assert_eq!(wait_count(&ctx, sql).await, 1);
+    let id: String = sqlx::query_scalar(
+        "SELECT id FROM messages WHERE from_id='backend' AND kind='question' AND status='pending'",
+    )
+    .fetch_one(&ctx.state.pool)
+    .await
+    .unwrap();
+    let unrelated = ctx.ask_operator("backend", "question", 3_600).await;
+
+    ctx.harness.set_state("backend", HarnessState::Working);
+    ctx.harness.push_event(HarnessEvent::StateChange {
+        name: "backend".into(),
+        from: HarnessState::Blocked,
+        to: HarnessState::Working,
+        detail: None,
+    });
+    // FakeHarness snapshots its queued events when `events()` is called.
+    let _unblocked_pump = tower_server::pump::spawn(ctx.state.clone());
+    assert!(wait_status(&ctx, &id, "answered").await);
+
+    sqlx::query("UPDATE messages SET deadline_at=0 WHERE id=?1")
+        .bind(&id)
+        .execute(&ctx.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        tower_server::sweeper::sweep_deadlines(&ctx.state, tower_core::now_ms())
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(ctx.harness.prompts().is_empty());
+    assert_eq!(ctx.status_of(&id).await, "answered");
+    assert_eq!(ctx.status_of(&unrelated).await, "pending");
 }

@@ -70,6 +70,20 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
   defaults or stop"; approval: denied via `esc`) + `approval.expired`
   event. Verify: clock-injected unit tests at boundary; sweep integration test.
 
+### Issue #5 follow-up — blocked-agent inbox lifecycle ([D§4](../concepts/design/04-paths-and-configuration.md), [D§5.3](../concepts/design/05-core-objects.md), [D§9.3](../concepts/design/09-server-modules.md))
+
+- Show captured pane context in the human `tower inbox` summary and keep the
+  TUI detail behavior.
+- Configure blocked-agent inbox deadlines with `[inbox].blocked_deadline_s`
+  (24-hour default); leave other question/approval defaults unchanged.
+- When an agent leaves `blocked`, close its tagged pending inbox item.
+  Serialize that transition with expiry so a late sweep cannot notify an
+  unblocked agent, without changing unrelated agent messages.
+- Verify with FakeHarness: captured question context, configured deadline,
+  pane-answer close, unblocked-at-expiry suppression, and still-blocked
+  expiry notification. Preserve the normal expiry boundary and approval
+  denial behavior.
+
 ## Milestone 3 — Job queue ([D§5.2.1](../concepts/design/05-core-objects.md), [D§9.4](../concepts/design/09-server-modules.md), [job-queue decision](../decisions/job-queue.md))
 
 - **T3.1** Queue types + CAS: assign/start/heartbeat/release/status SQL with
@@ -172,3 +186,5 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
 | 2026-09-27 | T5.2 prep: claude fails from a fresh shell (operator rc forces `CLAUDE_CODE_USE_FOUNDRY` with no Foundry URL; verified in a plain `zsh -i`, no tower) → omp (operator's choice) | env finding |
 | 2026-09-27 | **T5.2** real herdr + 2 omp agents: J1 assigned to o1, second assign to o2 → `conflict` naming o1 (exit 1); o1 ran start → heartbeat → `completed` via the tower CLI unprompted (12s). J2 (lease 40s): o1 started 22:19:55, `kill -9` 22:20:04 → o1 `dead` within 4s; lease swept 22:20:36 → `queued` 1/3; assign to dead o1 refused; reassigned to o2 22:20:37 → o2 heartbeated mid-job and completed 22:21:35 (47s run on a 40s lease) | pass |
 | 2026-09-27 | T5.2 cleanup exposed: `stop --remove` on a crashed agent left its shell pane (lookup by name; herdr no longer lists it) | fixed: `Harness::stop` falls back to the row's `pane_id`; re-run live → no pane left |
+| 2026-10-15 | Issue #5: blocked inbox pane context, configured 24-hour deadline, state-exit close, and expiry notification ordering; FakeHarness tests | pass (`tests/pump.rs`: 5; `tests/sweeper.rs`: 11; workspace suite excluding one confirmed macOS-only baseline test) |
+| 2026-10-15 | Workspace fmt, Clippy (`--workspace --all-targets -- -D warnings`), tests, and build on Windows | fmt, Clippy, and build pass with temporary Windows compile adapters for the repository's existing Unix-only server/TUI code; all tests pass except `plist_runs_exe_serve_with_keepalive_and_path`, which fails identically on clean base because Windows `Path::join` emits backslashes. The adapters and temporary LF-normalized verification files were restored after validation. |

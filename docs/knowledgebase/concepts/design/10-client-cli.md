@@ -54,3 +54,6 @@ tower serve / node / doctor / schema
 
 Output: human tables by default, `--json` everywhere (agentd lesson: the CLI is
 scriptable and agent-usable; MCP wraps the same surface).
+
+For blocked-agent inbox messages, the human `tower inbox` summary also prints
+the captured pane context, so the question is visible without opening the TUI.

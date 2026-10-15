@@ -9,8 +9,23 @@ use crate::paths::Paths;
 pub struct Config {
     pub server: ServerConfig,
     pub herdr: HerdrConfig,
+    pub inbox: InboxConfig,
     #[serde(rename = "harness")]
     pub harnesses: HarnessConfigs,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct InboxConfig {
+    pub blocked_deadline_s: i64,
+}
+
+impl Default for InboxConfig {
+    fn default() -> Self {
+        Self {
+            blocked_deadline_s: 24 * 60 * 60,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -84,5 +99,12 @@ mod tests {
         assert_eq!(cfg.server.bind_tcp, "127.0.0.1:8266");
         assert!(cfg.server.bind_socket);
         assert!(cfg.herdr.cli_fallback);
+        assert_eq!(cfg.inbox.blocked_deadline_s, 24 * 60 * 60);
+    }
+
+    #[test]
+    fn blocked_inbox_deadline_can_be_configured() {
+        let cfg: Config = toml::from_str("[inbox]\nblocked_deadline_s = 7200\n").unwrap();
+        assert_eq!(cfg.inbox.blocked_deadline_s, 7200);
     }
 }

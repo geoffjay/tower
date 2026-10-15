@@ -275,14 +275,33 @@ async fn inbox(json_out: bool) -> anyhow::Result<()> {
         let from = m["from_id"].as_str().unwrap_or("?");
         let kind = m["kind"].as_str().unwrap_or("?");
         let age = age_str(now - m["created_at"].as_i64().unwrap_or(0));
-        let summary = m["parts"]
-            .as_array()
-            .and_then(|p| p.first())
-            .and_then(|p| p["text"].as_str())
-            .unwrap_or("");
+        let summary = inbox_summary(m);
         println!("{:<14} {:<10} {:<18} {:<10} {summary}", id, from, kind, age);
     }
     Ok(())
+}
+
+fn inbox_summary(message: &serde_json::Value) -> String {
+    let Some(parts) = message["parts"].as_array() else {
+        return String::new();
+    };
+    let summary = parts
+        .iter()
+        .find_map(|part| part["text"].as_str())
+        .unwrap_or("");
+    let context = parts
+        .iter()
+        .filter_map(|part| part["data"]["context"].as_str())
+        .filter(|context| !context.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if context.is_empty() {
+        summary.to_string()
+    } else if summary.is_empty() {
+        context
+    } else {
+        format!("{summary}\n{context}")
+    }
 }
 
 fn age_str(ms: i64) -> String {
@@ -622,4 +641,31 @@ pub fn main() -> anyhow::Result<()> {
             .init();
     }
     main_async(cli)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inbox_summary;
+
+    #[test]
+    fn blocked_inbox_summary_includes_pane_context() {
+        let message = serde_json::json!({
+            "parts": [
+                { "text": "backend is blocked and waiting for input." },
+                { "data": { "context": "Which approach should I take?" } }
+            ]
+        });
+        assert_eq!(
+            inbox_summary(&message),
+            "backend is blocked and waiting for input.\nWhich approach should I take?"
+        );
+    }
+
+    #[test]
+    fn inbox_summary_without_context_keeps_existing_text() {
+        let message = serde_json::json!({
+            "parts": [{ "text": "Allow this command?" }]
+        });
+        assert_eq!(inbox_summary(&message), "Allow this command?");
+    }
 }

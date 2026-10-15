@@ -36,9 +36,16 @@ in inbox queries + TUI + web UI (they poll/SSE; no push channel in v1).
 "Delivery" to an agent = driver `prompt`; approval responses answer the
 dialog on screen ([§8.2](08-harness-layer.md): deny = `esc`, approve = the first plain
 "Yes"). A failed driver delivery marks the
-message `failed`. Sweeper marks `pending` questions/approvals `expired` at
-`deadline_at`. When the sender is an agent it is notified and an
-`approval.expired` event is emitted: an expired question prompts it
+message `failed`. Blocked-agent inbox items include the captured pane context
+and use `[inbox].blocked_deadline_s` (default 24 hours); `tower inbox` shows
+that context, and the TUI shows it in the selected item's detail. When an
+agent leaves `blocked`, its tagged pending inbox item is closed as `answered`
+without a prompt. The state transition and deadline notification share the
+per-agent driver lock, so the sweeper rechecks the current state before acting.
+For a due blocked-inbox item, only a still-blocked agent is notified; other
+questions/approvals keep the general expiry behavior. The sweeper marks due
+`pending` questions/approvals `expired` at `deadline_at` and emits an
+`approval.expired` event: an expired question prompts the agent
 ("proceed with defaults or stop"); an expired approval is **denied** (keys
 `esc`) — an unattended permission is never granted, and text typed into a
 permission menu is undefined.
