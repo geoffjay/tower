@@ -94,9 +94,7 @@ struct ServiceEnv {
 impl ServiceEnv {
     fn capture() -> anyhow::Result<Self> {
         let exe = std::env::current_exe().context("cannot locate the tower executable")?;
-        let exe = exe
-            .canonicalize()
-            .with_context(|| format!("canonicalizing {}", exe.display()))?;
+        let exe = stable_exe_path(exe)?;
         // launchd/systemd start in `/`, so a relative TOWER_HOME must be pinned
         let tower_home = match std::env::var_os("TOWER_HOME") {
             Some(home) => {
@@ -133,6 +131,25 @@ impl ServiceEnv {
                 .home_dir()
                 .join("Library/Logs/tower"),
         })
+    }
+}
+
+/// The executable path to pin in a service unit (D§3).
+///
+/// Package managers install `tower` behind a stable symlink (`/opt/homebrew/bin`,
+/// `/usr/local/bin`) whose target carries the version — Homebrew's Cellar path
+/// is deleted on upgrade. So when the given path traverses a symlink (its
+/// canonical form differs), pin the given path and let launchd/systemd
+/// re-resolve it at every launch; only a real-file binary (a cargo build under
+/// `target/`, whose path equals its canonical form) pins the canonicalized path.
+fn stable_exe_path(exe: PathBuf) -> anyhow::Result<PathBuf> {
+    let resolved = exe
+        .canonicalize()
+        .with_context(|| format!("canonicalizing {}", exe.display()))?;
+    if resolved == exe {
+        Ok(resolved)
+    } else {
+        Ok(exe)
     }
 }
 
@@ -563,5 +580,64 @@ mod tests {
             describe_launchctl_print(out),
             "loaded, not running (last exit code 78: EX_CONFIG)"
         );
+    }
+
+    #[test]
+    fn stable_exe_path_pins_direct_symlink_not_cellar_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("tower-real");
+        std::fs::write(&real, b"bin").unwrap();
+        // the Homebrew layout: stable bin/tower -> versioned Cellar path
+        let link = dir.path().join("tower");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let pinned = stable_exe_path(link.clone()).unwrap();
+        assert_eq!(pinned, link);
+        assert_ne!(pinned, real.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn stable_exe_path_pins_outermost_symlink_in_resolution_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("tower-real");
+        std::fs::write(&real, b"bin").unwrap();
+        // /bin/tower -> /Cellar/0.1.0/bin/tower -> real file, but the Cellar
+        // leg itself is a link: the *outer* link is what survives upgrades
+        let cellar = dir.path().join("tower@cellar");
+        std::os::unix::fs::symlink(&real, &cellar).unwrap();
+        let stable = dir.path().join("tower");
+        std::os::unix::fs::symlink(&cellar, &stable).unwrap();
+
+        assert_eq!(stable_exe_path(stable.clone()).unwrap(), stable);
+    }
+
+    #[test]
+    fn stable_exe_path_pins_canonicalized_path_for_real_file() {
+        // a path that already equals its canonical form — the tempdir itself
+        // sits behind /var -> /private/var, so canonicalize it first
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("tower");
+        std::fs::write(&real, b"bin").unwrap();
+        let real = real.canonicalize().unwrap();
+
+        assert_eq!(stable_exe_path(real.clone()).unwrap(), real);
+    }
+
+    #[test]
+    fn stable_exe_path_pins_exe_when_ancestor_is_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        // cargo layout: target (symlink to a shared dir) /debug/tower, where
+        // the binary is a real file behind a symlinked directory
+        let shared = dir.path().join("shared");
+        let debug = shared.join("debug");
+        std::fs::create_dir_all(&debug).unwrap();
+        let real = debug.join("tower");
+        std::fs::write(&real, b"bin").unwrap();
+        let target = dir.path().join("target");
+        std::os::unix::fs::symlink(&shared, &target).unwrap();
+
+        let exe = target.join("debug/tower");
+        assert_eq!(stable_exe_path(exe.clone()).unwrap(), exe);
+        assert_ne!(real.canonicalize().unwrap(), exe);
     }
 }
