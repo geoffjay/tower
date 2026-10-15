@@ -30,6 +30,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/messages", get(list_route).post(send_route))
         .route("/v1/messages/{id}/respond", post(respond_route))
+        .route("/v1/messages/{id}/dismiss", post(dismiss_route))
 }
 
 /// Default question/approval deadline (D§5.3).
@@ -256,6 +257,36 @@ pub async fn respond(
     get_message(state, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("message {id} vanished after respond"))
+}
+
+/// Dismiss a pending question/approval (D§9.3): close as `dismissed`
+/// without notifying the sender — the "disregard, this is stale" action.
+/// The sender keeps the row in its history, so an agent reading back sees
+/// `dismissed` and does not act on it.
+pub async fn dismiss(state: &AppState, id: &MessageId) -> anyhow::Result<Message> {
+    let res = sqlx::query(
+        "UPDATE messages SET status='dismissed', responded_at=?1
+         WHERE id=?2 AND status='pending'",
+    )
+    .bind(tower_core::now_ms())
+    .bind(id.0.as_str())
+    .execute(&state.pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(TowerError::conflict(format!("message {id} is not pending")).into());
+    }
+    state
+        .events
+        .append(
+            tower_core::EventKind::MessageStatusChange,
+            Some("message"),
+            Some(id.0.as_str()),
+            serde_json::json!({"status": MessageStatus::Dismissed}),
+        )
+        .await?;
+    get_message(state, id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("message {id} vanished after dismiss"))
 }
 
 /// Blocked agent → operator inbox (D§9.3, T2.1). One open item per blocked
@@ -546,6 +577,13 @@ async fn respond_route(
     Json(body): Json<RespondBody>,
 ) -> Response {
     match respond(&state, &MessageId::from(id), &body.parts, body.approve).await {
+        Ok(m) => Json(serde_json::json!({ "message": m })).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+async fn dismiss_route(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match dismiss(&state, &MessageId::from(id)).await {
         Ok(m) => Json(serde_json::json!({ "message": m })).into_response(),
         Err(e) => error_response(e),
     }

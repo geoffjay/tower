@@ -130,6 +130,10 @@ pub async fn api(c: &Client, a: &Api) -> anyhow::Result<String> {
                 m["from_id"].as_str().unwrap_or("?")
             )
         }
+        Api::Dismiss { msg } => {
+            c.post(&format!("/v1/messages/{msg}/dismiss"), None).await?;
+            format!("dismissed {msg}")
+        }
         Api::Spawn {
             name,
             kind,

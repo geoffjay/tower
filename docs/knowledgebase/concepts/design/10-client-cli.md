@@ -29,6 +29,7 @@ tower stop <name> [--remove]
 tower inbox                         # pending questions/approvals addressed to me
 tower ask <name> ...                 # send question
 tower approve <msg-id> [--deny]      # answer approval
+tower dismiss <msg-id>               # close as stale, no answer delivered
 tower send <to> --kind <kind> ...    # generic unified send
 tower task list [--state queued] [--tag x] [--mine <name>]   # queue + owned views
 tower task show <id>                          # detail incl. assignment/lease trail

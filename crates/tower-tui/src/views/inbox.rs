@@ -13,11 +13,12 @@ use super::{Cmd, Ctx};
 use crate::app::InputPurpose;
 use crate::fmt;
 
-pub const HINTS: &str = "y approve/yes · n deny/no · r reply";
+pub const HINTS: &str = "y approve/yes · n deny/no · r reply · d dismiss";
 pub const HELP: &[&str] = &[
     "y       approve (approval) or answer \"yes\" (question)",
     "n       deny (approval) or answer \"no\" (question)",
     "r/enter answer a question with free text",
+    "d       dismiss — stale question, do nothing with it",
     "o       show the asking agent's pane in herdr",
 ];
 
@@ -55,6 +56,7 @@ impl Inbox {
                 InputPurpose::Reply { msg: m.id.clone() },
                 String::new(),
             )],
+            KeyCode::Char('d') => vec![super::dismiss(&m.id)],
             KeyCode::Char('o') => match ctx.store.agent_by_name(&m.from_id) {
                 Some(a) => super::fleet::agent_action(k, a),
                 None => Vec::new(),

@@ -241,6 +241,11 @@ async fn call_tool(
             let m = crate::messaging::respond(state, &MessageId::from(id), &parts, approve).await?;
             json!({ "message": m })
         }
+        "tower_dismiss" => {
+            let id: String = req_arg(args, "message_id")?;
+            let m = crate::messaging::dismiss(state, &MessageId::from(id)).await?;
+            json!({ "message": m })
+        }
         "tower_task_list" => {
             let mine = match args.get("mine") {
                 Some(Value::Bool(true)) => Some(acting(args, caller)?),
@@ -445,6 +450,12 @@ fn tool_list() -> Vec<Value> {
                 "message_id": {"type": "string"}, "approve": {"type": "boolean"},
                 "answer": {"type": "string"},
             }),
+            &["message_id"],
+        ),
+        tool(
+            "tower_dismiss",
+            "Dismiss a pending question/approval: mark it stale without answering — nothing is sent to the asker.",
+            json!({"message_id": {"type": "string"}}),
             &["message_id"],
         ),
         tool(

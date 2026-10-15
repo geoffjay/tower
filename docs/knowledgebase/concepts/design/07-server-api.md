@@ -43,6 +43,7 @@ Conventions:
 | `POST /v1/agents/{id}/stop` | `{remove?}` | stop session; keep agent row (seat) |
 | `POST /v1/messages` | `{to, kind, parts, task_id?, deadline_s?}` | unified send (any direction) |
 | `POST /v1/messages/{id}/respond` | `{parts}` | answer/question or approval-response; sets `responded_at` |
+| `POST /v1/messages/{id}/dismiss` | — | operator-only: close as `dismissed` without notifying the sender; sets `responded_at`; CAS on `pending` (409 otherwise) |
 | `POST /v1/tasks` | `{title, description?, priority?, tags?, assign?, when_available?, not_before?}` | create task; `assign: <agent>` pre-assigns (with `when_available`/`not_before`: reserves it for delivery when the agent is free), else it waits in the queue for assignment |
 | `POST /v1/tasks/{id}/assign` | `{to: <agent_id>, lease_s?, when_available?}` | assign to an agent (assign-capable principals only); atomic CAS (conflict on 0 rows); state → `assigned` |
 | `POST /v1/tasks/{id}/start` | `{as: <agent_id>}` | owner declares work started; `assigned` → `working` (renews lease) |
@@ -98,7 +99,7 @@ runtime re-render `POST`); the bearer token opens everything.
 `POST /mcp` — streamable HTTP MCP server exposing the same operations:
 
 tools: `tower_ps`, `tower_spawn`, `tower_stop`, `tower_prompt`, `tower_send`,
-`tower_ask`, `tower_approve`, `tower_inbox`, `tower_task_list`, `tower_task_show`,
+`tower_ask`, `tower_approve`, `tower_dismiss`, `tower_inbox`, `tower_task_list`, `tower_task_show`,
 `tower_task_create`, `tower_task_assign`, `tower_task_cancel`, `tower_task_start`,
 `tower_task_heartbeat`, `tower_task_status`, `tower_task_release`,
 `tower_machine_list`, `tower_schedule_list`, `tower_schedule_show`,

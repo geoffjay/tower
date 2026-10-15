@@ -17,4 +17,4 @@ api          question   40s   30s      Which approach?
 │                                                                                        │
 │                                                                                        │
 └────────────────────────────────────────────────────────────────────────────────────────┘
-y approve/yes · n deny/no · r reply · : command · ? help · q quit
+y approve/yes · n deny/no · r reply · d dismiss · : command · ? help · q quit

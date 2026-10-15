@@ -130,6 +130,7 @@ pub enum MessageStatus {
     Pending,
     Delivered,
     Answered,
+    Dismissed,
     Expired,
     Failed,
 }
