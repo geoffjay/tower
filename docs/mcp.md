@@ -42,7 +42,7 @@ User scope `~/.omp/agent/mcp.json`, project scope `.omp/mcp.json`:
       "type": "http",
       "url": "http://127.0.0.1:8266/mcp",
       "headers": {
-        "Authorization": "Bearer !cat \"$HOME/Library/Application Support/tower/token\"",
+        "Authorization": "!printf 'Bearer %s' \"$(cat \"$HOME/Library/Application Support/tower/token\")\"",
         "X-Tower-Agent": "backend"
       }
     }
@@ -78,7 +78,7 @@ Global `~/.pi/agent/mcp.json`, project `.pi/mcp.json` (trusted projects only —
     "tower": {
       "url": "http://127.0.0.1:8266/mcp",
       "headers": {
-        "Authorization": "Bearer !cat \"$HOME/Library/Application Support/tower/token\"",
+        "Authorization": "!printf 'Bearer %s' \"$(cat \"$HOME/Library/Application Support/tower/token\")\"",
         "X-Tower-Agent": "backend"
       }
     }
@@ -118,6 +118,6 @@ agent's prompt at [`docs/agent-loop.md`](./agent-loop.md).
 ## Rotating the token
 
 The token file is generated on first run; deleting it regenerates on next
-`tower serve`. Baked-in header values (`!cat …` forms) pick up the new token
+`tower serve`. Baked-in header values (leading-`!` command forms) pick up the new token
 automatically; literal `Bearer <token>` strings in configs go stale — re-add
 the server.
