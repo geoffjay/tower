@@ -50,6 +50,15 @@ questions/approvals keep the general expiry behavior. The sweeper marks due
 `esc`) — an unattended permission is never granted, and text typed into a
 permission menu is undefined.
 
+`POST /v1/messages/{id}/dismiss` (operator-only) closes a pending
+question/approval as `dismissed`: no prompt or dialog goes to the sender,
+`responded_at` is set, and the sweeper ignores it from then on. It is the
+"disregard — another process made this stale" action: the item stays in the
+store, and an agent reading its history (`GET /v1/messages?agent=<name>`)
+sees `status: "dismissed"` and must not act on it. CAS on `pending` (409 if
+already handled); emits a `message.status` event. The TUI inbox binds `d`
+to it; the CLI verb is `tower dismiss <msg_id>`.
+
 ## 9.4 tasks
 
 Task rows + job-queue semantics ([§5.2.1](05-core-objects.md)): assign

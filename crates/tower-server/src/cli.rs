@@ -131,6 +131,8 @@ pub enum Command {
         #[arg(long)]
         answer: Option<String>,
     },
+    /// Close an inbox item without answering — stale, disregard
+    Dismiss { msg_id: String },
     /// Generic unified send
     Send {
         to: String,
@@ -180,6 +182,7 @@ async fn main_async(cli: Cli) -> anyhow::Result<()> {
             deny,
             answer,
         } => approve(msg_id, deny, answer).await,
+        Command::Dismiss { msg_id } => dismiss_msg(msg_id).await,
         Command::Send {
             to,
             text,
@@ -353,6 +356,14 @@ async fn approve(msg_id: String, deny: bool, answer: Option<String>) -> anyhow::
         "{verb} → delivered to {}",
         m["from_id"].as_str().unwrap_or("?")
     );
+    Ok(())
+}
+
+async fn dismiss_msg(msg_id: String) -> anyhow::Result<()> {
+    let c = client(None).await?;
+    c.post(&format!("/v1/messages/{msg_id}/dismiss"), None)
+        .await?;
+    println!("dismissed {msg_id} — no response delivered");
     Ok(())
 }
 

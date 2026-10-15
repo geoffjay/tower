@@ -198,7 +198,10 @@ backend  claude   local    working  t_01J9X7Q
 
 Questions work the same way: `tower ask <name> 'which approach?'`, reply
 from the inbox. Unanswered items expire on their deadline (default 5 min) and
-the agent is told to proceed with its fallback.
+the agent is told to proceed with its fallback. An item made stale by another
+process can be dropped without answering: `tower dismiss <id>` in the CLI,
+`d` in the TUI inbox — the agent is told nothing, and the item stays in
+history marked `dismissed` so an agent reading back knows not to act on it.
 
 ## 7. The job queue
 
@@ -426,7 +429,7 @@ it to run outside the sandbox.
 | `tower prompt NAME 'text' [--wait]` | send work |
 | `tower stream NAME` / `tower read NAME` | live output / snapshot read |
 | `tower interrupt NAME` / `tower stop NAME` | ctrl+c / end session (seat survives) |
-| `tower inbox` / `tower ask` / `tower approve ID` | human ↔ agent loop |
+| `tower inbox` / `tower ask` / `tower approve ID` / `tower dismiss ID` | human ↔ agent loop; dismiss = drop stale, no answer sent |
 | `tower task create/list/assign/show/cancel/release` | job queue (you assign, agents own) |
 | `tower schedule create/list/show/pause/resume/run/rm` | recurring jobs |
 | `tower service install/uninstall/status` | keep `tower serve` running |

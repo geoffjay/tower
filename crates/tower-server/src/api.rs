@@ -60,6 +60,7 @@ async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
         ("GET", "/v1/messages"),
         ("POST", "/v1/messages"),
         ("POST", "/v1/messages/{id}/respond"),
+        ("POST", "/v1/messages/{id}/dismiss"),
         ("GET", "/v1/tasks"),
         ("POST", "/v1/tasks"),
         ("GET", "/v1/tasks/{id}"),

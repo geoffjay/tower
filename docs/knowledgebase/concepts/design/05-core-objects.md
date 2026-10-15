@@ -189,7 +189,7 @@ One row per communication act, any direction:
   notice | delegation | broadcast`
 - `parts`: A2A Part array — `[{text:...} | {data:...} | {raw:...} | {url:...},
   media_type?, filename?, metadata?]`
-- `status`: `pending | delivered | answered | expired | failed`
+- `status`: `pending | delivered | answered | dismissed | expired | failed`
 - `deadline_at`: questions/approvals expire (default 5 min, configurable);
   blocked-agent inbox items use `[inbox].blocked_deadline_s` (default 24 h)
 

@@ -132,6 +132,10 @@ pub fn respond(msg: &MessageId, approve: Option<bool>, text: Option<String>) -> 
     }))
 }
 
+pub fn dismiss(msg: &MessageId) -> Cmd {
+    Cmd::Effect(Effect::Api(crate::app::Api::Dismiss { msg: msg.clone() }))
+}
+
 pub fn cancel_task(task: &TaskId) -> Cmd {
     Cmd::Effect(Effect::Api(crate::app::Api::TaskCancel {
         task: task.clone(),

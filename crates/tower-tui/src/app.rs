@@ -76,6 +76,9 @@ pub enum Api {
         approve: Option<bool>,
         text: Option<String>,
     },
+    Dismiss {
+        msg: MessageId,
+    },
     Spawn {
         name: String,
         kind: Option<String>,
