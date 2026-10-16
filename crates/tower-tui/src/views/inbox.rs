@@ -5,7 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{Block, Cell, Padding, Paragraph, Row, Table, TableState};
 use ratatui::Frame;
 use tower_core::{Message, MessageId, MessageKind};
 
@@ -154,7 +154,7 @@ fn context_lines(d: &serde_json::Value) -> Vec<String> {
 
 fn render_detail(f: &mut Frame, area: Rect, m: &Message, ctx: &Ctx) {
     let (exp, exp_style) = expires(m, ctx.now);
-    let mut head = vec![Line::from(vec![
+    let meta = Line::from(vec![
         Span::styled(m.id.0.clone(), super::dim()),
         Span::raw(format!(
             "  {} from {} · expires ",
@@ -162,54 +162,44 @@ fn render_detail(f: &mut Frame, area: Rect, m: &Message, ctx: &Ctx) {
             m.from_id
         )),
         Span::styled(exp, exp_style),
-    ])];
-    let mut context: Vec<String> = Vec::new();
+    ]);
+    // (line, dim?) — captured-screen context is dimmed, question text is not
+    let mut context: Vec<(String, bool)> = Vec::new();
     for p in &m.parts {
         if let Some(t) = &p.text {
-            head.extend(t.lines().map(|l| Line::raw(l.to_string())));
+            context.extend(t.lines().map(|l| (l.to_string(), false)));
         }
         if let Some(d) = &p.data {
-            context.extend(context_lines(d));
+            context.extend(context_lines(d).into_iter().map(|l| (l, true)));
         }
     }
-    let hint = if m.kind == MessageKind::Approval {
-        "y approve · n deny"
-    } else {
-        "y yes · n no · r reply"
-    };
-    let block = Block::bordered().title(format!(" {hint} "));
+    // at least one blank cell between the border and the text on every side
+    let block = Block::bordered().padding(Padding::new(1, 1, 1, 1));
     let inner = block.inner(area);
     f.render_widget(block, area);
+    // the meta line sits just below the content
+    let [body, meta_area] =
+        Layout::vertical([Constraint::Min(1), Constraint::Length(inner.height.min(1))])
+            .areas(inner);
     // pre-wrap to the pane width so the row counts below are rows, not
     // source lines — a long text part must not overflow its allocation
-    let width = inner.width as usize;
-    let head: Vec<Line> = head
-        .iter()
-        .flat_map(|l| {
-            let s = plain(l);
-            wrap(&s, width).into_iter().map(Line::raw)
-        })
-        .collect();
-    let [top, rest] = Layout::vertical([
-        Constraint::Length((head.len() as u16).min(inner.height)),
-        Constraint::Min(0),
-    ])
-    .areas(inner);
-    f.render_widget(Paragraph::new(head), top);
-    // long captured-screen lines wrap instead of clipping at the pane edge
+    let width = body.width as usize;
     let context: Vec<Line> = context
         .iter()
-        .flat_map(|l| wrap(l, rest.width as usize))
-        .map(|l| Line::styled(l, super::dim()))
+        .flat_map(|(l, dim)| {
+            wrap(l, width).into_iter().map(move |l| {
+                if *dim {
+                    Line::styled(l, super::dim())
+                } else {
+                    Line::raw(l)
+                }
+            })
+        })
         .collect();
     // the screen's last rows hold the dialog being asked about
-    let skip = context.len().saturating_sub(rest.height as usize);
-    f.render_widget(Paragraph::new(context).scroll((skip as u16, 0)), rest);
-}
-
-/// The rendered text of a line, spans joined.
-fn plain(l: &Line) -> String {
-    l.spans.iter().map(|s| s.content.to_string()).collect()
+    let skip = context.len().saturating_sub(body.height as usize);
+    f.render_widget(Paragraph::new(context).scroll((skip as u16, 0)), body);
+    f.render_widget(Paragraph::new(meta).style(super::dim()), meta_area);
 }
 
 /// Greedy character wrap, preserving leading indent. Zero-width panes get

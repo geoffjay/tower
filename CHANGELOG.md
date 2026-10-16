@@ -98,6 +98,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Web UI cloud: agent name labels under each dot render smaller
   (8px, 9px when attention-needed) so close neighbors stay readable
+- TUI inbox detail: removed the `y/n/r` hint from the pane title (already in
+  the bottom hints bar), moved the job-ID/kind/expires meta line below the
+  content, and padded the content area by one cell on all sides
 
 ### Fixed
 
