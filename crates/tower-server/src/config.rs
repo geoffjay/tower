@@ -63,10 +63,13 @@ impl Default for HerdrConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-#[serde(default)]
 pub struct HarnessConfigs {
+    #[serde(default)]
     pub claude: HarnessConfig,
+    #[serde(default)]
     pub pi: HarnessConfig,
+    #[serde(default)]
+    pub omp: HarnessConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -74,6 +77,19 @@ pub struct HarnessConfigs {
 pub struct HarnessConfig {
     pub permission_mode: Option<String>,
     pub args: Vec<String>,
+}
+
+impl HarnessConfigs {
+    /// Extra args configured for a harness kind (`[harness.<kind>] args`).
+    /// Unknown kinds have no section, so they get none.
+    pub fn args_for(&self, kind: &str) -> &[String] {
+        match kind {
+            "claude" => &self.claude.args,
+            "pi" => &self.pi.args,
+            "omp" => &self.omp.args,
+            _ => &[],
+        }
+    }
 }
 
 impl Config {
@@ -106,5 +122,17 @@ mod tests {
     fn blocked_inbox_deadline_can_be_configured() {
         let cfg: Config = toml::from_str("[inbox]\nblocked_deadline_s = 7200\n").unwrap();
         assert_eq!(cfg.inbox.blocked_deadline_s, 7200);
+    }
+
+    #[test]
+    fn harness_args_are_read_per_kind() {
+        let cfg: Config = toml::from_str(
+            "[harness.omp]\nargs = [\"--smol\"]\n[harness.pi]\nargs = [\"--plan\"]\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.harnesses.args_for("omp"), ["--smol"]);
+        assert_eq!(cfg.harnesses.args_for("pi"), ["--plan"]);
+        assert_eq!(cfg.harnesses.args_for("claude"), Vec::<String>::new());
+        assert_eq!(cfg.harnesses.args_for("other"), Vec::<String>::new());
     }
 }

@@ -58,6 +58,12 @@ pub enum Command {
         /// First prompt, sent when the agent settles
         #[arg(long)]
         prompt: Option<String>,
+        /// Model the harness runs on (overrides the definition's `model`)
+        #[arg(long)]
+        model: Option<String>,
+        /// Extra harness flag, repeatable (e.g. --arg --smol --arg --plan)
+        #[arg(long = "arg", allow_hyphen_values = true)]
+        extra_args: Vec<String>,
     },
     /// Send a prompt to an agent
     Prompt {
@@ -214,7 +220,13 @@ async fn ps(all: bool, json_out: bool) -> anyhow::Result<()> {
         let name = a["name"].as_str().unwrap_or("?");
         let kind = a["kind"].as_str().unwrap_or("?");
         let mut note = String::new();
+        if let Some(m) = a["model"].as_str() {
+            note.push_str(m);
+        }
         if a["adopted"].as_bool().unwrap_or(false) {
+            if !note.is_empty() {
+                note.push_str(" · ");
+            }
             note.push_str("adopted");
         }
         if let Some(w) = a["worktree"].as_str() {
@@ -399,6 +411,8 @@ async fn spawn(cli: Cli) -> anyhow::Result<()> {
         worktree,
         adopt,
         prompt,
+        model,
+        extra_args,
     } = cli.command
     else {
         unreachable!()
@@ -433,6 +447,14 @@ async fn spawn(cli: Cli) -> anyhow::Result<()> {
     if let Some(p) = prompt.or(def_prompt) {
         body["prompt"] = serde_json::json!(p);
     }
+    if let Some(m) = model.or_else(|| def.and_then(|d| d.model.clone())) {
+        body["model"] = serde_json::json!(m);
+    }
+    let mut agent_args = def.map(|d| d.args.clone()).unwrap_or_default();
+    agent_args.extend(extra_args);
+    if !agent_args.is_empty() {
+        body["args"] = serde_json::json!(agent_args);
+    }
     let v = c.post("/v1/agents", Some(body)).await?;
     let a = &v["agent"];
     println!(
@@ -442,6 +464,9 @@ async fn spawn(cli: Cli) -> anyhow::Result<()> {
     );
     if let Some(p) = a["worktree"].as_str() {
         println!("  worktree {p}");
+    }
+    if let Some(m) = a["model"].as_str() {
+        println!("  model    {m}");
     }
     println!("  state    {}", a["state"].as_str().unwrap_or("launching"));
     Ok(())

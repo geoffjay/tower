@@ -431,3 +431,35 @@ async fn schedule_show_includes_its_jobs() {
         .await;
     assert_eq!(r["structuredContent"]["error"]["code"], "not_found", "{r}");
 }
+
+#[tokio::test]
+async fn tower_spawn_passes_model_and_args() {
+    let ctx = common::boot().await;
+    let r = ctx
+        .tool(
+            None,
+            "tower_spawn",
+            json!({
+                "name": "scout", "kind": "omp",
+                "model": "anthropic/claude-sonnet-5-5",
+                "args": ["--smol"],
+            }),
+        )
+        .await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert_eq!(
+        r["structuredContent"]["agent"]["model"],
+        "anthropic/claude-sonnet-5-5"
+    );
+    assert_eq!(
+        ctx.harness.spawns(),
+        vec![(
+            "scout".into(),
+            vec![
+                "--smol".into(),
+                "--model".into(),
+                "anthropic/claude-sonnet-5-5".into()
+            ]
+        )]
+    );
+}

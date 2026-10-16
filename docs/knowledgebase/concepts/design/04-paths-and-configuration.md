@@ -12,8 +12,8 @@ sources:
   - resource: git:340c189:DESIGN.md
     title: tower design document §4 (original, removed from repo root after ingest)
 generated:
-  by: omp/claude-opus-5-5
-  at: "2026-09-26T22:59:25Z"
+  by: claude-code/1.0
+  at: "2026-10-16T21:42:06Z"
 ---
 
 # 4. Paths and configuration
@@ -41,8 +41,9 @@ event_retention_days = 14     # sweeper deletes older events hourly; 0 keeps all
 socket_path   = "~/.config/herdr/herdr.sock"  # driver target
 cli_fallback  = true          # wrap `herdr` CLI if socket protocol fails
 
-[harness.claude]
-permission_mode = "acceptEdits"  # "acceptEdits" | "default"; yolo only per-agent opt-in
+[harness.<kind>]             # one section per harness kind (claude, pi, omp, ...)
+permission_mode = "acceptEdits"  # claude only: "acceptEdits" | "default"; yolo only per-agent opt-in
+args          = []             # extra args appended to every spawn of that kind
 
 [harness.pi]
 args          = []             # extra args appended to spawn
@@ -66,7 +67,15 @@ default unless their sender supplies `deadline_s`.
 
 Agent definitions (one folder per named agent under `agents/`):
 `PROMPT.md` is the first prompt, `config.toml` holds spawn arguments
-(`kind`, `workdir`, `worktree`); explicit `tower spawn` flags override both.
+(`kind`, `workdir`, `worktree`, `model`, `args`); explicit `tower spawn`
+flags override both. `model` becomes `--model <id>` for the harness
+(all harnesses take the same flag); `args` are extra harness flags
+(e.g. omp's `--smol`, `--plan`). Unknown keys are rejected with an error
+naming the key.
+
+Harness argument order at spawn: `[harness.<kind>] args` from `config.toml`
+first (per-kind defaults), then the agent's own `args` (per-agent
+overrides and extras), then `--model <id>`.
 
 `tower doctor` validates: herdr reachable, socket/CLI, database writable,
 port free, claude/pi executables found.

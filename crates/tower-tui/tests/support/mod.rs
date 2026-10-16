@@ -59,6 +59,8 @@ pub fn agent(name: &str, state: AgentState, machine: &str) -> Agent {
         permissions: Permissions::Default,
         adopted: false,
         config: serde_json::json!({}),
+        model: None,
+        args: vec![],
         created_at: NOW - 3_600_000,
         updated_at: NOW - 60_000,
     }

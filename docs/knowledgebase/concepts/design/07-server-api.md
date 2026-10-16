@@ -14,8 +14,8 @@ sources:
   - resource: git:340c189:DESIGN.md
     title: tower design document §7 (original, removed from repo root after ingest)
 generated:
-  by: omp/claude-opus-5-5
-  at: "2026-09-26T22:59:25Z"
+  by: claude-code/1.0
+  at: "2026-10-16T21:42:06Z"
 ---
 
 # 7. Server API
@@ -36,7 +36,7 @@ Conventions:
 
 | Route | Body | Effect |
 |---|---|---|
-| `POST /v1/agents` | `{name, kind, workdir?, worktree?, permissions?, machine?, prompt?, task_title?}` | Spawn agent in a herdr pane on `machine` (default local); returns agent |
+| `POST /v1/agents` | `{name, kind, workdir?, worktree?, permissions?, machine?, prompt?, task_title?, model?, args?}` | Spawn agent in a herdr pane on `machine` (default local); returns agent |
 | `POST /v1/agents/{id}/prompt` | `{text, wait?}` | `herdr agent prompt --wait`; creates `prompt` message + task if `task_title` |
 | `POST /v1/agents/{id}/interrupt` | — | `ctrl+c` via send-keys |
 | `POST /v1/agents/{id}/send-keys` | `{keys}` | escape hatch (power users) |
@@ -129,6 +129,8 @@ identifies as an agent may not call `tower_task_assign` (phase-2 assign
 capability = operator). Agents without MCP (e.g. pi) run the same loop
 through the CLI (§10); spawn exports `TOWER_AGENT=<name>` into the
 agent's pane so the CLI knows who is calling.
+`tower_spawn` takes the same `model`/`args` as the REST body and applies
+the same `[harness.<kind>] args` defaults.
 
 ## A2A (edge)
 

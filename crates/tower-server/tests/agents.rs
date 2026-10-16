@@ -219,3 +219,138 @@ async fn adopt_via_spawn_route() {
     assert_eq!(v["agent"]["adopted"], true);
     assert_eq!(v["agent"]["state"], "working");
 }
+
+#[tokio::test]
+async fn spawn_passes_model_and_args_to_harness() {
+    let (state, harness, _d) = boot(FakeHarness::new()).await;
+    let app = router(state.clone());
+
+    // model + per-agent args: harness sees kind args? none configured →
+    // args then --model
+    let (status, v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({
+            "name": "m1", "kind": "omp",
+            "model": "anthropic/claude-sonnet-5-5",
+            "args": ["--smol", "--plan"],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(
+        v["agent"]["model"], "anthropic/claude-sonnet-5-5",
+        "model is stored on the row"
+    );
+    assert_eq!(v["agent"]["args"], serde_json::json!(["--smol", "--plan"]));
+    assert_eq!(
+        harness.spawns(),
+        vec![(
+            "m1".into(),
+            vec![
+                "--smol".into(),
+                "--plan".into(),
+                "--model".into(),
+                "anthropic/claude-sonnet-5-5".into()
+            ]
+        )],
+        "harness received per-agent args then --model"
+    );
+
+    // no model, no args → none passed
+    let (status, _v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({"name": "m2", "kind": "pi"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        harness.spawns(),
+        vec![
+            (
+                "m1".into(),
+                vec![
+                    "--smol".into(),
+                    "--plan".into(),
+                    "--model".into(),
+                    "anthropic/claude-sonnet-5-5".into()
+                ]
+            ),
+            ("m2".into(), vec![]),
+        ]
+    );
+
+    // ps json shows the model
+    let (status, v) = json_req(&app, "GET", "/v1/agents", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let m1 = v["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == "m1")
+        .unwrap();
+    assert_eq!(m1["model"], "anthropic/claude-sonnet-5-5");
+}
+
+#[tokio::test]
+async fn spawn_applies_kind_args_from_config() {
+    // boot() uses Config::default(); build a configured state by hand
+    let dir = tempfile::Builder::new()
+        .prefix("tower-m5-kindargs")
+        .tempdir()
+        .unwrap();
+    let paths = Paths {
+        config_file: dir.path().join("config.toml"),
+        db_file: dir.path().join("tower.db"),
+        artifacts_dir: dir.path().join("artifacts"),
+        token_file: dir.path().join("token"),
+        socket_file: dir.path().join("tower.sock"),
+        agents_dir: dir.path().join("agents"),
+    };
+    paths.ensure_dirs().unwrap();
+    let cfg: Config = toml::from_str("[harness.omp]\nargs = [\"--compact\"]\n").unwrap();
+    let pool = tower_server::open_db(&paths.db_file).await.unwrap();
+    let events = tower_server::EventLog::attach(&pool).await.unwrap();
+    let harness = FakeHarness::new();
+    let state = AppState::new(
+        pool,
+        events,
+        cfg,
+        "t".into(),
+        std::sync::Arc::new(harness.clone()),
+    );
+    tower_server::inventory::ensure_local_machine(&state)
+        .await
+        .unwrap();
+    let app = router(state);
+
+    // kind args first, then per-agent args, then --model
+    let (status, v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({
+            "name": "k1", "kind": "omp",
+            "model": "gpt-6", "args": ["--smol"],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(
+        harness.spawns(),
+        vec![(
+            "k1".into(),
+            vec![
+                "--compact".into(), // [harness.omp] args
+                "--smol".into(),    // per-agent args
+                "--model".into(),
+                "gpt-6".into(),
+            ]
+        )]
+    );
+    // the row stores only per-agent args, not the kind defaults
+    assert_eq!(v["agent"]["args"], serde_json::json!(["--smol"]));
+}

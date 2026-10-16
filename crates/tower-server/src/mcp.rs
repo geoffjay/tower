@@ -415,6 +415,8 @@ fn tool_list() -> Vec<Value> {
                 "name": {"type": "string"}, "kind": {"type": "string"},
                 "workdir": {"type": "string"}, "worktree": {"type": "boolean"},
                 "prompt": {"type": "string"},
+                "model": {"type": "string"},
+                "args": {"type": "array", "items": {"type": "string"}},
             }),
             &["name"],
         ),

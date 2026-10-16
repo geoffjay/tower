@@ -1,3 +1,6 @@
+## 2026-10-16
+* **Spawn model selection and harness args**: ([design §4](concepts/design/04-paths-and-configuration.md), [design §7](concepts/design/07-server-api.md), [design §8](concepts/design/08-harness-layer.md), [design §10](concepts/design/10-client-cli.md), issue #4): agent definitions gain `model` and `args` (`config.toml` rejects unknown keys with the key named in the error); `tower spawn --model/--arg`, the `/v1/agents` body, and the `tower_spawn` MCP tool carry both to `herdr agent start` after `--`, with `[harness.<kind>] args` (now including `omp`) applied first; `agents.model` is stored and shown in `tower ps --json`. `crates/tower-server/src/agent_defs.rs`, `sessions.rs`, `cli.rs`, `mcp.rs`.
+
 ## 2026-10-15
 * **Service install pins an upgrade-stable binary path**: ([design §3](concepts/design/03-process-and-deployment.md), issue #12): `tower service install` canonicalized `current_exe()`, pinning the versioned Homebrew Cellar path into the launchd plist / systemd unit; `brew upgrade` deleted that path and the service died in a spawn loop (EX_CONFIG). Now the first symlink on the exe's resolution chain is pinned (`/opt/homebrew/bin/tower`, `/usr/local/bin/tower`, AUR `/usr/bin/tower`); the canonicalized path is used only for real-file binaries (cargo `target/`). `tower-server/src/cli/service.rs`.
 

@@ -24,6 +24,13 @@ pub struct Agent {
     pub adopted: bool,
     #[serde(default)]
     pub config: serde_json::Value,
+    /// Model the harness runs on (`--model <id>` at spawn, issue #4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Extra harness args the agent was spawned with (per-agent, not the
+    /// per-kind `[harness.<kind>] args` defaults).
+    #[serde(default)]
+    pub args: Vec<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

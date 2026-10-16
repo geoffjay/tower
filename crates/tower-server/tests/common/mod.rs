@@ -141,6 +141,8 @@ impl Ctx {
                 adopt: false,
                 prompt: None,
                 permissions: None,
+                model: None,
+                args: vec![],
             },
         )
         .await
