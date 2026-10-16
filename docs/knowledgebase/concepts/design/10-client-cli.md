@@ -11,8 +11,8 @@ sources:
   - resource: git:340c189:DESIGN.md
     title: tower design document §10 (original, removed from repo root after ingest)
 generated:
-  by: omp/claude-opus-5-5
-  at: "2026-09-26T22:59:25Z"
+  by: claude-code/1.0
+  at: "2026-10-16T21:42:06Z"
 ---
 
 # 10. Client CLI
@@ -21,7 +21,7 @@ generated:
 
 ```
 tower ps [-m]                       # agents table w/ state glyphs
-tower spawn <name> --kind claude [--workdir .] [--worktree] [--prompt "..."]
+tower spawn <name> --kind claude [--workdir .] [--worktree] [--prompt "..."] [--model <id>] [--arg <flag>]...
 tower spawn --name foo              # from ~/.config/tower/agents/foo/ (PROMPT.md + config.toml)
 tower read <name> [--source visible] [--format ansi]
 tower stream <name>                 # attach to SSE output (like tail -f)

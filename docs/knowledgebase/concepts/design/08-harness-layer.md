@@ -13,8 +13,8 @@ sources:
   - resource: git:340c189:DESIGN.md
     title: tower design document §8 (original, removed from repo root after ingest)
 generated:
-  by: omp/claude-opus-5-5
-  at: "2026-09-26T22:59:25Z"
+  by: claude-code/1.0
+  at: "2026-10-16T21:42:06Z"
 ---
 
 # 8. Harness layer
@@ -47,6 +47,11 @@ Two implementations:
    workspace, created on first spawn — tower never splits panes inside the
    operator's own workspaces. `agent start` retries `agent_pane_busy`
    (≤10s) while the fresh tab's shell comes up.
+   Harness arguments at spawn (D§4): `[harness.<kind>] args` from
+   `config.toml` first, then the agent's own `args` (definition or
+   spawn request), then `--model <id>` — all passed after `--` to
+   `herdr agent start`. Every harness takes the same `--model` flag
+   (omp, claude, pi).
 2. **TmuxDriver** (fallback, phase 2+): for machines without herdr. Minimal
    PTY + `tail`-based reads, no detection (state = `unknown` unless manual).
    Exists only for escape; not a goal.
