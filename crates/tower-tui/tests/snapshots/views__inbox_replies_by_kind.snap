@@ -7,14 +7,14 @@ FROM         KIND       AGE   EXPIRES  SUMMARY
 backend      approval   40s   4m00s    Allow `cargo publish`?
 api          question   40s   30s      Which approach?
 
-┌ y approve · n deny ────────────────────────────────────────────────────────────────────┐
-│M1  approval from backend · expires 4m00s                                               │
-│Allow `cargo publish`?                                                                  │
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                        │
+│ Allow `cargo publish`?                                                                 │
 │                                                                                        │
 │                                                                                        │
 │                                                                                        │
 │                                                                                        │
-│                                                                                        │
+│ M1  approval from backend · expires 4m00s                                              │
 │                                                                                        │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 y approve/yes · n deny/no · r reply · d dismiss · : command · ? help · q quit

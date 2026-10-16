@@ -519,7 +519,7 @@ fn approval_context_shows_the_screen_tail_not_json() {
         "{frame}"
     );
     // the dialog (bottom of the capture) is what fits, not the shell noise
-    assert!(frame.contains("❯ 1. Yes, I trust this folder"), "{frame}");
+    assert!(frame.contains("2. No, exit"), "{frame}");
     assert!(frame.contains("Enter to confirm"), "{frame}");
     assert!(!frame.contains("shell noise"), "{frame}");
 }
