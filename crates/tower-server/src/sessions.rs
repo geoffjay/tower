@@ -40,6 +40,13 @@ pub struct SpawnRequest {
     pub adopt: bool,
     #[serde(default)]
     pub prompt: Option<String>,
+    /// Model the harness runs on; passed as `--model <id>` (all harnesses
+    /// take the same flag).
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Extra harness flags (definition `args` or `tower spawn --arg`).
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent> {
@@ -65,11 +72,21 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
     if let Ok(home) = std::env::var("TOWER_HOME") {
         env.push(("TOWER_HOME".into(), home));
     }
+    // Harness args (D§4): per-kind defaults from config.toml, then the
+    // agent's own args, then `--model <id>`. All reach the harness after
+    // `--` in `herdr agent start` (D§8).
+    let mut args: Vec<String> = state.config.harnesses.args_for(&kind).to_vec();
+    args.extend(req.args.iter().cloned());
+    if let Some(m) = &req.model {
+        args.push("--model".into());
+        args.push(m.clone());
+    }
+
     let spec = AgentSpec {
         name: req.name.clone(),
         kind: kind.clone(),
         workdir: req.workdir.clone(),
-        args: vec![],
+        args,
         env,
     };
     let pane = state.driver.start(&spec).await?;
@@ -92,10 +109,13 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
         None
     };
 
+    // per-agent args only (the per-kind [harness.<kind>] args defaults are
+    // applied at spawn, not stored — they are config, not row state)
+    let agent_args: String = serde_json::to_string(&req.args).unwrap_or_else(|_| "[]".into());
     sqlx::query(
         "INSERT INTO agents (id, name, kind, machine_id, pane_id, workdir, worktree, state,
-         desired_state, permissions, adopted, config, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'launching', 'running', ?8, 0, '{}', ?9, ?9)",
+         desired_state, permissions, adopted, config, model, args, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'launching', 'running', ?8, 0, '{}', ?9, ?10, ?11, ?11)",
     )
     .bind(id.0.as_str())
     .bind(&req.name)
@@ -105,6 +125,8 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
     .bind(req.workdir.as_deref())
     .bind(worktree.as_deref())
     .bind(&perms)
+    .bind(req.model.as_deref())
+    .bind(&agent_args)
     .bind(now)
     .execute(&state.pool)
     .await?;
@@ -116,7 +138,7 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
             Some("agent"),
             Some(&id.0),
             serde_json::json!({"name": req.name, "kind": kind, "pane": pane,
-                               "permissions": perms}),
+                               "permissions": perms, "model": req.model}),
         )
         .await?;
 
@@ -315,6 +337,8 @@ pub fn row_to_agent(r: &sqlx::sqlite::SqliteRow) -> Agent {
         permissions: tower_core::Permissions::Default,
         adopted: r.get::<i64, _>("adopted") != 0,
         config: serde_json::json!({}),
+        model: r.try_get::<Option<String>, _>("model").ok().flatten(),
+        args: serde_json::from_str(&r.get::<String, _>("args")).unwrap_or_default(),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }

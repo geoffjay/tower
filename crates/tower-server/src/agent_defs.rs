@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! ~/.config/tower/agents/foo/PROMPT.md   # first prompt
-//! ~/.config/tower/agents/foo/config.toml # spawn arguments (kind, workdir, ...)
+//! ~/.config/tower/agents/foo/config.toml # spawn arguments (kind, workdir, model, ...)
 //! ```
 //!
 //! `tower spawn --name foo` reads the definition and expands it into the
@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 /// Spawn arguments defined in `<name>/config.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AgentDef {
     /// Harness kind (pi, claude, ...)
     pub kind: Option<String>,
@@ -25,6 +25,10 @@ pub struct AgentDef {
     pub workdir: Option<String>,
     /// Isolated git worktree
     pub worktree: bool,
+    /// Model the harness runs on (`--model <id>` at spawn)
+    pub model: Option<String>,
+    /// Extra harness flags (e.g. omp's `--smol`, `--plan`)
+    pub args: Vec<String>,
 }
 
 /// A resolved on-disk definition.
@@ -41,7 +45,8 @@ pub fn load(agents_dir: &std::path::Path, name: &str) -> anyhow::Result<Resolved
     let def_path = dir.join("config.toml");
     let mut def = AgentDef::default();
     if def_path.exists() {
-        def = toml::from_str(&std::fs::read_to_string(&def_path)?)?;
+        def = toml::from_str(&std::fs::read_to_string(&def_path)?)
+            .map_err(|e| anyhow::anyhow!("agent definition '{name}': {e}"))?;
     }
     let prompt_path = dir.join("PROMPT.md");
     let prompt = if prompt_path.exists() {
@@ -176,5 +181,30 @@ mod tests {
         write_def(&root, "a", None, Some("p"));
         std::fs::write(root.join("stray.txt"), "x").unwrap();
         assert_eq!(names(&root), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn loads_model_and_args() {
+        let root = tmp();
+        write_def(
+            &root,
+            "m",
+            Some(
+                "kind = \"omp\"\nmodel = \"anthropic/claude-sonnet-5-5\"\nargs = [\"--smol\", \"--plan\"]\n",
+            ),
+            None,
+        );
+        let r = load(&root, "m").unwrap();
+        assert_eq!(r.def.model.as_deref(), Some("anthropic/claude-sonnet-5-5"));
+        assert_eq!(r.def.args, vec!["--smol", "--plan"]);
+    }
+
+    #[test]
+    fn unknown_config_key_is_rejected_and_named() {
+        let root = tmp();
+        write_def(&root, "bad", Some("kindl = \"pi\"\n"), None);
+        let err = load(&root, "bad").unwrap_err().to_string();
+        assert!(err.contains("agent definition 'bad'"), "err: {err}");
+        assert!(err.contains("kindl"), "err: {err}");
     }
 }

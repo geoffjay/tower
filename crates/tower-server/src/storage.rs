@@ -205,6 +205,7 @@ mod tests {
             (2, "1bd6e1cc770cb0b9b49dfb50935dda5ab687aacf1e4b814cc6ffa0d442910490dfac096bd687be1d51a7d72c5dc48000"),
             (3, "f5f7e03ae540168951ef6715d73f776d1e417503fcb381c0b622501900cf228fa6c74780eb9ce696ed715b9aa0f37e99"),
             (4, "48f64541fb76afce36672da5867964280010e7b5ba57076a9c17c28cdfa1cb4f5e9d5c9a20ed408870f8d7f2e39048cc"),
+            (5, "4dcfa85265ec1e66c0dbcf3582c5634ed4d8fded8f252febcb9b097bbc5e1b88af1df7df5dc3fd6f55f9d26c792e1f4b"),
         ];
         let found: Vec<(i64, String)> = sqlx::migrate!("./migrations")
             .iter()

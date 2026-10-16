@@ -17,6 +17,8 @@ fn agent_roundtrip() {
         permissions: Permissions::AcceptEdits,
         adopted: true,
         config: serde_json::json!({}),
+        model: Some("anthropic/claude-sonnet-5-5".into()),
+        args: vec!["--smol".into()],
         created_at: 1,
         updated_at: 2,
     };
@@ -26,6 +28,8 @@ fn agent_roundtrip() {
     let back: Agent = serde_json::from_value(v).unwrap();
     assert_eq!(back.name, a.name);
     assert_eq!(back.state, a.state);
+    assert_eq!(back.model, a.model);
+    assert_eq!(back.args, a.args);
 }
 
 #[test]

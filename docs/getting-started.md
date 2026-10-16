@@ -130,16 +130,20 @@ Useful spawn flags:
 | `--permissions yolo` | explicit opt-in to full-bypass mode (recorded in events) |
 | `--machine NAME` | spawn on a remote machine (phase 5) |
 | `--name foo` | spawn from the definition `~/.config/tower/agents/foo/` |
+| `--model <id>` | model the harness runs on (`--model anthropic/claude-sonnet-5-5`); overrides the definition's `model` |
+| `--arg <flag>` | extra harness flag, repeatable (`--arg --smol --arg --plan` for omp) |
 
 What you configured at spawn can be inspected any time:
 
 ```console
-$ tower ps --json | jq '.agents[] | {name, kind, worktree, permissions}'
+$ tower ps --json | jq '.agents[] | {name, kind, model, worktree, permissions}'
 ```
 
 There is no agent YAML in v1 — except named definitions. Put a folder under
 `~/.config/tower/agents/<name>/` with a `PROMPT.md` (first prompt) and a
-`config.toml` (`kind = "pi"`, `workdir = "..."`, `worktree = true`); then:
+`config.toml` (`kind = "pi"`, `workdir = "..."`, `worktree = true`,
+`model = "anthropic/claude-sonnet-5-5"`, `args = ["--smol"]` — unknown keys
+are rejected); then:
 
 ```console
 $ tower spawn --name foo   # definition expands: prompt sent, kind applied

@@ -43,6 +43,8 @@ fn state_row_to_agent(r: &sqlx::sqlite::SqliteRow) -> Agent {
             .unwrap_or(tower_core::Permissions::Default),
         adopted: r.get::<i64, _>("adopted") != 0,
         config: serde_json::from_str(&r.get::<String, _>("config")).unwrap_or_default(),
+        model: r.try_get::<Option<String>, _>("model").ok().flatten(),
+        args: serde_json::from_str(&r.get::<String, _>("args")).unwrap_or_default(),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }

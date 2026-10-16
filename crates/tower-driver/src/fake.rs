@@ -30,6 +30,8 @@ struct Inner {
     stall_prompts: bool,
     /// Scripted events for `events()`; drained by the pump in tests.
     scripted: std::collections::VecDeque<HarnessEvent>,
+    /// Recorded spawn specs: (name, args)
+    spawns: Vec<(String, Vec<String>)>,
 }
 
 struct FakeAgent {
@@ -106,6 +108,11 @@ impl FakeHarness {
     pub fn push_event(&self, ev: HarnessEvent) {
         self.inner.lock().scripted.push_back(ev);
     }
+
+    /// Recorded spawn specs: (name, args) per `start` call.
+    pub fn spawns(&self) -> Vec<(String, Vec<String>)> {
+        self.inner.lock().spawns.clone()
+    }
 }
 
 #[async_trait]
@@ -129,6 +136,7 @@ impl Harness for FakeHarness {
         let mut i = self.inner.lock();
         let pane = format!("fake:p{}", i.next_pane);
         i.next_pane += 1;
+        i.spawns.push((spec.name.clone(), spec.args.clone()));
         let name = spec.name.clone();
         let kind = spec.kind.clone();
         i.agents.push(FakeAgent {
