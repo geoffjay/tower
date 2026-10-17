@@ -45,6 +45,13 @@ args = ["run", "-p", "tower-server", "--", "serve"]
 description = "End-to-end smoke (requires local herdr + pi)"
 command = "./scripts/e2e.sh"
 
+# Cut a release: bump, gates, git-cliff changelog, PR, tag after merge.
+# cargo make release -- --version 1.2.3 [--dry-run]
+[tasks.release]
+description = "Cut a release (cargo make release -- --version X.Y.Z [--dry-run])"
+command = "./scripts/release.sh"
+args = ["${@}"]
+
 [tasks.deps]
 description = "Install necessary project dependencies"
 command = "cargo"
