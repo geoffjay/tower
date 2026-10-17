@@ -36,7 +36,7 @@ Conventions:
 
 | Route | Body | Effect |
 |---|---|---|
-| `POST /v1/agents` | `{name, kind, workdir?, worktree?, permissions?, machine?, prompt?, task_title?, model?, args?}` | Spawn agent in a herdr pane on `machine` (default local); returns agent |
+| `POST /v1/agents` | `{name, kind, workdir?, worktree?, permissions?, machine?, prompt?, task_title?, model?, args?, adopt?, resume?, continue?}` | Spawn agent in a herdr pane on `machine` (default local); returns agent. `adopt` re-attaches a `dead` row in place ([§8.4](08-harness-layer.md)); `resume`/`continue` relaunch a `dead` row's harness with its previous session |
 | `POST /v1/agents/{id}/prompt` | `{text, wait?}` | `herdr agent prompt --wait`; creates `prompt` message + task if `task_title` |
 | `POST /v1/agents/{id}/interrupt` | — | `ctrl+c` via send-keys |
 | `POST /v1/agents/{id}/send-keys` | `{keys}` | escape hatch (power users) |

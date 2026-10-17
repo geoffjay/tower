@@ -19,6 +19,9 @@ pub struct AgentSpec {
     pub args: Vec<String>,
     /// Environment for the agent's pane (e.g. `TOWER_AGENT`, D§7).
     pub env: Vec<(String, String)>,
+    /// Start in this existing pane (at a shell prompt) instead of a fresh
+    /// one — resuming a dead agent's harness in its own pane (D§8.4).
+    pub pane: Option<String>,
 }
 
 /// What a driver read from an agent's terminal.
@@ -89,6 +92,18 @@ pub struct HarnessAgent {
     pub pane_id: String,
     pub state: HarnessState,
     pub cwd: Option<String>,
+}
+
+/// What a driver sees at a pane, independent of the snapshot's name filter
+/// (a hand-restarted harness runs unnamed; D§8.4).
+#[derive(Debug, Clone)]
+pub struct PaneAgent {
+    /// The herdr name, if the harness has one.
+    pub name: Option<String>,
+    pub kind: String,
+    pub state: HarnessState,
+    /// The session the harness last ran (herdr's `agent_session`).
+    pub session: Option<String>,
 }
 
 /// Events surfaced by a driver (plan T4.3 pump consumes these).
@@ -171,6 +186,15 @@ pub trait Harness: Send + Sync {
     /// `pane_id` is the last known pane: used when the harness no longer
     /// lists the agent (crashed), so its leftover shell pane still closes.
     async fn stop(&self, name: &str, pane_id: Option<&str>) -> Result<(), DriverError>;
+
+    /// Rename a harness agent identified by pane id — re-attachment after a
+    /// hand restart loses the herdr name (D§8.4).
+    async fn rename(&self, pane_id: &str, new_name: &str) -> Result<(), DriverError>;
+
+    /// What runs in a pane right now, named or not (a hand-restarted
+    /// harness is unnamed; D§8.4). `session` is the one herdr last
+    /// reported for the pane — resume's default target.
+    async fn agent_at(&self, pane_id: &str) -> Result<Option<PaneAgent>, DriverError>;
 
     /// Event pump (state changes + output); driver-owned polling.
     fn events(&self) -> BoxStream<'static, HarnessEvent>;

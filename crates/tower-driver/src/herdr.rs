@@ -26,8 +26,8 @@ use serde::Deserialize;
 use tokio::process::Command;
 
 use crate::{
-    AgentSpec, DriverError, Harness, HarnessAgent, HarnessEvent, HarnessState, ReadResult,
-    ReadSource,
+    AgentSpec, DriverError, Harness, HarnessAgent, HarnessEvent, HarnessState, PaneAgent,
+    ReadResult, ReadSource,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -168,9 +168,13 @@ pub const WORKSPACE_LABEL: &str = "tower-agents";
 /// How long `start` waits for a fresh shell to accept `agent start`.
 const START_READY_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
+// ---- snapshot types (subset of herdr api schema; unknown fields ignored) ----
+
 fn map_error(code: String, message: String) -> DriverError {
     match code.as_str() {
-        "agent_not_found" | "pane_not_found" => DriverError::NotFound(message),
+        "agent_not_found" | "pane_not_found" | "agent_pane_not_found" => {
+            DriverError::NotFound(message)
+        }
         "agent_prompt_stalled" => DriverError::PromptStalled(message),
         "agent_blocked" => DriverError::AgentBlocked(message),
         "timeout" => DriverError::Timeout(message),
@@ -227,8 +231,12 @@ impl Harness for HerdrDriver {
     }
 
     async fn start(&self, spec: &AgentSpec) -> Result<String, DriverError> {
-        let pane_id = self.agent_home(spec).await?;
-
+        // resume path (D§8.4): reuse the row's pane when it still exists;
+        // a hand-restarted harness left the pane at a shell prompt
+        let pane_id = match &spec.pane {
+            Some(p) => p.clone(),
+            None => self.agent_home(spec).await?,
+        };
         let mut args = vec![
             "agent",
             "start",
@@ -265,8 +273,11 @@ impl Harness for HerdrDriver {
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 }
                 Err(e) => {
-                    // leave nothing behind in the operator's herdr session
-                    let _ = self.run_json(&["pane", "close", &pane_id]).await;
+                    // leave nothing behind — but never close a pane we were
+                    // asked to reuse (the operator's original pane)
+                    if spec.pane.is_none() {
+                        let _ = self.run_json(&["pane", "close", &pane_id]).await;
+                    }
                     return Err(e);
                 }
             }
@@ -345,6 +356,32 @@ impl Harness for HerdrDriver {
             .ok_or_else(|| DriverError::NotFound(format!("agent {name}")))?;
         self.run_json(&["pane", "close", &pane]).await?;
         Ok(())
+    }
+
+    async fn rename(&self, pane_id: &str, new_name: &str) -> Result<(), DriverError> {
+        self.run_json(&["agent", "rename", pane_id, new_name])
+            .await?;
+        Ok(())
+    }
+
+    async fn agent_at(&self, pane_id: &str) -> Result<Option<PaneAgent>, DriverError> {
+        let v = match self.run_json(&["agent", "get", pane_id]).await {
+            Ok(v) => v,
+            // nothing runs there (or the pane is gone): not an error
+            Err(DriverError::NotFound(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let a = match v.get("agent") {
+            Some(a) => a,
+            None => return Ok(None),
+        };
+        Ok(Some(PaneAgent {
+            name: a["name"].as_str().map(str::to_string),
+            kind: a["agent"].as_str().unwrap_or_default().to_string(),
+            state: HarnessState::from_detection(a["agent_status"].as_str().unwrap_or_default())
+                .unwrap_or(HarnessState::Unknown),
+            session: a["agent_session"]["value"].as_str().map(str::to_string),
+        }))
     }
 
     fn events(&self) -> futures::stream::BoxStream<'static, HarnessEvent> {

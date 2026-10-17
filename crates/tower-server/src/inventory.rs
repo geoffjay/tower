@@ -124,16 +124,18 @@ pub async fn reconcile(state: &AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Harness agents not owned by tower rows (D§8.4).
+/// Harness agents not owned by tower rows (D§8.4). Unnamed snapshot
+/// entries (a harness restarted by hand) are not addressable — skipped.
 pub async fn adoption_candidates(state: &AppState) -> anyhow::Result<Vec<serde_json::Value>> {
     let snap = state.driver.snapshot().await?;
     let rows = list_agents(state).await?;
     Ok(snap
         .iter()
         .filter(|h| {
-            !rows
-                .iter()
-                .any(|a| a.pane_id.as_deref() == Some(h.pane_id.as_str()) || a.name == h.name)
+            !h.name.is_empty()
+                && !rows
+                    .iter()
+                    .any(|a| a.pane_id.as_deref() == Some(h.pane_id.as_str()) || a.name == h.name)
         })
         .map(|h| {
             serde_json::json!({
@@ -146,18 +148,28 @@ pub async fn adoption_candidates(state: &AppState) -> anyhow::Result<Vec<serde_j
         .collect())
 }
 
-/// Adopt: take ownership of a harness agent without relaunching.
+/// Adopt: take ownership of a harness agent without relaunching (D§8.4).
+///
+/// With an existing `dead` row of that name, re-attach it in place: the
+/// harness is found by name, else by the row's `pane_id` (a hand-restarted
+/// harness is unnamed); the row keeps its id, workdir, worktree, jobs, and
+/// schedules, and the herdr agent is renamed so the pump keeps matching.
+/// Non-`dead` rows still refuse.
 pub async fn adopt(state: &AppState, name: &str) -> anyhow::Result<Agent> {
+    if let Some(row) = get_agent(state, name).await? {
+        if row.state != AgentState::Dead {
+            anyhow::bail!(
+                "agent {name} is {} — only dead rows re-adopt",
+                row.state.as_str()
+            );
+        }
+        return readopt(state, &row).await;
+    }
     let snap = state.driver.snapshot().await?;
     let h = snap
         .iter()
         .find(|h| h.name == name)
         .ok_or_else(|| anyhow::anyhow!("no harness agent named {name}"))?;
-
-    let existing = get_agent(state, name).await?;
-    if existing.is_some() {
-        anyhow::bail!("agent row {name} already exists");
-    }
 
     let id = AgentId::new();
     let now = tower_core::now_ms();
@@ -192,6 +204,38 @@ pub async fn adopt(state: &AppState, name: &str) -> anyhow::Result<Agent> {
         .await?;
 
     Ok(get_agent(state, name).await?.expect("just inserted"))
+}
+
+/// Re-attach a `dead` row to the harness now running in its pane (issue #1).
+async fn readopt(state: &AppState, row: &Agent) -> anyhow::Result<Agent> {
+    // by name first (a herdr-started agent kept it), else by pane id
+    let snap = state.driver.snapshot().await?;
+    let h = snap.iter().find(|h| h.name == row.name);
+    let pane = match (h, &row.pane_id) {
+        (Some(h), _) => Some(h.pane_id.clone()),
+        (None, Some(pane)) => state.driver.agent_at(pane).await?.map(|_| pane.clone()),
+        (None, None) => None,
+    };
+    let Some(pane) = pane else {
+        anyhow::bail!(
+            "agent {} is dead and no harness runs in pane {:?}",
+            row.name,
+            row.pane_id
+        );
+    };
+    // the harness may be unnamed (hand-restarted): give it the row's name
+    // so the pump keeps matching (D§8.4)
+    state.driver.rename(&pane, &row.name).await?;
+
+    // refresh the pane on the row and let reconcile move the state
+    sqlx::query("UPDATE agents SET pane_id = ?1, updated_at = ?2 WHERE id = ?3")
+        .bind(&pane)
+        .bind(tower_core::now_ms())
+        .bind(row.id.0.as_str())
+        .execute(&state.pool)
+        .await?;
+    reconcile(state).await?;
+    Ok(get_agent(state, &row.name).await?.expect("row exists"))
 }
 
 /// The one place an agent row changes state (D§5.1). CAS on the observed

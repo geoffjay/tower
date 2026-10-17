@@ -49,6 +49,12 @@ async fn handle(state: &AppState, ev: HarnessEvent) -> anyhow::Result<()> {
     };
     if let Some(agent) = inventory::get_agent(state, &name).await? {
         inventory::transition(state, &agent, new_state).await?;
+    } else if !name.is_empty() {
+        // a harness restarted by hand loses its herdr name, so the event
+        // names an agent tower has never seen. One reconcile revives a
+        // dead row whose pane went live again (D§8.4); genuinely unknown
+        // names cost one snapshot per event batch.
+        let _ = inventory::reconcile(state).await;
     }
     Ok(())
 }

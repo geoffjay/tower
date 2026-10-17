@@ -38,6 +38,13 @@ pub struct SpawnRequest {
     pub permissions: Option<String>,
     #[serde(default)]
     pub adopt: bool,
+    /// Relaunch a `dead` row's harness with a given session; an empty
+    /// string means "the session herdr reports for the pane".
+    #[serde(default)]
+    pub resume: Option<String>,
+    /// Relaunch a `dead` row's harness continuing its last session.
+    #[serde(default, rename = "continue")]
+    pub continue_last: bool,
     #[serde(default)]
     pub prompt: Option<String>,
     /// Model the harness runs on; passed as `--model <id>` (all harnesses
@@ -52,6 +59,9 @@ pub struct SpawnRequest {
 pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent> {
     if req.adopt {
         return crate::inventory::adopt(state, &req.name).await;
+    }
+    if req.resume.is_some() || req.continue_last {
+        return resume(state, &req).await;
     }
 
     let kind = req.kind.clone().unwrap_or_else(|| "pi".into());
@@ -88,6 +98,7 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
         workdir: req.workdir.clone(),
         args,
         env,
+        pane: None,
     };
     let pane = state.driver.start(&spec).await?;
 
@@ -156,6 +167,96 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
     Ok(crate::inventory::get_agent(state, &req.name)
         .await?
         .expect("just inserted"))
+}
+
+/// Relaunch a `dead` row's harness with its previous session (issue #1):
+/// `herdr agent start` in the row's pane — a new pane if it is gone —
+/// with the per-kind resume args (D§8.4). The row keeps its id, jobs,
+/// and schedules; only pane and state move.
+async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
+    let row = crate::inventory::get_agent(state, &req.name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("agent {} does not exist", req.name))?;
+    if row.state != tower_core::AgentState::Dead {
+        anyhow::bail!(
+            "agent {} is {} — resume needs a dead row",
+            req.name,
+            row.state.as_str()
+        );
+    }
+    let kind = row.kind.clone();
+
+    // which session: explicit `resume`, else continue, else the session
+    // herdr last reported for the pane
+    let args: Vec<String> = if let Some(session) = &req.resume {
+        let session = if session.is_empty() {
+            let reported = match row.pane_id.as_deref() {
+                Some(p) => state.driver.agent_at(p).await?,
+                None => None,
+            };
+            reported.and_then(|a| a.session).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no session reported for {}'s pane; pass --resume <session>",
+                    req.name
+                )
+            })?
+        } else {
+            session.clone()
+        };
+        match kind.as_str() {
+            "pi" => vec!["--session".into(), session],
+            _ => vec!["--resume".into(), session], // omp, claude
+        }
+    } else if req.continue_last {
+        vec!["--continue".into()]
+    } else {
+        Vec::new()
+    };
+
+    let guard = lock_for(&req.name);
+    let creating = guard.lock().await;
+
+    let mut env = vec![("TOWER_AGENT".to_string(), req.name.clone())];
+    if let Ok(home) = std::env::var("TOWER_HOME") {
+        env.push(("TOWER_HOME".into(), home));
+    }
+    let spec = AgentSpec {
+        name: req.name.clone(),
+        kind: kind.clone(),
+        workdir: row.workdir.clone(),
+        args,
+        env,
+        pane: row.pane_id.clone(),
+    };
+    // the row's pane if it still exists, else a fresh one (D§8.4)
+    let pane = match state.driver.start(&spec).await {
+        Ok(p) => p,
+        Err(tower_driver::DriverError::NotFound(_)) => {
+            let spec = AgentSpec { pane: None, ..spec };
+            state.driver.start(&spec).await?
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    // the row keeps its identity; pane and liveness move
+    sqlx::query(
+        "UPDATE agents SET pane_id = ?1, state = 'launching', updated_at = ?2
+                 WHERE id = ?3",
+    )
+    .bind(&pane)
+    .bind(tower_core::now_ms())
+    .bind(row.id.0.as_str())
+    .execute(&state.pool)
+    .await?;
+
+    drop(creating);
+    if let Some(text) = &req.prompt {
+        let _ = prompt(state, &req.name, text, false, OPERATOR).await;
+    }
+    let _ = crate::inventory::reconcile(state).await;
+    Ok(crate::inventory::get_agent(state, &req.name)
+        .await?
+        .expect("row exists"))
 }
 
 fn make_worktree(workdir: Option<&str>) -> anyhow::Result<String> {
