@@ -10,8 +10,8 @@ tags:
   - aur
 status: stable
 generated:
-  by: omp/ollama-glm-5.3
-  at: "2026-10-08T00:00:00Z"
+  by: claude-code/1.0
+  at: "2026-10-17T00:00:00Z"
 sources:
   - resource: github:geoffjay/nemo/.github/workflows/release.yml
     title: nemo release workflow (precedent)
@@ -31,22 +31,39 @@ single `tower` binary, stateless clients).
 
 # Release process
 
-1. Ensure `main` is clean, up to date, and green locally:
-   ```
-   cargo make lint && cargo make test
-   ```
-2. Bump `workspace.package.version` in the root `Cargo.toml` (all crates
-   inherit it; `tower --version` reports it via `CARGO_PKG_VERSION`).
-3. Tag and push:
-   ```
-   git tag v0.X.0
-   git push origin v0.X.0
-   ```
-   The tag push runs CI first (as a `workflow_call`), then the release
-   pipeline only if CI passes.
-4. Monitor with `gh run watch`. On failure the workflow can be re-run via
-   `workflow_dispatch` with the tag name; the tag must already exist and
-   point at the desired commit.
+One command, from a clean `main`:
+
+```
+cargo make release -- --version 0.4.0   # becomes tag v0.4.0
+```
+
+`scripts/release.sh` does all the steps:
+
+1. Preflight: `git`, `gh`, `git-cliff`, `cargo` are installed (`cargo install
+   git-cliff`); the tree is clean; `main` is fast-forwarded; the tag and the
+   `release/v0.4.0` branch don't exist yet; the version is valid semver.
+2. Bumps `workspace.package.version` in the root `Cargo.toml` (all crates
+   inherit it; internal crates are `workspace = true` path deps with no
+   pinned version, so this is the only line that changes).
+3. Gates: `cargo make lint`, `cargo make test`, and checks that
+   `tower --version` reports the new version.
+4. Regenerates `CHANGELOG.md` with git-cliff (`cliff.toml`: conventional
+   commits grouped into Added / Fixed / Changed / Documentation / Tests /
+   Chore; merges and release commits skipped).
+5. Commits `chore: release v0.4.0` on `release/v0.4.0`, opens a PR with the
+   release notes as its body, and watches the PR's checks.
+6. Waits for the PR to be merged (the operator merges), then tags the merge
+   on `main` and pushes `v0.4.0`. The tag push runs CI first (as a
+   `workflow_call`), then the release pipeline only if CI passes.
+7. Prints the release run to follow:
+   `To monitor the release job execute: gh run watch <id> -R geoffjay/tower`.
+
+`--dry-run` stops after step 5's local commit and pushes nothing. If the
+script is stopped while it waits for the merge, finish by hand after merging:
+`git switch main && git pull && git tag v0.4.0 && git push origin v0.4.0`.
+
+On a failed release run, re-run it with `workflow_dispatch` and the tag name;
+the tag must already exist and point at the desired commit.
 
 # Artifacts
 
@@ -107,6 +124,9 @@ release job. AUR's git server only accepts pushes to the `master` branch.
 
 | File | Purpose |
 |---|---|
+| `scripts/release.sh` | `cargo make release -- --version X.Y.Z`: bump, gates, changelog, PR, tag after merge |
+| `cliff.toml` | git-cliff config for `CHANGELOG.md` |
+| `CHANGELOG.md` | Generated changelog (regenerated per release; not edited by hand) |
 | `.github/workflows/release.yml` | Trigger (`v*` tag push, dispatch), CI gate, build matrix, release, tap, AUR |
 | `.github/workflows/ci.yml` | Reused as the CI gate via `workflow_call` |
 | `packaging/homebrew/tower.rb.tpl` | Formula template (never modified by hand per-release) |

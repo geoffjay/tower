@@ -19,6 +19,8 @@ repository = "https://github.com/geoffjay/tower"
 tower-core = { path = "crates/tower-core" }
 tower-driver = { path = "crates/tower-driver" }
 tower-client = { path = "crates/tower-client" }
+tower-tui = { path = "crates/tower-tui" }
+tower-web = { path = "crates/tower-web" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
