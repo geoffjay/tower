@@ -140,6 +140,24 @@ pub fn machine(name: &str, status: &str, last_seen_ago_ms: Option<i64>) -> Machi
     }
 }
 
+pub fn schedule(id: &str, title: &str, cron: &str) -> Schedule {
+    serde_json::from_value(serde_json::json!({
+        "id": id,
+        "title": title,
+        "cron": cron,
+        "timezone": "UTC",
+        "enabled": true,
+        "priority": 0,
+        "lease_s": 900,
+        "max_attempts": 3,
+        "tags": [],
+        "created_at": NOW - 86_400_000,
+        "updated_at": NOW - 3_600_000,
+        "next_run_at": NOW + 3_600_000,
+    }))
+    .unwrap()
+}
+
 pub fn event(
     seq: i64,
     kind: &str,

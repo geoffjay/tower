@@ -10,8 +10,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use tower_core::{
-    Agent, AgentId, AgentState, Event, EventKind, Machine, Message, QueueCounts, Schedule, Task,
-    TaskId,
+    Agent, AgentId, AgentState, Event, EventKind, Machine, Message, QueueCounts, Schedule,
+    ScheduleId, Task, TaskId,
 };
 
 /// Events kept for the events view.
@@ -38,6 +38,8 @@ pub enum Fetch {
     /// Messages sent by or to the agent.
     History(AgentId),
     TaskDetail(TaskId),
+    /// Schedule definition + its most recent jobs.
+    ScheduleDetail(ScheduleId),
 }
 
 /// A loaded result, applied by `Store::load`.
@@ -60,6 +62,7 @@ pub enum Loaded {
         messages: Vec<Message>,
     },
     TaskDetail(Box<TaskDetail>),
+    ScheduleDetail(Box<ScheduleDetail>),
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +70,13 @@ pub struct TaskDetail {
     pub task: Task,
     pub trail: Vec<Event>,
     pub messages: Vec<Message>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScheduleDetail {
+    pub schedule: Schedule,
+    /// Most recent jobs it fired, newest first.
+    pub jobs: Vec<Task>,
 }
 
 #[derive(Debug, Default)]
@@ -84,6 +94,7 @@ pub struct Store {
     pub output: Option<(AgentId, String)>,
     pub history: Option<(AgentId, Vec<Message>)>,
     pub task_detail: Option<TaskDetail>,
+    pub schedule_detail: Option<ScheduleDetail>,
 }
 
 impl Store {
@@ -206,6 +217,12 @@ impl Store {
             Loaded::TaskDetail(d) => {
                 self.upsert_task(d.task.clone());
                 self.task_detail = Some(*d);
+            }
+            Loaded::ScheduleDetail(d) => {
+                for t in &d.jobs {
+                    self.upsert_task(t.clone());
+                }
+                self.schedule_detail = Some(*d);
             }
         }
     }

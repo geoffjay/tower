@@ -36,7 +36,9 @@ Views:
 - **Inbox**: pending questions/approvals; reply inline (`y`/`n`/text)
 - **Tasks**: task list + state (queue/owned split, lease countdowns on owned
   tasks, reserved-for target on waiting jobs); schedules with next run;
-  detail shows trail + assignment history
+  detail shows trail + assignment history — Enter opens a job detail, or a
+  schedule detail (definition + the jobs it fired) from the schedules pane,
+  both scrollable bottom-anchored with `j/k` (g/G snap, ctrl-d/u page)
 - **Events**: filtered feed of `/v1/events`
 - **Machines**: inventory + node status
 

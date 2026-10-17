@@ -378,13 +378,7 @@ impl App {
                 Some(a) => vec![Fetch::Output(a.id.clone()), Fetch::History(a.id.clone())],
                 None => vec![],
             },
-            ViewId::Tasks => self
-                .tasks
-                .detail
-                .clone()
-                .map(Fetch::TaskDetail)
-                .into_iter()
-                .collect(),
+            ViewId::Tasks => self.tasks.open_detail().into_iter().collect(),
             _ => vec![],
         }
     }
@@ -396,6 +390,7 @@ impl App {
                 self.view == ViewId::Agent && self.agent.as_ref().is_some_and(|a| &a.id == id)
             }
             Fetch::TaskDetail(id) => self.tasks.detail.as_ref() == Some(id),
+            Fetch::ScheduleDetail(id) => self.tasks.schedule_detail.as_ref() == Some(id),
             _ => true,
         }
     }
