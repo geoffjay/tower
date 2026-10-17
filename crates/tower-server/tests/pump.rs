@@ -193,3 +193,53 @@ async fn pane_answer_closes_blocked_inbox_before_expiry() {
     assert_eq!(ctx.status_of(&id).await, "answered");
     assert_eq!(ctx.status_of(&unrelated).await, "pending");
 }
+
+/// A harness restarted by hand in a dead row's pane fires events under a
+/// name tower has never seen (herdr drops the name on hand restart). The
+/// pump's fallback runs one reconcile, which matches the pane and revives
+/// the row (issue #1).
+#[tokio::test]
+async fn name_miss_runs_reconcile_and_revives_a_dead_row() {
+    let ctx = common::boot().await;
+    ctx.spawn("qa", "pi").await;
+    let row = tower_server::inventory::get_agent(&ctx.state, "qa")
+        .await
+        .unwrap()
+        .unwrap();
+    let pane = row.pane_id.clone().unwrap();
+    ctx.harness.kill("qa");
+    tower_server::inventory::reconcile(&ctx.state)
+        .await
+        .unwrap();
+    let row = tower_server::inventory::get_agent(&ctx.state, "qa")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, tower_core::AgentState::Dead);
+
+    // the pane comes back live under an unseen name (hand restart)
+    ctx.harness
+        .restart_by_hand(&pane, "pi", HarnessState::Working);
+    ctx.harness.push_event(tower_driver::HarnessEvent::AgentUp(
+        tower_driver::HarnessAgent {
+            name: "hand-restarted".into(),
+            kind: "pi".into(),
+            pane_id: pane.clone(),
+            state: HarnessState::Working,
+            cwd: None,
+        },
+    ));
+    let _pump = tower_server::pump::spawn(ctx.state.clone());
+
+    for _ in 0..50 {
+        let row = tower_server::inventory::get_agent(&ctx.state, "qa")
+            .await
+            .unwrap()
+            .unwrap();
+        if row.state == tower_core::AgentState::Working {
+            return; // revived: reconcile matched the pane
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("dead row was not revived by the pump fallback");
+}

@@ -410,13 +410,17 @@ fn tool_list() -> Vec<Value> {
         ),
         tool(
             "tower_spawn",
-            "Spawn an agent in a herdr pane.",
+            "Spawn an agent in a herdr pane. `resume` (a session id, or
+             \"\" for the one herdr reports) and `continue` relaunch a dead
+             agent's harness with its previous session.",
             json!({
                 "name": {"type": "string"}, "kind": {"type": "string"},
                 "workdir": {"type": "string"}, "worktree": {"type": "boolean"},
                 "prompt": {"type": "string"},
                 "model": {"type": "string"},
                 "args": {"type": "array", "items": {"type": "string"}},
+                "resume": {"type": "string"},
+                "continue": {"type": "boolean"},
             }),
             &["name"],
         ),

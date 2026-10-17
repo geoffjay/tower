@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use futures::stream::{BoxStream, StreamExt};
 
 use crate::{
-    AgentSpec, DriverError, Harness, HarnessAgent, HarnessEvent, HarnessState, ReadResult,
-    ReadSource,
+    AgentSpec, DriverError, Harness, HarnessAgent, HarnessEvent, HarnessState, PaneAgent,
+    ReadResult, ReadSource,
 };
 
 /// A scriptable in-memory harness.
@@ -32,6 +32,20 @@ struct Inner {
     scripted: std::collections::VecDeque<HarnessEvent>,
     /// Recorded spawn specs: (name, args)
     spawns: Vec<(String, Vec<String>)>,
+    /// Panes whose agent died but the pane lives on (a shell prompt):
+    /// resume can relaunch there.
+    dead_panes: Vec<DeadPane>,
+    /// Recorded rename calls: (pane, new name)
+    renames: Vec<(String, String)>,
+    /// Scripted `session_for` answers: pane → session path.
+    sessions: std::collections::HashMap<String, String>,
+}
+
+/// A pane whose harness exited but the pane still exists at a shell.
+struct DeadPane {
+    pane_id: String,
+    /// A harness restarted by hand in this pane (unnamed herdr agent).
+    hand_restarted: Option<FakeAgent>,
 }
 
 struct FakeAgent {
@@ -85,9 +99,50 @@ impl FakeHarness {
 
     pub fn kill(&self, name: &str) {
         let mut i = self.inner.lock();
-        if let Some(a) = i.agents.iter_mut().find(|a| a.name == name) {
-            a.up = false;
+        let pane = i
+            .agents
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.pane_id.clone());
+        if let Some(pane_id) = pane {
+            if let Some(a) = i.agents.iter_mut().find(|a| a.pane_id == pane_id) {
+                a.up = false;
+            }
+            // the pane lives on at a shell prompt (herdr's real behavior)
+            i.dead_panes.push(DeadPane {
+                pane_id,
+                hand_restarted: None,
+            });
         }
+    }
+
+    /// A harness restarted by hand in the dead pane: an unnamed herdr
+    /// agent appears there (no name → invisible to name-keyed matching).
+    pub fn restart_by_hand(&self, pane: &str, kind: &str, state: HarnessState) {
+        let mut i = self.inner.lock();
+        if let Some(dp) = i.dead_panes.iter_mut().find(|d| d.pane_id == pane) {
+            dp.hand_restarted = Some(FakeAgent {
+                name: String::new(),
+                kind: kind.into(),
+                pane_id: pane.into(),
+                state,
+                output: String::new(),
+                up: true,
+            });
+        }
+    }
+
+    /// Script the session herdr would report for a pane.
+    pub fn set_session(&self, pane: &str, session: &str) {
+        self.inner
+            .lock()
+            .sessions
+            .insert(pane.into(), session.into());
+    }
+
+    /// Recorded rename calls: (pane, new name).
+    pub fn renames(&self) -> Vec<(String, String)> {
+        self.inner.lock().renames.clone()
     }
 
     pub fn prompts(&self) -> Vec<(String, String, bool)> {
@@ -119,7 +174,8 @@ impl FakeHarness {
 impl Harness for FakeHarness {
     async fn snapshot(&self) -> Result<Vec<HarnessAgent>, DriverError> {
         let i = self.inner.lock();
-        Ok(i.agents
+        let mut v: Vec<HarnessAgent> = i
+            .agents
             .iter()
             .filter(|a| a.up)
             .map(|a| HarnessAgent {
@@ -129,16 +185,48 @@ impl Harness for FakeHarness {
                 state: a.state,
                 cwd: None,
             })
-            .collect())
+            .collect();
+        // a harness restarted by hand appears in the snapshot unnamed —
+        // herdr's raw behavior (tower's herdr driver filters these; the
+        // fake keeps them so pane-keyed matching sees them)
+        for dp in &i.dead_panes {
+            if let Some(h) = &dp.hand_restarted {
+                v.push(HarnessAgent {
+                    name: String::new(),
+                    kind: h.kind.clone(),
+                    pane_id: dp.pane_id.clone(),
+                    state: h.state,
+                    cwd: None,
+                });
+            }
+        }
+        Ok(v)
     }
 
     async fn start(&self, spec: &AgentSpec) -> Result<String, DriverError> {
         let mut i = self.inner.lock();
-        let pane = format!("fake:p{}", i.next_pane);
-        i.next_pane += 1;
+        // resume: reuse the given pane (it stays "the agent's" pane)
+        let pane = match &spec.pane {
+            Some(p) => {
+                let exists = i.agents.iter().any(|a| a.up && &a.pane_id == p)
+                    || i.dead_panes.iter().any(|dp| &dp.pane_id == p);
+                if !exists {
+                    return Err(DriverError::NotFound(format!("pane {p}")));
+                }
+                p.clone()
+            }
+            None => {
+                let pane = format!("fake:p{}", i.next_pane);
+                i.next_pane += 1;
+                pane
+            }
+        };
         i.spawns.push((spec.name.clone(), spec.args.clone()));
         let name = spec.name.clone();
         let kind = spec.kind.clone();
+        // a resumed pane may already have the agent under an old id; drop it
+        i.agents.retain(|a| a.pane_id != pane);
+        i.dead_panes.retain(|d| d.pane_id != pane);
         i.agents.push(FakeAgent {
             name,
             kind,
@@ -223,6 +311,55 @@ impl Harness for FakeHarness {
     async fn stop(&self, name: &str, _pane_id: Option<&str>) -> Result<(), DriverError> {
         self.kill(name);
         Ok(())
+    }
+
+    async fn rename(&self, pane_id: &str, new_name: &str) -> Result<(), DriverError> {
+        let mut i = self.inner.lock();
+        i.renames.push((pane_id.into(), new_name.into()));
+        if let Some(a) = i.agents.iter_mut().find(|a| a.up && a.pane_id == pane_id) {
+            a.name = new_name.into();
+        }
+        if let Some(dp) = i
+            .dead_panes
+            .iter_mut()
+            .find(|d| d.pane_id == pane_id && d.hand_restarted.is_some())
+        {
+            dp.hand_restarted.as_mut().unwrap().name = new_name.into();
+        }
+        Ok(())
+    }
+
+    async fn agent_at(&self, pane_id: &str) -> Result<Option<PaneAgent>, DriverError> {
+        let i = self.inner.lock();
+        let session = i.sessions.get(pane_id).cloned();
+        if let Some(a) = i.agents.iter().find(|a| a.up && a.pane_id == pane_id) {
+            return Ok(Some(PaneAgent {
+                name: Some(a.name.clone()),
+                kind: a.kind.clone(),
+                state: a.state,
+                session,
+            }));
+        }
+        if let Some(dp) = i.dead_panes.iter().find(|d| d.pane_id == pane_id) {
+            if let Some(h) = &dp.hand_restarted {
+                return Ok(Some(PaneAgent {
+                    name: None, // hand-restarted harness: herdr knows no name
+                    kind: h.kind.clone(),
+                    state: h.state,
+                    session,
+                }));
+            }
+            // dead pane at a shell: herdr still reports its last session
+            if session.is_some() {
+                return Ok(Some(PaneAgent {
+                    name: None,
+                    kind: String::new(),
+                    state: HarnessState::Unknown,
+                    session,
+                }));
+            }
+        }
+        Ok(None)
     }
 
     fn events(&self) -> BoxStream<'static, HarnessEvent> {

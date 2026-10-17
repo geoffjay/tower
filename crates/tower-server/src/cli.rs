@@ -52,9 +52,17 @@ pub enum Command {
         /// Isolated git worktree
         #[arg(long)]
         worktree: bool,
-        /// Adopt an existing harness agent by name instead of spawning
+        /// Adopt an existing harness agent by name instead of spawning;
+        /// for a dead row, re-attach it in place
         #[arg(long)]
         adopt: bool,
+        /// Relaunch a dead agent's harness with a session (omit the value
+        /// to use the one herdr last reported for its pane)
+        #[arg(long, num_args = 0..=1)]
+        resume: Option<String>,
+        /// Relaunch a dead agent's harness continuing its last session
+        #[arg(long = "continue")]
+        continue_last: bool,
         /// First prompt, sent when the agent settles
         #[arg(long)]
         prompt: Option<String>,
@@ -410,6 +418,8 @@ async fn spawn(cli: Cli) -> anyhow::Result<()> {
         workdir,
         worktree,
         adopt,
+        resume,
+        continue_last,
         prompt,
         model,
         extra_args,
@@ -435,6 +445,12 @@ async fn spawn(cli: Cli) -> anyhow::Result<()> {
 
     let c = client(cli.token).await?;
     let mut body = serde_json::json!({"name": name, "adopt": adopt});
+    if resume.is_some() {
+        body["resume"] = serde_json::json!(resume);
+    }
+    if continue_last {
+        body["continue"] = serde_json::json!(true);
+    }
     if let Some(k) = kind.or_else(|| def.and_then(|d| d.kind.clone())) {
         body["kind"] = serde_json::json!(k);
     }

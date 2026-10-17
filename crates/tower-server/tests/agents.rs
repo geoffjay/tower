@@ -354,3 +354,141 @@ async fn spawn_applies_kind_args_from_config() {
     // the row stores only per-agent args, not the kind defaults
     assert_eq!(v["agent"]["args"], serde_json::json!(["--smol"]));
 }
+
+#[tokio::test]
+async fn readopt_dead_row_keeps_its_id_and_renames_the_harness() {
+    let (state, harness, _d) =
+        boot(FakeHarness::new().with_agent("qa", "omp", HarnessState::Idle)).await;
+    // tower owns qa, then its harness dies in its pane
+    let first = tower_server::inventory::adopt(&state, "qa").await.unwrap();
+    harness.kill("qa");
+    tower_server::inventory::reconcile(&state).await.unwrap();
+    let row = tower_server::inventory::get_agent(&state, "qa")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.state, tower_core::AgentState::Dead);
+    let pane = row.pane_id.clone().unwrap();
+
+    // a harness restarted by hand in the same pane: unnamed
+    harness.restart_by_hand(&pane, "omp", HarnessState::Working);
+
+    // re-adopt: same id, state follows the harness, herdr name restored
+    let again = tower_server::inventory::adopt(&state, "qa").await.unwrap();
+    assert_eq!(again.id, first.id, "re-adopt must keep the row id");
+    assert_eq!(again.state, tower_core::AgentState::Working);
+    assert_eq!(harness.renames(), vec![(pane.clone(), "qa".into())]);
+
+    // a row that is not dead still refuses
+    let err = tower_server::inventory::adopt(&state, "qa")
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("only dead rows"), "{err}");
+}
+
+#[tokio::test]
+async fn resume_relaunches_a_dead_row_with_per_kind_args() {
+    let (state, harness, _d) =
+        boot(FakeHarness::new().with_agent("s1", "omp", HarnessState::Idle)).await;
+    tower_server::inventory::adopt(&state, "s1").await.unwrap();
+    harness.kill("s1");
+    tower_server::inventory::reconcile(&state).await.unwrap();
+    let row = tower_server::inventory::get_agent(&state, "s1")
+        .await
+        .unwrap()
+        .unwrap();
+    let pane = row.pane_id.clone().unwrap();
+    harness.set_session(&pane, "/sessions/old.jsonl");
+
+    // resume the reported session: omp takes `--resume <session>`
+    let app = router(state.clone());
+    let (status, v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({"name": "s1", "resume": ""})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(v["agent"]["id"], row.id.0, "resume must keep the row id");
+    assert_eq!(
+        harness.spawns(),
+        vec![(
+            "s1".into(),
+            vec!["--resume".into(), "/sessions/old.jsonl".into()]
+        )]
+    );
+
+    // explicit session for pi: `--session <id>`
+    let (state2, harness2, _d2) =
+        boot(FakeHarness::new().with_agent("p1", "pi", HarnessState::Idle)).await;
+    tower_server::inventory::adopt(&state2, "p1").await.unwrap();
+    harness2.kill("p1");
+    tower_server::inventory::reconcile(&state2).await.unwrap();
+    let row2 = tower_server::inventory::get_agent(&state2, "p1")
+        .await
+        .unwrap()
+        .unwrap();
+    let app2 = router(state2.clone());
+    let (status, v) = json_req(
+        &app2,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({"name": "p1", "resume": "sess-9"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(v["agent"]["id"], row2.id.0, "resume must keep the row id");
+    assert_eq!(
+        harness2.spawns(),
+        vec![("p1".into(), vec!["--session".into(), "sess-9".into()])]
+    );
+
+    // --continue on a dead row maps to the harness's own continue flag;
+    // p1 (resumed above, now live) refuses instead
+    let (status, v) = json_req(
+        &app2,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({"name": "p1", "continue": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{v}");
+
+    let (state3, harness3, _d3) =
+        boot(FakeHarness::new().with_agent("c1", "omp", HarnessState::Idle)).await;
+    tower_server::inventory::adopt(&state3, "c1").await.unwrap();
+    harness3.kill("c1");
+    tower_server::inventory::reconcile(&state3).await.unwrap();
+    let app3 = router(state3.clone());
+    let (status, v) = json_req(
+        &app3,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({"name": "c1", "continue": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(
+        harness3.spawns(),
+        vec![("c1".into(), vec!["--continue".into()])]
+    );
+}
+
+#[tokio::test]
+async fn resume_and_adopt_refuse_a_row_that_is_not_dead() {
+    let (state, _harness, _d) =
+        boot(FakeHarness::new().with_agent("live", "pi", HarnessState::Idle)).await;
+    tower_server::inventory::adopt(&state, "live")
+        .await
+        .unwrap();
+    let app = router(state.clone());
+    for body in [
+        serde_json::json!({"name": "live", "resume": "s"}),
+        serde_json::json!({"name": "live", "continue": true}),
+        serde_json::json!({"name": "live", "adopt": true}),
+    ] {
+        let (status, v) = json_req(&app, "POST", "/v1/agents", Some(body)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{v}");
+    }
+}

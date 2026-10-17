@@ -139,6 +139,8 @@ impl Ctx {
                 workdir: Some("/tmp".into()),
                 worktree: false,
                 adopt: false,
+                resume: None,
+                continue_last: false,
                 prompt: None,
                 permissions: None,
                 model: None,
