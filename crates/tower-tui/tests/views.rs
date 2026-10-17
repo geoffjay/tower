@@ -8,7 +8,7 @@ use ratatui::style::Color;
 use support::*;
 use tower_core::*;
 use tower_tui::app::{Api, Effect, InputPurpose, ViewId};
-use tower_tui::store::{Fetch, Loaded, TaskDetail};
+use tower_tui::store::{Fetch, Loaded, ScheduleDetail, TaskDetail};
 
 #[test]
 fn empty_state_frames() {
@@ -522,4 +522,89 @@ fn approval_context_shows_the_screen_tail_not_json() {
     assert!(frame.contains("2. No, exit"), "{frame}");
     assert!(frame.contains("Enter to confirm"), "{frame}");
     assert!(!frame.contains("shell noise"), "{frame}");
+}
+
+#[test]
+fn schedule_enter_opens_the_detail_panel() {
+    let mut a = mixed();
+    a.store.load(Loaded::Schedules(vec![schedule(
+        "S1",
+        "dependency audit",
+        "0 9 * * *",
+    )]));
+    a.store.tasks = Default::default();
+    a.on_key(key('3')); // tasks view
+                        // move to the schedules pane: h/l cycles owned → queue → recent → schedules
+    for _ in 0..3 {
+        a.on_key(key('l'));
+    }
+    a.on_key(key('j')); // select the first schedule
+    let fx = a.on_key(code(KeyCode::Enter));
+    assert_eq!(
+        fx,
+        vec![Effect::Fetch(Fetch::ScheduleDetail(ScheduleId(
+            "S1".into()
+        )))]
+    );
+    // loading state before the fetch lands
+    let frame = text(&mut a, 120, 30);
+    assert!(frame.contains("schedule — esc closes"), "{frame}");
+    assert!(frame.contains("loading…"), "{frame}");
+    a.on_loaded(
+        Fetch::ScheduleDetail(ScheduleId("S1".into())),
+        Ok(vec![Loaded::ScheduleDetail(Box::new(ScheduleDetail {
+            schedule: schedule("S1", "dependency audit", "0 9 * * *"),
+            jobs: vec![task("T9", "audit the lockfile", TaskState::Completed)],
+        }))]),
+    );
+    let frame = text(&mut a, 120, 30);
+    assert!(frame.contains("dependency audit"), "{frame}");
+    assert!(frame.contains("cron     0 9 * * * (active)"), "{frame}");
+    assert!(frame.contains("target   queue"), "{frame}");
+    assert!(frame.contains("audit the lockfile"), "{frame}");
+    a.on_key(code(KeyCode::Esc));
+    assert!(a.tasks.schedule_detail.is_none());
+}
+
+#[test]
+fn task_detail_scrolls_when_content_overflows() {
+    let mut a = mixed();
+    a.on_key(key('3'));
+    a.on_key(code(KeyCode::Enter)); // owned pane: T2
+    let id = TaskId("T2".into());
+    let trail: Vec<Event> = (0..40)
+        .map(|i| {
+            event(
+                10 + i,
+                "task.status",
+                Some(("task", "T2")),
+                serde_json::json!({"state": "working", "owner_id": format!("A_worker_{i}")}),
+            )
+        })
+        .collect();
+    let task = a.store.tasks[&id].clone();
+    a.on_loaded(
+        Fetch::TaskDetail(id.clone()),
+        Ok(vec![Loaded::TaskDetail(Box::new(TaskDetail {
+            task,
+            trail,
+            messages: vec![],
+        }))]),
+    );
+    let frame = text(&mut a, 120, 20);
+    // bottom-anchored: the newest trail line is visible, old ones are not
+    assert!(frame.contains("working (A_worker_39)"), "{frame}");
+    assert!(!frame.contains("working (A_worker_5)"), "{frame}");
+    // scroll up: older lines come back into view, the tail scrolls out
+    for _ in 0..20 {
+        a.on_key(key('k'));
+    }
+    let frame = text(&mut a, 120, 20);
+    assert!(!frame.contains("working (A_worker_39)"), "{frame}");
+    // G snaps back to the tail
+    a.on_key(key('G'));
+    let frame = text(&mut a, 120, 20);
+    assert!(frame.contains("working (A_worker_39)"), "{frame}");
+    a.on_key(code(KeyCode::Esc));
+    assert!(a.tasks.detail.is_none());
 }

@@ -7,7 +7,7 @@ use tower_client::Client;
 use tower_core::{Agent, Event, Machine, Message, Schedule, Task};
 
 use crate::app::Api;
-use crate::store::{Fetch, Loaded, TaskDetail};
+use crate::store::{Fetch, Loaded, ScheduleDetail, TaskDetail};
 
 fn take<T: DeserializeOwned>(v: &mut Value, key: &str) -> anyhow::Result<T> {
     Ok(serde_json::from_value(v[key].take())?)
@@ -68,6 +68,13 @@ pub async fn fetch(c: &Client, f: &Fetch) -> anyhow::Result<Vec<Loaded>> {
                 task: take(&mut v, "task")?,
                 trail: take::<Vec<Event>>(&mut v, "trail")?,
                 messages: take(&mut v, "messages")?,
+            }))]
+        }
+        Fetch::ScheduleDetail(id) => {
+            let mut v = c.get(&format!("/v1/schedules/{id}")).await?;
+            vec![Loaded::ScheduleDetail(Box::new(ScheduleDetail {
+                schedule: take(&mut v, "schedule")?,
+                jobs: take(&mut v, "jobs")?,
             }))]
         }
     })

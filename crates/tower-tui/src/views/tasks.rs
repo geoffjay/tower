@@ -45,8 +45,36 @@ pub struct Tasks {
     pub sel_schedule: Option<ScheduleId>,
     /// Job whose detail is open.
     pub detail: Option<TaskId>,
+    /// Schedule whose detail is open (exclusive with `detail`).
+    pub schedule_detail: Option<ScheduleId>,
+    /// Lines scrolled up from the bottom of the open detail (0 = bottom).
+    detail_scroll: usize,
     confirm_cancel: Option<TaskId>,
     tables: [TableState; 4],
+}
+
+impl Tasks {
+    /// The fetch the open side panel needs, if any.
+    pub fn open_detail(&self) -> Vec<Fetch> {
+        if let Some(id) = &self.detail {
+            vec![Fetch::TaskDetail(id.clone())]
+        } else if let Some(id) = &self.schedule_detail {
+            vec![Fetch::ScheduleDetail(id.clone())]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// True when either detail panel is open.
+    fn any_detail(&self) -> bool {
+        self.detail.is_some() || self.schedule_detail.is_some()
+    }
+
+    fn close_detail(&mut self) {
+        self.detail = None;
+        self.schedule_detail = None;
+        self.detail_scroll = 0;
+    }
 }
 
 /// Assigned / working / input-required, soonest lease first.
@@ -95,10 +123,12 @@ fn short(id: &TaskId) -> String {
 
 impl Tasks {
     pub fn hints(&self) -> &'static str {
-        match (self.detail.is_some(), self.pane) {
-            (true, _) => "esc close · a assign · x x cancel",
-            (false, Pane::Schedules) => "h/l pane · p pause/resume · R run now · n new job",
-            (false, _) => "h/l pane · enter detail · n new job · a assign · x x cancel",
+        if self.any_detail() {
+            "esc close · j/k scroll · a assign · x x cancel"
+        } else if self.pane == Pane::Schedules {
+            "h/l pane · enter detail · p pause/resume · R run now · n new job"
+        } else {
+            "h/l pane · enter detail · n new job · a assign · x x cancel"
         }
     }
 
@@ -139,11 +169,24 @@ impl Tasks {
     pub fn key(&mut self, k: KeyEvent, ctx: &Ctx) -> Vec<Cmd> {
         let store = ctx.store;
         let confirming = self.confirm_cancel.take();
-        if self.detail.is_some() && k.code == KeyCode::Esc {
-            self.detail = None;
-            return Vec::new();
-        }
-        if self.detail.is_none() {
+        if self.any_detail() {
+            if k.code == KeyCode::Esc {
+                self.close_detail();
+                return Vec::new();
+            }
+            // scroll the open detail; g/G snap, ctrl-d/u page
+            if let Some(n) = super::nav(&k) {
+                self.detail_scroll = match n {
+                    super::Nav::Up => self.detail_scroll + 1,
+                    super::Nav::Down => self.detail_scroll.saturating_sub(1),
+                    super::Nav::PageUp => self.detail_scroll + 10,
+                    super::Nav::PageDown => self.detail_scroll.saturating_sub(10),
+                    super::Nav::Top => usize::MAX / 2,
+                    super::Nav::Bottom => 0,
+                };
+                return Vec::new();
+            }
+        } else {
             if let Some(n) = super::nav(&k) {
                 if self.pane == Pane::Schedules {
                     let ids: Vec<ScheduleId> =
@@ -177,14 +220,24 @@ impl Tasks {
                             self.detail = Some(id.clone());
                             vec![Cmd::Effect(Effect::Fetch(Fetch::TaskDetail(id)))]
                         }
-                        None => Vec::new(),
+                        None => match self.target_schedule(store) {
+                            Some(s) => {
+                                let id = s.id.clone();
+                                self.schedule_detail = Some(id.clone());
+                                vec![Cmd::Effect(Effect::Fetch(Fetch::ScheduleDetail(id)))]
+                            }
+                            None => Vec::new(),
+                        },
                     };
                 }
                 _ => {}
             }
         }
+        // keys that act on the open detail, whichever pane it came from
         match k.code {
-            KeyCode::Char('n') => vec![Cmd::Input(InputPurpose::NewTask, String::new())],
+            KeyCode::Char('n') if !self.any_detail() => {
+                vec![Cmd::Input(InputPurpose::NewTask, String::new())]
+            }
             KeyCode::Char('a') => match self.target(store) {
                 Some(task) => vec![Cmd::Input(InputPurpose::Assign { task }, String::new())],
                 None => Vec::new(),
@@ -228,14 +281,13 @@ impl Tasks {
     }
 
     pub fn render(&mut self, f: &mut Frame, area: Rect, ctx: &Ctx) {
-        let (lists, detail) = match &self.detail {
-            Some(_) => {
-                let [l, d] =
-                    Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
-                        .areas(area);
-                (l, Some(d))
-            }
-            None => (area, None),
+        let (lists, detail) = if self.any_detail() {
+            let [l, d] =
+                Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
+                    .areas(area);
+            (l, Some(d))
+        } else {
+            (area, None)
         };
         let areas: [Rect; 4] = Layout::vertical([
             Constraint::Percentage(30),
@@ -247,15 +299,18 @@ impl Tasks {
         for (i, pane) in PANES.iter().enumerate() {
             self.render_pane(f, areas[i], *pane, ctx);
         }
-        if let (Some(d), Some(id)) = (detail, self.detail.clone()) {
-            render_detail(f, d, &id, ctx);
+        let Some(d) = detail else { return };
+        if let Some(id) = &self.detail {
+            render_detail(f, d, id, self.detail_scroll, ctx);
+        } else if let Some(id) = &self.schedule_detail {
+            render_schedule_detail(f, d, id, self.detail_scroll, ctx);
         }
     }
 
     fn render_pane(&mut self, f: &mut Frame, area: Rect, pane: Pane, ctx: &Ctx) {
         let store = ctx.store;
         let i = Self::pane_idx(pane);
-        let focused = pane == self.pane && self.detail.is_none();
+        let focused = pane == self.pane && !self.any_detail();
         let (title, header, widths, rows, sel): (String, Vec<&str>, Vec<Constraint>, Vec<Row>, _) =
             match pane {
                 Pane::Schedules => {
@@ -502,8 +557,8 @@ pub fn trail_line(e: &Event, store: &Store) -> String {
     }
 }
 
-fn render_detail(f: &mut Frame, area: Rect, id: &TaskId, ctx: &Ctx) {
-    let block = Block::bordered().title(" job — esc closes ");
+fn render_detail(f: &mut Frame, area: Rect, id: &TaskId, scroll: usize, ctx: &Ctx) {
+    let block = Block::bordered().title(" job — esc closes · j/k scrolls ");
     let d = match &ctx.store.task_detail {
         Some(d) if &d.task.id == id => d,
         _ => {
@@ -580,10 +635,97 @@ fn render_detail(f: &mut Frame, area: Rect, id: &TaskId, ctx: &Ctx) {
             ]));
         }
     }
-    f.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(block),
-        area,
-    );
+    scroll_paragraph(f, area, block, lines, scroll);
+}
+
+/// A schedule's definition and the jobs it fired, scrollable like the job
+/// detail.
+fn render_schedule_detail(f: &mut Frame, area: Rect, id: &ScheduleId, scroll: usize, ctx: &Ctx) {
+    let block = Block::bordered().title(" schedule — esc closes · j/k scrolls ");
+    let d = match &ctx.store.schedule_detail {
+        Some(d) if &d.schedule.id == id => d,
+        _ => {
+            f.render_widget(
+                Paragraph::new(Span::styled("loading…", super::dim())).block(block),
+                area,
+            );
+            return;
+        }
+    };
+    // the list row is fresher than the detail snapshot
+    let s = ctx
+        .store
+        .schedules
+        .iter()
+        .find(|s| s.id == d.schedule.id)
+        .unwrap_or(&d.schedule);
+    let mut lines = vec![
+        Line::styled(s.title.clone(), super::header()),
+        Line::styled(s.id.0.clone(), super::dim()),
+        Line::raw(format!(
+            "cron     {} ({})",
+            s.cron,
+            if s.enabled { "active" } else { "paused" }
+        )),
+        Line::raw(format!(
+            "target   {}",
+            s.target_agent_id
+                .as_ref()
+                .map_or("queue".to_string(), |a| ctx.store.name_of(a).to_string())
+        )),
+        Line::raw(format!(
+            "priority {} · lease {}s · attempts {}{}",
+            s.priority,
+            s.lease_s,
+            s.max_attempts,
+            if s.tags.is_empty() {
+                String::new()
+            } else {
+                format!(" · tags {}", s.tags.join(","))
+            }
+        )),
+        Line::raw(format!("created  {}", ctx.tz.clock(s.created_at, true))),
+    ];
+    if let Some(nb) = s.next_run_at {
+        lines.push(Line::raw(format!("next     {}", ctx.tz.clock(nb, true))));
+    }
+    if let Some(lr) = s.last_run_at {
+        lines.push(Line::raw(format!("last     {}", ctx.tz.clock(lr, true))));
+    }
+    if let Some(desc) = &s.description {
+        lines.push(Line::raw(""));
+        lines.push(Line::raw(format!("about    {desc}")));
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::styled("recent jobs", super::header()));
+    for t in &d.jobs {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("  {}  ", ctx.tz.clock(t.created_at, false)),
+                super::dim(),
+            ),
+            Span::styled(fmt::wire(t.state), state_style(t.state)),
+            Span::raw(format!("  {}", t.title)),
+        ]));
+    }
+    scroll_paragraph(f, area, block, lines, scroll);
+}
+
+/// Bottom-anchored scroll: 0 = tail (newest content), up = older lines.
+/// Clamped to the wrapped line count so g can jump past the top harmlessly.
+fn scroll_paragraph(
+    f: &mut Frame,
+    area: Rect,
+    block: Block<'_>,
+    lines: Vec<Line<'_>>,
+    scroll: usize,
+) {
+    let inner = block.inner(area);
+    let paragraph = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(block);
+    let total = paragraph.line_count(inner.width);
+    let max_up = total.saturating_sub(inner.height as usize);
+    let top = max_up.saturating_sub(scroll.min(max_up));
+    f.render_widget(paragraph.scroll((top as u16, 0)), area);
 }
