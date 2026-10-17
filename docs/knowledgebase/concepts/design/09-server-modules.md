@@ -22,12 +22,21 @@ generated:
 
 Owns `agents` + `machines` rows. Boot sequence: ensure `local` machine row →
 driver snapshot → reconcile → emit `agent.state` events for drift.
+Reconcile matches a live harness to a row by pane id or name, so a harness
+restarted by hand in a known pane revives its `dead` row. `adopt` on an
+existing `dead` row re-attaches it in place — the row keeps its id, jobs,
+and schedules, and the harness agent is renamed to the row's name
+([§8.4](08-harness-layer.md)); non-`dead` rows still refuse.
 
 ## 9.2 sessions
 
 Owns spawn/prompt/interrupt/stop flow, translating API calls to driver calls
 and emitting events. One task per in-flight driver call per agent (serialized
-per agent; herdr prompts wait on detection anyway).
+per agent; herdr prompts wait on detection anyway). A `dead` row can be
+relaunched without losing its identity: `resume` (a given session, or the
+one herdr reports for the pane) and `continue` start the harness in the
+row's pane — or a fresh pane if it is gone — with the per-kind resume args
+([§8.4](08-harness-layer.md)); the row is updated in place.
 
 ## 9.3 messaging
 

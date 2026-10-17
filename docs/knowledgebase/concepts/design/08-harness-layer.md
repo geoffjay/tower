@@ -89,3 +89,20 @@ match by pane id, then by name. Unknown agents appear in inventory as
 `POST /v1/agents` with `adopt: <name>` takes ownership without relaunching.
 Unnamed herdr agents (no `name` in the snapshot) are skipped — they aren't
 addressable by name, so they can be neither owned nor adopted.
+
+A harness restarted by hand in its own pane loses its herdr name (herdr only
+names agents it started), so a `dead` row can silently diverge from a live
+pane. Re-attachment keeps the row's identity (issue #1):
+
+- **Re-adopt** (`spawn <name> --adopt` with an existing `dead` row): the
+  harness agent is found by name, else by the row's `pane_id`; the row is
+  updated in place (pane, state) — same id, workdir, worktree, jobs,
+  schedules — and the herdr agent is renamed to the row's name so the pump
+  keeps matching it. Non-`dead` rows still refuse.
+- **Pump fallback**: a state event whose name matches no row runs one
+  reconcile, which revives a row whose pane went live again.
+- **Resume** (`spawn <name> --resume [<session>]` / `--continue`): for a
+  `dead` row, `herdr agent start` in the row's pane (a new pane if it is
+  gone) with the per-kind resume args — omp/claude `--resume <session>` /
+  `--continue`, pi `--session <session>` / `--continue`; the session
+  defaults to the one herdr reports for the pane. The row keeps its id.

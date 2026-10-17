@@ -132,6 +132,9 @@ Useful spawn flags:
 | `--name foo` | spawn from the definition `~/.config/tower/agents/foo/` |
 | `--model <id>` | model the harness runs on (`--model anthropic/claude-sonnet-5-5`); overrides the definition's `model` |
 | `--arg <flag>` | extra harness flag, repeatable (`--arg --smol --arg --plan` for omp) |
+| `--adopt` | take ownership of a harness agent already running; for a `dead` row, re-attach it in place (same id, jobs, and schedules keep their target) |
+| `--resume [<session>]` | relaunch a `dead` agent's harness with a given session (or the one herdr last reported for its pane); the agent keeps its id |
+| `--continue` | relaunch a `dead` agent's harness continuing its last session (`--resume`'s sibling) |
 
 What you configured at spawn can be inspected any time:
 
