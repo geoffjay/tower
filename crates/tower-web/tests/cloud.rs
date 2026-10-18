@@ -233,24 +233,70 @@ async fn roster_renders_one_point_per_agent_server_side() {
     assert!(js.len() > 10_000);
 }
 #[tokio::test]
-async fn hub_and_spokes_bind_each_point_to_its_machine() {
-    let mut snap = roster(6);
-    snap.machines.push(machine("node-a", "node", "online"));
-    for a in snap.agents.iter_mut().take(3) {
-        a.machine_id = MachineId("node-a".into());
-    }
+async fn two_stacks_get_separate_roots_bound_to_one_machine_node() {
+    let mut snap = Snapshot {
+        machines: vec![machine("local", "coordinator", "online")],
+        agents: [
+            agent("s1-lead", AgentState::Idle),
+            agent("s1-web", AgentState::Idle),
+            agent("s2-lead", AgentState::Idle),
+            agent("s2-api", AgentState::Idle),
+            agent("s2-web", AgentState::Idle),
+        ]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    snap.machines.push(machine("node-a", "node", "offline"));
+    // s2 spans both machines: each machine gets its own root for it
+    snap.agents[4].machine_id = MachineId("node-a".into());
     let fx = Fixture::new(snap);
     let app = tower_web::router(fx.clone());
     let (_, _, html) = get(&app, "/ui").await;
 
-    // one hub per machine, with the agent-count tooltip
-    assert!(html.contains("local — 3 agents"));
-    assert!(html.contains("node-a — 3 agents"));
-    assert_eq!(html.matches("class=\"hub\"").count(), 2);
-    // every point gets a spoke line to its hub
-    assert_eq!(html.matches("<line class=\"spoke\"").count(), 6);
-    // machine labels still render above each cluster
-    assert!(html.matches("<text class=\"cluster\"").count() == 2);
+    // one root per (machine, stack), with agent-count tooltips
+    assert!(html.contains("s1 — 2 agents"), "{}", &html[..2000]);
+    assert!(html.contains("s2 — 2 agents"));
+    assert!(html.contains("s2 — 1 agent"));
+    assert_eq!(html.matches("class=\"root\"").count(), 3);
+
+    // one machine node per machine, hollow, status-colored
+    assert_eq!(html.matches("class=\"machine online\"").count(), 1);
+    assert_eq!(html.matches("class=\"machine offline\"").count(), 1);
+    assert!(html.contains("local · online — 4 agents"));
+    assert!(html.contains("node-a · offline — 1 agent"));
+
+    // every point gets a spoke line to its stack root, none to a machine
+    assert_eq!(html.matches("<line class=\"spoke\"").count(), 5);
+    // roots link to their machine's node; a machine with a single stack
+    // centers its node on that root (concentric, no link line)
+    assert_eq!(html.matches("<line class=\"mlink\"").count(), 2);
+
+    // stack labels render above each cluster (3 clusters)
+    assert_eq!(html.matches("<text class=\"cluster\"").count(), 3);
+}
+
+#[tokio::test]
+async fn no_dash_agent_names_form_their_own_stacks() {
+    let snap = Snapshot {
+        machines: vec![machine("local", "coordinator", "online")],
+        agents: [
+            agent("pi", AgentState::Idle),
+            agent("claude", AgentState::Idle),
+        ]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    let fx = Fixture::new(snap);
+    let app = tower_web::router(fx.clone());
+    let (_, _, html) = get(&app, "/ui").await;
+
+    // each no-dash name is its own stack: two roots, one machine node
+    assert_eq!(html.matches("class=\"root\"").count(), 2);
+    assert!(html.contains("pi — 1 agent"));
+    assert!(html.contains("claude — 1 agent"));
+    assert_eq!(html.matches("class=\"machine online\"").count(), 1);
 }
 
 #[tokio::test]

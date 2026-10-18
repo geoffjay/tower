@@ -15,7 +15,7 @@ use topcoat::view::*;
 
 use crate::Ui;
 use crate::metrics::BUCKETS;
-use crate::model::{Attention, Cloud, Panel, Point};
+use crate::model::{Attention, Cloud, MachineNode, Panel, Point};
 use crate::shell;
 
 /// Legend order = the D§12.1 color table.
@@ -120,6 +120,17 @@ fn tooltip(p: &Point) -> String {
     )
 }
 
+/// `local — 3 agents` — the machine node's tooltip.
+fn machine_tooltip(m: &MachineNode) -> String {
+    format!(
+        "{} · {} — {} agent{}",
+        m.name,
+        if m.online { "online" } else { "offline" },
+        m.agents,
+        if m.agents == 1 { "" } else { "s" }
+    )
+}
+
 #[component]
 async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View> {
     let empty = model.points.is_empty();
@@ -153,23 +164,39 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
         </header>
         <svg id="cloud" viewBox=(model.view_box) preserveAspectRatio="xMidYMid meet">
             <rect class="bg" x="-5000" y="-5000" width="10000" height="10000" @click=$(|_e| selected.set("".to_owned()))></rect>
-            // spokes first: lines bind every point to its machine's hub
+            // spokes first: lines bind every point to its stack's root
             #[key(format!("spoke-{}", p.id.clone()))]
             for p in &model.points {
-                if p.hub_x != p.x || p.hub_y != p.y {
-                    <line class="spoke" x1=(format!("{:.1}", p.hub_x)) y1=(format!("{:.1}", p.hub_y)) x2=(format!("{:.1}", p.x)) y2=(format!("{:.1}", p.y))></line>
+                if p.root_x != p.x || p.root_y != p.y {
+                    <line class="spoke" x1=(format!("{:.1}", p.root_x)) y1=(format!("{:.1}", p.root_y)) x2=(format!("{:.1}", p.x)) y2=(format!("{:.1}", p.y))></line>
                 }
             }
-            // machine hubs: small central nodes the points bind to
-            #[key(format!("hub-{}", h.id.clone()))]
-            for h in model.hubs {
-                <g class="hub" transform=(format!("translate({:.1} {:.1})", h.x, h.y))>
-                    <title>(format!("{} — {} agent{}", h.name, h.agents, if h.agents == 1 { "" } else { "s" }))</title>
-                    <circle class="hub-core" r="5"></circle>
+            // machine links: each stack root connects to its machine's
+            // node (D§12.1)
+            #[key(format!("mlink-{}", r.id.clone()))]
+            for r in &model.roots {
+                if r.machine_x != r.x || r.machine_y != r.y {
+                    <line class="mlink" x1=(format!("{:.1}", r.x)) y1=(format!("{:.1}", r.y)) x2=(format!("{:.1}", r.machine_x)) y2=(format!("{:.1}", r.machine_y))></line>
+                }
+            }
+            // machine nodes: hollow circles colored by connection status
+            #[key(format!("machine-{}", m.id.clone()))]
+            for m in &model.machine_nodes {
+                <g class=(format!("machine{}", if m.online { " online" } else { " offline" })) transform=(format!("translate({:.1} {:.1})", m.x, m.y))>
+                    <title>(machine_tooltip(m))</title>
+                    <circle class="machine-core" r="11"></circle>
+                </g>
+            }
+            // stack roots: small central nodes the points bind to
+            #[key(format!("root-{}", r.id.clone()))]
+            for r in &model.roots {
+                <g class="root" transform=(format!("translate({:.1} {:.1})", r.x, r.y))>
+                    <title>(format!("{} — {} agent{}", r.name, r.agents, if r.agents == 1 { "" } else { "s" }))</title>
+                    <circle class="root-core" r="5"></circle>
                 </g>
             }
             for c in model.clusters {
-                <text class="cluster" x=(format!("{:.0}", c.x)) y=(format!("{:.0}", c.y))>(c.name)</text>
+                <text class="cluster" x=(format!("{:.0}", c.x)) y=(format!("{:.0}", c.y))>(c.name.clone())</text>
             }
             #[key(p.id.clone())]
             for p in model.points {

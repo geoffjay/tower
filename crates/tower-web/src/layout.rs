@@ -1,9 +1,9 @@
 //! Cloud layout (spike S4.A decision): server-side and deterministic —
 //! the same roster always yields the same positions, so every browser and
 //! every reconnect agree and nothing jumps on re-render. Agents gather
-//! around their machine's cluster center (phase 5 adds machines, not
-//! code), spread on a golden-angle spiral, then a few repulsion passes
-//! keep points from overlapping.
+//! around their cluster's center — one cluster per (machine, stack)
+//! (D§12.1) — spread on a golden-angle spiral, then a few repulsion
+//! passes keep points from overlapping.
 
 /// SVG viewBox size.
 pub const WIDTH: f64 = 1000.0;
@@ -26,9 +26,9 @@ pub struct Pos {
     pub y: f64,
 }
 
-/// `clusters[i]` = number of agents on the i-th machine, in display
-/// order. Returns each cluster's center, plus positions per cluster in the
-/// same agent order.
+/// `clusters[i]` = number of agents in the i-th cluster (one per
+/// (machine, stack), in display order). Returns each cluster's center,
+/// plus positions per cluster in the same agent order.
 pub fn layout(clusters: &[usize]) -> (Vec<Pos>, Vec<Vec<Pos>>) {
     let k = clusters.len();
     let centers: Vec<Pos> = (0..k)
