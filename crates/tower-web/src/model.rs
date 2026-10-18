@@ -164,12 +164,35 @@ pub struct StackPanel {
     pub agent_names: Vec<String>,
 }
 
+/// A machine node's panel (D§12.1): the machine row plus a roll-up of
+/// the agents on it.
+#[derive(Debug, Clone)]
+pub struct MachinePanel {
+    pub name: String,
+    /// `coordinator` / `node`; `None` without a machine row.
+    pub role: Option<String>,
+    pub address: Option<String>,
+    /// The row's status (`online`, `offline`, ...); `unknown` without one.
+    pub status: String,
+    /// `status == "online"` — the node's color, and the heading dot's.
+    pub online: bool,
+    /// Age of the last heartbeat; `None` if never seen.
+    pub last_seen: Option<String>,
+    pub agents: usize,
+    /// Stacks running on it, first-seen order (the cloud's cluster order).
+    pub stacks: Vec<String>,
+    /// `(state, count)`, the D§12.1 state set, only non-zero states.
+    pub states: Vec<(AgentState, usize)>,
+}
+
 /// What the panel shows, per selection kind (D§12.1): `agent:<id>`,
-/// `stack:<machine>/<stack>` — the page parses the selection value.
+/// `stack:<machine>/<stack>`, `machine:<machine>` — the page parses the
+/// selection value.
 #[derive(Debug, Clone)]
 pub enum PanelKind {
     Agent(Panel),
     Stack(StackPanel),
+    Machine(MachinePanel),
 }
 
 /// Machines in display order: the coordinator first, then by name.
@@ -507,22 +530,7 @@ pub fn stack_panel(
     if agents.is_empty() {
         return None;
     }
-    // per-state counts in the D§12.1 legend order, non-zero only
-    let states = [
-        AgentState::Working,
-        AgentState::Blocked,
-        AgentState::Idle,
-        AgentState::Done,
-        AgentState::Dead,
-        AgentState::Launching,
-        AgentState::Unknown,
-    ]
-    .iter()
-    .filter_map(|&s| {
-        let n = agents.iter().filter(|a| a.state == s).count();
-        (n > 0).then_some((s, n))
-    })
-    .collect();
+    let states = state_counts(&agents);
     let mut series = [0u32; BUCKETS];
     let mut activity = 0;
     let mut msgs_per_min = 0.0;
@@ -550,6 +558,61 @@ pub fn stack_panel(
         msgs_per_min,
         agent_names,
     })
+}
+
+/// A machine node's panel: the machine row and its agents, rolled up per
+/// D§12.1. `machine_id` mirrors [MachineNode::id], so the selection value
+/// `machine:{node.id}` routes here. Agents on a machine with no row still
+/// get a panel (the cloud draws their node too); an id with neither a row
+/// nor agents → `None`, the closed-panel contract.
+pub fn machine_panel(snap: &Snapshot, machine_id: &str, now: i64) -> Option<MachinePanel> {
+    let row = snap.machines.iter().find(|m| m.id.0 == machine_id);
+    let agents: Vec<&Agent> = snap
+        .agents
+        .iter()
+        .filter(|a| a.machine_id.0 == machine_id)
+        .collect();
+    if row.is_none() && agents.is_empty() {
+        return None;
+    }
+    let mut stacks: Vec<String> = Vec::new();
+    for a in &agents {
+        let s = stack_of(&a.name);
+        if !stacks.iter().any(|x| x == s) {
+            stacks.push(s.to_string());
+        }
+    }
+    let status = row.map_or("unknown", |m| m.status.as_str());
+    Some(MachinePanel {
+        name: row.map_or_else(|| machine_id.to_string(), |m| m.name.clone()),
+        role: row.map(|m| m.role.clone()),
+        address: row.and_then(|m| m.address.clone()),
+        status: status.to_string(),
+        online: status == "online",
+        last_seen: row.and_then(|m| m.last_seen_at).map(|t| age(now - t)),
+        agents: agents.len(),
+        stacks,
+        states: state_counts(&agents),
+    })
+}
+
+/// Per-state counts in the D§12.1 legend order, non-zero only.
+fn state_counts(agents: &[&Agent]) -> Vec<(AgentState, usize)> {
+    [
+        AgentState::Working,
+        AgentState::Blocked,
+        AgentState::Idle,
+        AgentState::Done,
+        AgentState::Dead,
+        AgentState::Launching,
+        AgentState::Unknown,
+    ]
+    .into_iter()
+    .filter_map(|s| {
+        let n = agents.iter().filter(|a| a.state == s).count();
+        (n > 0).then_some((s, n))
+    })
+    .collect()
 }
 
 /// Compact age: `4s`, `12m`, `3h`, `2d`.
@@ -605,7 +668,7 @@ mod tests {
         Agent, AgentId, AgentState, DesiredState, Event, EventKind, Machine, MachineId, Permissions,
     };
 
-    use super::{stack_of, stack_panel};
+    use super::{machine_panel, stack_of, stack_panel};
     use crate::metrics::Metrics;
     use crate::source::Snapshot;
 
@@ -726,5 +789,59 @@ mod tests {
         let p = stack_panel(&snap, &Metrics::default(), "gone", "pi", NOW).unwrap();
         assert_eq!(p.machine, "gone");
         assert_eq!(p.name, "pi", "a no-dash name is its own stack");
+    }
+
+    #[test]
+    fn machine_panel_rolls_up_its_agents_and_stacks() {
+        let mut m1 = machine("m1");
+        m1.role = "coordinator".into();
+        m1.address = Some("10.0.0.5:7300".into());
+        // offline: the panel still opens, with a stale last-seen age
+        m1.status = "offline".into();
+        m1.last_seen_at = Some(NOW - 12 * 60_000);
+        let snap = Snapshot {
+            machines: vec![m1, machine("m2")],
+            agents: vec![
+                agent("s2-lead", "m1", AgentState::Idle),
+                agent("s1-lead", "m1", AgentState::Working),
+                agent("s2-web", "m1", AgentState::Working),
+                agent("s1-ops", "m2", AgentState::Dead), // other machine
+            ],
+            ..Default::default()
+        };
+        let p = machine_panel(&snap, "m1", NOW).unwrap();
+        assert_eq!(p.name, "m1-host", "display name, not id");
+        assert_eq!(p.role.as_deref(), Some("coordinator"));
+        assert_eq!(p.address.as_deref(), Some("10.0.0.5:7300"));
+        assert_eq!(p.status, "offline");
+        assert!(!p.online);
+        assert_eq!(p.last_seen.as_deref(), Some("12m"));
+        assert_eq!(p.agents, 3);
+        // every stack on it, once each, first-seen (cluster) order
+        assert_eq!(p.stacks, ["s2", "s1"]);
+        // legend order, non-zero only: m2's dead agent is not here
+        assert_eq!(p.states, [(AgentState::Working, 2), (AgentState::Idle, 1)]);
+        assert!(machine_panel(&snap, "m2", NOW).unwrap().online);
+    }
+
+    #[test]
+    fn machine_panel_opens_from_either_a_row_or_agents() {
+        let snap = Snapshot {
+            machines: vec![machine("m1")],
+            agents: vec![agent("pi", "gone", AgentState::Idle)],
+            ..Default::default()
+        };
+        // a row with no agents: opens, empty rollup
+        let p = machine_panel(&snap, "m1", NOW).unwrap();
+        assert_eq!((p.agents, p.stacks.len(), p.states.len()), (0, 0, 0));
+        // agents whose machine row is gone: named by id, nothing known
+        let p = machine_panel(&snap, "gone", NOW).unwrap();
+        assert_eq!(p.name, "gone");
+        assert_eq!((p.role, p.address, p.last_seen), (None, None, None));
+        assert_eq!(p.status, "unknown");
+        assert!(!p.online);
+        assert_eq!(p.stacks, ["pi"]);
+        // neither → closed panel
+        assert!(machine_panel(&snap, "m9", NOW).is_none());
     }
 }

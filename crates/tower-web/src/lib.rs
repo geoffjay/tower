@@ -43,9 +43,9 @@ impl Ui {
         Ok(model::cloud(&snap, &self.metrics.lock(), now))
     }
 
-    /// The selected node's panel: `agent:<id>` or `stack:<machine>/<stack>`
-    /// (D§12.1); anything else — including a bare agent id in an old
-    /// tab — is closed-panel. Validated by lookup, like before.
+    /// The selected node's panel: `agent:<id>`, `stack:<machine>/<stack>`,
+    /// or `machine:<machine>` (D§12.1); anything else — including a bare
+    /// agent id in an old tab — is closed-panel. Validated by lookup.
     async fn panel(&self, selection: &str) -> anyhow::Result<Option<model::PanelKind>> {
         let snap = self.source.snapshot().await?;
         let now = self.source.now();
@@ -60,6 +60,8 @@ impl Ui {
                     .map(model::PanelKind::Stack),
                 None => None,
             }
+        } else if let Some(id) = selection.strip_prefix("machine:") {
+            model::machine_panel(&snap, id, now).map(model::PanelKind::Machine)
         } else {
             None
         })

@@ -190,15 +190,27 @@ body {
   stroke-width: 1;
   opacity: 0.45;
 }
-/* machine node: hollow, colored by connection status (D§12.1) */
+/* machine node: hollow, colored by connection status (D§12.1); the
+   hollow interior takes clicks too (it opens the machine panel) */
 .machine-core {
   fill: none;
   stroke: var(--dead);
   stroke-width: 2;
   opacity: 0.9;
+  pointer-events: all;
 }
 .machine.online .machine-core {
   stroke: var(--done);
+}
+/* machine nodes are clickable (D§12.1); the ring keeps its status color
+   when selected, so the highlight is weight, not hue */
+.machine {
+  cursor: pointer;
+}
+.machine:hover .machine-core,
+.machine[data-selected] .machine-core {
+  stroke-width: 3.5;
+  opacity: 1;
 }
 
 .pt {
