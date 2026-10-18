@@ -144,6 +144,34 @@ pub struct Panel {
     pub snippet: Option<String>,
 }
 
+/// A stack root's panel (D§12.1): roll-up of the stack's agents — no
+/// per-agent depth beyond the names, which stay clickable in spirit
+/// (selecting the point opens the agent panel).
+#[derive(Debug, Clone)]
+pub struct StackPanel {
+    pub name: String,
+    pub machine: String,
+    pub agents: usize,
+    /// `(state, count)`, the D§12.1 state set, only non-zero states.
+    pub states: Vec<(AgentState, usize)>,
+    /// Events across the stack's agents in the window.
+    pub activity: u32,
+    /// Events per 10 s bucket, summed across the stack's agents.
+    pub series: [u32; BUCKETS],
+    /// Messages to/from the stack's agents per minute over 5 min.
+    pub msgs_per_min: f64,
+    /// The stack's agent names, display order.
+    pub agent_names: Vec<String>,
+}
+
+/// What the panel shows, per selection kind (D§12.1): `agent:<id>`,
+/// `stack:<machine>/<stack>` — the page parses the selection value.
+#[derive(Debug, Clone)]
+pub enum PanelKind {
+    Agent(Panel),
+    Stack(StackPanel),
+}
+
 /// Machines in display order: the coordinator first, then by name.
 fn ordered_machines(machines: &[Machine]) -> Vec<&Machine> {
     let mut m: Vec<&Machine> = machines.iter().collect();
@@ -460,6 +488,70 @@ pub fn panel(snap: &Snapshot, metrics: &Metrics, agent_id: &str, now: i64) -> Op
     })
 }
 
+/// A stack root's panel: agents of the (machine, stack) pair, rolled up
+/// per D§12.1. `machine_id/stack` mirrors [Root::id], so the selection
+/// value `stack:{root.id}` routes here. Unknown pair → `None`, the same
+/// closed-panel contract as [panel] for an unknown agent.
+pub fn stack_panel(
+    snap: &Snapshot,
+    metrics: &Metrics,
+    machine_id: &str,
+    stack: &str,
+    now: i64,
+) -> Option<StackPanel> {
+    let agents: Vec<&Agent> = snap
+        .agents
+        .iter()
+        .filter(|a| a.machine_id.0 == machine_id && stack_of(&a.name) == stack)
+        .collect();
+    if agents.is_empty() {
+        return None;
+    }
+    // per-state counts in the D§12.1 legend order, non-zero only
+    let states = [
+        AgentState::Working,
+        AgentState::Blocked,
+        AgentState::Idle,
+        AgentState::Done,
+        AgentState::Dead,
+        AgentState::Launching,
+        AgentState::Unknown,
+    ]
+    .iter()
+    .filter_map(|&s| {
+        let n = agents.iter().filter(|a| a.state == s).count();
+        (n > 0).then_some((s, n))
+    })
+    .collect();
+    let mut series = [0u32; BUCKETS];
+    let mut activity = 0;
+    let mut msgs_per_min = 0.0;
+    let mut agent_names = Vec::with_capacity(agents.len());
+    for a in &agents {
+        let m = metrics.agent(&a.id.0, &a.name, now);
+        activity += m.activity;
+        msgs_per_min += m.msgs_per_min;
+        for (dst, src) in series.iter_mut().zip(m.series.iter()) {
+            *dst += src;
+        }
+        agent_names.push(a.name.clone());
+    }
+    Some(StackPanel {
+        name: stack.to_string(),
+        machine: snap
+            .machines
+            .iter()
+            .find(|mm| mm.id.0 == machine_id)
+            .map_or_else(|| machine_id.to_string(), |mm| mm.name.clone()),
+        agents: agents.len(),
+        states,
+        activity,
+        series,
+        msgs_per_min,
+        agent_names,
+    })
+}
+
 /// Compact age: `4s`, `12m`, `3h`, `2d`.
 pub fn age(ms: i64) -> String {
     let s = (ms / 1000).max(0);
@@ -509,7 +601,62 @@ fn who(e: &Event, names: &HashMap<&str, &str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::stack_of;
+    use tower_core::{
+        Agent, AgentId, AgentState, DesiredState, Event, EventKind, Machine, MachineId, Permissions,
+    };
+
+    use super::{stack_of, stack_panel};
+    use crate::metrics::Metrics;
+    use crate::source::Snapshot;
+
+    const NOW: i64 = 1_790_000_000_000;
+
+    fn agent(name: &str, machine: &str, state: AgentState) -> Agent {
+        Agent {
+            id: AgentId(format!("A_{name}")),
+            name: name.into(),
+            kind: "pi".into(),
+            machine_id: MachineId(machine.into()),
+            pane_id: None,
+            workdir: None,
+            worktree: None,
+            state,
+            desired_state: DesiredState::Running,
+            permissions: Permissions::Default,
+            adopted: false,
+            config: serde_json::json!({}),
+            model: None,
+            args: vec![],
+            created_at: NOW - 3_600_000,
+            updated_at: NOW,
+        }
+    }
+
+    fn machine(id: &str) -> Machine {
+        Machine {
+            id: MachineId(id.into()),
+            name: format!("{id}-host"),
+            role: "node".into(),
+            address: None,
+            status: "online".into(),
+            last_seen_at: Some(NOW),
+            created_at: NOW - 86_400_000,
+        }
+    }
+
+    /// `n` output events for one agent, 10 s apart, ending at NOW.
+    fn activity(metrics: &mut Metrics, name: &str, n: i64) {
+        for i in 0..n {
+            metrics.apply(&Event {
+                seq: i,
+                ts: NOW - i * 10_000,
+                kind: EventKind::AgentOutput,
+                subject_type: Some("agent".into()),
+                subject_id: Some(format!("A_{name}")),
+                payload: serde_json::json!({}),
+            });
+        }
+    }
 
     #[test]
     fn stack_is_the_name_before_the_first_dash() {
@@ -519,5 +666,65 @@ mod tests {
         assert_eq!(stack_of("-lead"), "");
         assert_eq!(stack_of("pi"), "pi");
         assert_eq!(stack_of(""), "");
+    }
+
+    #[test]
+    fn stack_panel_rolls_up_only_its_machine_and_stack() {
+        let snap = Snapshot {
+            machines: vec![machine("m1"), machine("m2")],
+            agents: vec![
+                agent("s1-lead", "m1", AgentState::Working),
+                agent("s1-web", "m1", AgentState::Blocked),
+                agent("s1-api", "m1", AgentState::Working),
+                // same stack name on another machine: a different root
+                agent("s1-ops", "m2", AgentState::Dead),
+                // another stack on the same machine
+                agent("s2-lead", "m1", AgentState::Idle),
+            ],
+            ..Default::default()
+        };
+        let mut metrics = Metrics::default();
+        activity(&mut metrics, "s1-lead", 3);
+        activity(&mut metrics, "s1-web", 2);
+        activity(&mut metrics, "s1-ops", 5); // m2: must not count
+        activity(&mut metrics, "s2-lead", 7); // s2: must not count
+
+        let p = stack_panel(&snap, &metrics, "m1", "s1", NOW).unwrap();
+        assert_eq!(p.name, "s1");
+        assert_eq!(p.machine, "m1-host", "machine display name, not id");
+        assert_eq!(p.agents, 3);
+        assert_eq!(p.agent_names, ["s1-lead", "s1-web", "s1-api"]);
+        // legend order, non-zero only: no idle/dead from other roots
+        assert_eq!(
+            p.states,
+            [(AgentState::Working, 2), (AgentState::Blocked, 1)]
+        );
+        // activity and the sparkline sum across the stack's agents only
+        assert_eq!(p.activity, 5);
+        assert_eq!(p.series.iter().sum::<u32>(), 5);
+    }
+
+    #[test]
+    fn stack_panel_is_none_for_an_unknown_pair() {
+        let snap = Snapshot {
+            machines: vec![machine("m1")],
+            agents: vec![agent("s1-lead", "m1", AgentState::Idle)],
+            ..Default::default()
+        };
+        let metrics = Metrics::default();
+        assert!(stack_panel(&snap, &metrics, "m1", "s9", NOW).is_none());
+        assert!(stack_panel(&snap, &metrics, "m9", "s1", NOW).is_none());
+    }
+
+    #[test]
+    fn stack_panel_names_an_unknown_machine_by_its_id() {
+        // the agent's machine row is gone (removed node): still opens
+        let snap = Snapshot {
+            agents: vec![agent("pi", "gone", AgentState::Idle)],
+            ..Default::default()
+        };
+        let p = stack_panel(&snap, &Metrics::default(), "gone", "pi", NOW).unwrap();
+        assert_eq!(p.machine, "gone");
+        assert_eq!(p.name, "pi", "a no-dash name is its own stack");
     }
 }
