@@ -43,10 +43,26 @@ impl Ui {
         Ok(model::cloud(&snap, &self.metrics.lock(), now))
     }
 
-    async fn panel(&self, agent_id: &str) -> anyhow::Result<Option<model::Panel>> {
+    /// The selected node's panel: `agent:<id>` or `stack:<machine>/<stack>`
+    /// (D§12.1); anything else — including a bare agent id in an old
+    /// tab — is closed-panel. Validated by lookup, like before.
+    async fn panel(&self, selection: &str) -> anyhow::Result<Option<model::PanelKind>> {
         let snap = self.source.snapshot().await?;
         let now = self.source.now();
-        Ok(model::panel(&snap, &self.metrics.lock(), agent_id, now))
+        let metrics = self.metrics.lock();
+        Ok(if let Some(id) = selection.strip_prefix("agent:") {
+            model::panel(&snap, &metrics, id, now).map(model::PanelKind::Agent)
+        } else if let Some(root) = selection.strip_prefix("stack:") {
+            // <machine>/<stack>: the first `/` splits — stack names
+            // never contain one (they come from agent names)
+            match root.split_once('/') {
+                Some((machine, stack)) => model::stack_panel(&snap, &metrics, machine, stack, now)
+                    .map(model::PanelKind::Stack),
+                None => None,
+            }
+        } else {
+            None
+        })
     }
 
     /// Wait for newly applied events (then let the burst settle) or `max`.

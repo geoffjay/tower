@@ -113,6 +113,10 @@ body {
 .dot.unknown {
   background: var(--unknown);
 }
+/* the stack panel's heading dot: the root's own color, no state */
+.dot.stack {
+  background: var(--dim);
+}
 
 #cloud {
   flex: 1;
@@ -171,6 +175,15 @@ body {
   stroke: var(--bg);
   stroke-width: 2;
   opacity: 0.9;
+}
+/* stack roots are clickable: they open the stack panel (D§12.1) */
+.root {
+  cursor: pointer;
+}
+.root:hover .root-core,
+.root[data-selected] .root-core {
+  fill: var(--hi);
+  stroke: var(--hi);
 }
 .mlink {
   stroke: var(--dim);
@@ -382,6 +395,36 @@ body {
 }
 .quiet {
   color: var(--dim);
+}
+/* stack panel (D§12.1): per-state counts colored by state, and the
+   agent names */
+.panel .st {
+  margin-right: 8px;
+}
+.panel .st.working {
+  color: var(--working);
+}
+.panel .st.blocked {
+  color: var(--blocked);
+}
+.panel .st.idle {
+  color: var(--idle);
+}
+.panel .st.done {
+  color: var(--done);
+}
+.panel .st.dead {
+  color: var(--dead);
+}
+.panel .st.launching {
+  color: var(--launching);
+}
+.panel .st.unknown {
+  color: var(--unknown);
+}
+.panel .names {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
 }
 .offline {
   padding: 40px;

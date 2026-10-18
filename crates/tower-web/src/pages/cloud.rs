@@ -15,7 +15,7 @@ use topcoat::view::*;
 
 use crate::Ui;
 use crate::metrics::BUCKETS;
-use crate::model::{Attention, Cloud, MachineNode, Panel, Point};
+use crate::model::{Attention, Cloud, MachineNode, Panel, PanelKind, Point, StackPanel};
 use crate::shell;
 
 /// Legend order = the D§12.1 color table.
@@ -36,7 +36,9 @@ const PANEL_TICK: Duration = Duration::from_secs(1);
 
 #[page("/ui")]
 pub async fn cloud_page(cx: &Cx) -> Result<impl View> {
-    // the selected agent's id; "" = none. Browser-held: validated by lookup.
+    // the selected node, typed: "" = none, `agent:<id>`, or
+    // `stack:<machine>/<stack>` (D§12.1). Browser-held: validated by
+    // lookup.
     let selected = signal(cx, String::new);
     let for_cloud = selected.clone();
     let for_panel = selected.clone();
@@ -65,16 +67,16 @@ pub async fn cloud_page(cx: &Cx) -> Result<impl View> {
                     let ui = app_context::<Arc<Ui>>(cx);
                     let mut applied = ui.applied.subscribe();
                     // tracked read: a new selection re-renders the page over the socket
-                    let agent = for_panel.get();
+                    let sel = for_panel.get();
                     loop {
                         applied.borrow_and_update();
-                        let model = if agent.is_empty() {
+                        let model = if sel.is_empty() {
                             None
                         } else {
-                            ui.panel(&agent).await.unwrap_or(None)
+                            ui.panel(&sel).await.unwrap_or(None)
                         };
                         let token = emit! { panel_view(model: model, selected: for_panel.clone()) }?;
-                        if agent.is_empty() || !connected(cx) || !ui.wait(&mut applied, PANEL_TICK).await {
+                        if sel.is_empty() || !connected(cx) || !ui.wait(&mut applied, PANEL_TICK).await {
                             break Ok(token);
                         }
                     }
@@ -188,10 +190,16 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
                     <circle class="machine-core" r="11"></circle>
                 </g>
             }
-            // stack roots: small central nodes the points bind to
+            // stack roots: small central nodes the points bind to;
+            // clicking selects the root (stack:<machine>/<stack>), its
+            // panel kind (D§12.1). Roots and points are siblings, so
+            // the click never lands on both.
             #[key(format!("root-{}", r.id.clone()))]
             for r in &model.roots {
-                <g class="root" transform=(format!("translate({:.1} {:.1})", r.x, r.y))>
+                let rid = format!("stack:{}", r.id);
+                <g class="root" transform=(format!("translate({:.1} {:.1})", r.x, r.y))
+                    :data-selected=$(selected.get() == rid)
+                    @click=$(|_e| selected.set(rid.to_owned()))>
                     <title>(format!("{} — {} agent{}", r.name, r.agents, if r.agents == 1 { "" } else { "s" }))</title>
                     <circle class="root-core" r="5"></circle>
                 </g>
@@ -201,7 +209,7 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
             }
             #[key(p.id.clone())]
             for p in model.points {
-                let pid = p.id.clone();
+                let pid = format!("agent:{}", p.id);
                 <g
                     id=(format!("a-{}", p.id))
                     class=(point_class(&p))
@@ -254,52 +262,93 @@ fn spark_bars(series: &[u32; BUCKETS]) -> Vec<(f64, f64)> {
 }
 
 #[component]
-async fn panel_view(model: Option<Panel>, selected: Signal<String>) -> Result<impl View> {
+async fn panel_view(model: Option<PanelKind>, selected: Signal<String>) -> Result<impl View> {
     Ok(view! {
         match model {
             None => <aside id="panel" class="panel closed"></aside>,
-            Some(p) => {
-                <aside id="panel" class=(format!("panel {}", p.state.as_str()))>
-                    <button class="close" title="close (Esc)" @click=$(|_e| selected.set("".to_owned()))>"×"</button>
-                    <h2><i class=(format!("dot {}", p.state.as_str()))></i>(p.name.clone())</h2>
-                    match p.attention {
-                        Attention::Needs => <p class="attn attn-needs">"needs you — answer in the TUI or `tower inbox`"</p>,
-                        Attention::Fault => <p class="attn attn-fault">"recent fault in the last 15 min"</p>,
-                        Attention::None => "",
-                    }
-                    <dl>
-                        <dt>"kind"</dt><dd>(p.kind.clone())</dd>
-                        <dt>"machine"</dt><dd>(p.machine.clone())</dd>
-                        <dt>"state"</dt><dd>(p.state.as_str())</dd>
-                        <dt>"job"</dt>
-                        <dd>
-                            match p.job.clone() {
-                                None => "—",
-                                Some(j) => {
-                                    (j.title)" · "(j.state)
-                                    <span class="lease">" · "(lease_text(j.lease_left_s))</span>
-                                },
-                            }
-                        </dd>
-                        <dt title="messages to or from it per minute, last 5 min">"messages"</dt>
-                        <dd>(format!("{:.1}/min", p.msgs_per_min))</dd>
-                        <dt title="events in the last 5 min (point size)">"activity"</dt>
-                        <dd>(p.activity)</dd>
-                        <dt title="lease, faults, silence (point brightness)">"health"</dt>
-                        <dd>(format!("{:.0}%", p.health * 100.0))</dd>
-                    </dl>
-                    <svg class="spark" viewBox="0 0 150 30" preserveAspectRatio="none">
-                        <title>"events per 10 s, last 5 min"</title>
-                        for (x, h) in spark_bars(&p.series) {
-                            <rect x=(format!("{x:.0}")) y=(format!("{:.1}", 30.0 - h)) width="4" height=(format!("{h:.1}"))></rect>
-                        }
-                    </svg>
-                    match p.snippet.clone() {
-                        Some(s) => <pre class="snippet">(s)</pre>,
-                        None => <p class="quiet">"no recent output"</p>,
-                    }
-                </aside>
-            },
+            Some(PanelKind::Agent(p)) => agent_panel(p: p, selected: selected.clone()),
+            Some(PanelKind::Stack(p)) => stack_panel_view(p: p, selected: selected.clone()),
         }
+    })
+}
+
+#[component]
+async fn agent_panel(p: Panel, selected: Signal<String>) -> Result<impl View> {
+    Ok(view! {
+        <aside id="panel" class=(format!("panel {}", p.state.as_str()))>
+            <button class="close" title="close (Esc)" @click=$(|_e| selected.set("".to_owned()))>"×"</button>
+            <h2><i class=(format!("dot {}", p.state.as_str()))></i>(p.name.clone())</h2>
+            match p.attention {
+                Attention::Needs => <p class="attn attn-needs">"needs you — answer in the TUI or `tower inbox`"</p>,
+                Attention::Fault => <p class="attn attn-fault">"recent fault in the last 15 min"</p>,
+                Attention::None => "",
+            }
+            <dl>
+                <dt>"kind"</dt><dd>(p.kind.clone())</dd>
+                <dt>"machine"</dt><dd>(p.machine.clone())</dd>
+                <dt>"state"</dt><dd>(p.state.as_str())</dd>
+                <dt>"job"</dt>
+                <dd>
+                    match p.job.clone() {
+                        None => "—",
+                        Some(j) => {
+                            (j.title)" · "(j.state)
+                            <span class="lease">" · "(lease_text(j.lease_left_s))</span>
+                        },
+                    }
+                </dd>
+                <dt title="messages to or from it per minute, last 5 min">"messages"</dt>
+                <dd>(format!("{:.1}/min", p.msgs_per_min))</dd>
+                <dt title="events in the last 5 min (point size)">"activity"</dt>
+                <dd>(p.activity)</dd>
+                <dt title="lease, faults, silence (point brightness)">"health"</dt>
+                <dd>(format!("{:.0}%", p.health * 100.0))</dd>
+            </dl>
+            <svg class="spark" viewBox="0 0 150 30" preserveAspectRatio="none">
+                <title>"events per 10 s, last 5 min"</title>
+                for (x, h) in spark_bars(&p.series) {
+                    <rect x=(format!("{x:.0}")) y=(format!("{:.1}", 30.0 - h)) width="4" height=(format!("{h:.1}"))></rect>
+                }
+            </svg>
+            match p.snippet.clone() {
+                Some(s) => <pre class="snippet">(s)</pre>,
+                None => <p class="quiet">"no recent output"</p>,
+            }
+        </aside>
+    })
+}
+
+/// A stack root's panel (D§12.1): roll-up of the stack's agents —
+/// machine, state breakdown, aggregate rate, and the agent names (the
+/// selection kind `stack:<machine>/<stack>`).
+#[component]
+async fn stack_panel_view(p: StackPanel, selected: Signal<String>) -> Result<impl View> {
+    Ok(view! {
+        <aside id="panel" class="panel stack">
+            <button class="close" title="close (Esc)" @click=$(|_e| selected.set("".to_owned()))>"×"</button>
+            <h2><i class="dot stack"></i>(p.name.clone())</h2>
+            <dl>
+                <dt>"machine"</dt><dd>(p.machine.clone())</dd>
+                <dt>"agents"</dt><dd>(p.agents)</dd>
+                <dt title="how many agents per state, non-zero only">"states"</dt>
+                <dd>
+                    for (s, n) in &p.states {
+                        <span class=(format!("st {}", s.as_str()))>(format!("{} {}", n, s.as_str()))" "</span>
+                    }
+                </dd>
+                <dt title="events across the stack's agents in the last 5 min">"activity"</dt>
+                <dd>(p.activity)</dd>
+                <dt title="messages to/from the stack's agents per minute, last 5 min">"messages"</dt>
+                <dd>(format!("{:.1}/min", p.msgs_per_min))</dd>
+            </dl>
+            <svg class="spark" viewBox="0 0 150 30" preserveAspectRatio="none">
+                <title>"events per 10 s, last 5 min, summed across the stack"</title>
+                for (x, h) in spark_bars(&p.series) {
+                    <rect x=(format!("{x:.0}")) y=(format!("{:.1}", 30.0 - h)) width="4" height=(format!("{h:.1}"))></rect>
+                }
+            </svg>
+            <p class="quiet">"agents"</p>
+            <p class="names">(p.agent_names.join(", "))</p>
+        </aside>
     })
 }
