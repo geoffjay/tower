@@ -210,7 +210,16 @@ pub(crate) const ZOOM_JS: &str = r#"
   var svg = document.getElementById('cloud');
   if (!svg) return;
   var base = null; // the server's fit frame, replaced on each morph
-  var view = null; // the effective frame: base narrowed by the zoom
+
+  // Label culling (D§12.1): a label is up to LABEL_MAX (12) chars of
+  // 8px font ≈ 58 px wide, while the layout keeps points MIN_DIST
+  // (2·(18+7)+6 = 56) user units apart — at scale s the on-screen
+  // separation is 56·s px, so labels collide below s ≈ 58/56 ≈ 1.04.
+  // Hide below HIDE, restore above SHOW > HIDE (hysteresis): the gap
+  // spans more than one wheel step (~1.03·), so the boundary can't
+  // flicker, and hover tooltips still identify every point.
+  var HIDE = 0.9, SHOW = 1.1;
+
 
   // viewBox "x y w h" -> {x, y, w, h}; null when absent or malformed
   function parse(s) {
@@ -227,6 +236,7 @@ pub(crate) const ZOOM_JS: &str = r#"
     // observer never loops and never rebases its own zoom away
     if (svg.getAttribute('viewBox') !== viewBox())
       svg.setAttribute('viewBox', viewBox());
+    cull();
   }
 
   // narrow the view by k around anchor (ax, ay) in view coordinates;
@@ -240,6 +250,14 @@ pub(crate) const ZOOM_JS: &str = r#"
   }
   function scale() {
     return base ? base.w / view.w : 1;
+  }
+  // hide/restore the point labels per the current scale (D§12.1):
+  // called after every zoom step and every morph rebase, so the cull
+  // always matches what is on screen
+  function cull() {
+    var hidden = svg.classList.contains("labels-hidden");
+    if (!hidden && scale() < HIDE) svg.classList.add("labels-hidden");
+    else if (hidden && scale() > SHOW) svg.classList.remove("labels-hidden");
   }
 
   // a server morph replaced the viewBox with a fresh fit frame: adopt
@@ -316,6 +334,7 @@ pub(crate) const ZOOM_JS: &str = r#"
     view = { x: first.x, y: first.y, w: first.w, h: first.h };
   }
   rebase();
+  cull();
 })();
 "#;
 
