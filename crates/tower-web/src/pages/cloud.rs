@@ -80,6 +80,7 @@ pub async fn cloud_page(cx: &Cx) -> Result<impl View> {
                     }
                 })
                 (shell::palette(cx)?)
+                (shell::zoom_script())
             </body>
         </html>
     })
@@ -220,6 +221,7 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
                 <text class="empty" x="500" y="320">"no agents yet — tower spawn NAME --kind K"</text>
             }
         </svg>
+        (shell::zoom_controls())
         <footer class="ribbon">
             #[key(r.seq)]
             for (i, r) in model.ribbon.into_iter().enumerate() {

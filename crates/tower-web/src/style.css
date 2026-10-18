@@ -123,6 +123,32 @@ body {
 #cloud .bg {
   fill: transparent;
 }
+/* zoom controls (D§12.3): fixed overlay in the cloud's bottom-left
+   corner, above the ribbon — same positioning story as .panel */
+.zoom {
+  position: fixed;
+  bottom: 44px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.zoom button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.zoom button:hover {
+  color: var(--fg);
+  border-color: var(--hi);
+}
 .cluster {
   fill: var(--dim);
   font-size: 13px;
