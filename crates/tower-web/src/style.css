@@ -284,6 +284,11 @@ body {
   stroke: var(--hi);
   stroke-width: 2;
 }
+/* label culling (D§12.1): the zoom script hides all point labels below
+   the zoom-scale threshold — hover tooltips still identify points */
+#cloud.labels-hidden .pt .label {
+  display: none;
+}
 
 .ribbon {
   display: flex;

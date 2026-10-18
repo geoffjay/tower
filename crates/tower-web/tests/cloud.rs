@@ -341,6 +341,19 @@ async fn cloud_page_wires_the_zoom_script_and_controls() {
 }
 
 #[tokio::test]
+async fn zoom_out_culls_point_labels_below_the_threshold() {
+    let fx = Fixture::new(roster(2));
+    let app = tower_web::router(fx.clone());
+    let (_, _, html) = get(&app, "/ui").await;
+    // the cull ships in the zoom script: hysteresis thresholds and the
+    // class it toggles, matched by the CSS rule that hides the labels
+    assert!(html.contains("labels-hidden"), "{}", html);
+    assert!(html.contains("HIDE = 0.9, SHOW = 1.1"), "{}", html);
+    // cluster labels and tooltips are not culled: only .pt .label hides
+    assert!(html.contains("#cloud.labels-hidden .pt .label"), "{}", html);
+}
+
+#[tokio::test]
 async fn mixed_states_render_color_halo_and_brightness() {
     let states = [
         ("w", AgentState::Working),
