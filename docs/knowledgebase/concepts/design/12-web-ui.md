@@ -53,7 +53,9 @@ comes in kinds per selection kind (the selection signal carries
   agent panels already show — no new depth.
 - **Machine panel** (a machine node clicked): machine name, role,
   address, connection status, last seen, agent count, the stacks running
-  on it, and a per-state rollup of its agents (#25, backlog).
+  on it, and a per-state rollup of its agents. The heading dot takes the
+  node's connection color (online `done`, otherwise `dead`); an offline
+  machine still opens, with a stale last-seen age and its agents listed.
 
 That is the extent of drill-down in v1 — full detail lives in the TUI,
 by design.
