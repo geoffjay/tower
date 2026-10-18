@@ -96,11 +96,17 @@ PR_URL=$(gh pr create --repo "$REPO" --base main --head "$BRANCH" \
 echo "$PR_URL"
 
 step "watch PR checks"
-# checks take a few seconds to register on a fresh PR
+# checks take a few seconds to register on a fresh PR. Count them via JSON:
+# `gh pr checks` exits non-zero while none exist, which breaks pipes under
+# pipefail and makes `--watch` fail immediately.
+CHECKS=0
 for _ in $(seq 1 30); do
-  gh pr checks "$PR_URL" 2>&1 | grep -q "no checks reported" || break
+  CHECKS=$(gh pr view "$PR_URL" --json statusCheckRollup -q '.statusCheckRollup | length')
+  [[ "$CHECKS" -gt 0 ]] && break
   sleep 5
 done
+[[ "$CHECKS" -gt 0 ]] || die "no checks registered on $PR_URL after 150s; merge it, then:
+  git switch main && git pull && git tag $TAG && git push origin $TAG"
 gh pr checks "$PR_URL" --watch
 
 step "wait for merge"
