@@ -40,7 +40,7 @@ Conventions:
 | `POST /v1/agents/{id}/prompt` | `{text, wait?}` | `herdr agent prompt --wait`; creates `prompt` message + task if `task_title` |
 | `POST /v1/agents/{id}/interrupt` | — | `ctrl+c` via send-keys |
 | `POST /v1/agents/{id}/send-keys` | `{keys}` | escape hatch (power users) |
-| `POST /v1/agents/{id}/stop` | `{remove?}` | stop session; keep agent row (seat) |
+| `POST /v1/agents/{id}/stop` | `{remove?}` | stop session; keep agent row (seat). `remove` deletes the row and its worktree when clean; the response carries `worktree: {path, removed, reason?}` when the agent had one ([§9.2](09-server-modules.md)) |
 | `POST /v1/messages` | `{to, kind, parts, task_id?, deadline_s?}` | unified send (any direction) |
 | `POST /v1/messages/{id}/respond` | `{parts}` | answer/question or approval-response; sets `responded_at` |
 | `POST /v1/messages/{id}/dismiss` | — | operator-only: close as `dismissed` without notifying the sender; sets `responded_at`; CAS on `pending` (409 otherwise) |

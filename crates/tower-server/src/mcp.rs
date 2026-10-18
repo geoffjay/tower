@@ -175,8 +175,12 @@ async fn call_tool(
             operator_only(caller, "stop agents")?;
             let target: String = req_arg(args, "name")?;
             let remove = arg::<bool>(args, "remove")?.unwrap_or(false);
-            crate::sessions::stop(state, &target, remove).await?;
-            json!({ "ok": true })
+            let o = crate::sessions::stop(state, &target, remove).await?;
+            let mut v = json!({ "ok": true });
+            if let Some(w) = o.worktree {
+                v["worktree"] = json!(w);
+            }
+            v
         }
         "tower_inbox" => {
             // an agent reads what was sent to it; the operator reads `me`

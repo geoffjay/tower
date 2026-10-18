@@ -30,8 +30,8 @@ struct Inner {
     stall_prompts: bool,
     /// Scripted events for `events()`; drained by the pump in tests.
     scripted: std::collections::VecDeque<HarnessEvent>,
-    /// Recorded spawn specs: (name, args)
-    spawns: Vec<(String, Vec<String>)>,
+    /// Recorded `start` specs, in call order.
+    specs: Vec<AgentSpec>,
     /// Panes whose agent died but the pane lives on (a shell prompt):
     /// resume can relaunch there.
     dead_panes: Vec<DeadPane>,
@@ -166,7 +166,17 @@ impl FakeHarness {
 
     /// Recorded spawn specs: (name, args) per `start` call.
     pub fn spawns(&self) -> Vec<(String, Vec<String>)> {
-        self.inner.lock().spawns.clone()
+        self.inner
+            .lock()
+            .specs
+            .iter()
+            .map(|s| (s.name.clone(), s.args.clone()))
+            .collect()
+    }
+
+    /// Recorded `start` specs in full (workdir, env, pane, …).
+    pub fn specs(&self) -> Vec<AgentSpec> {
+        self.inner.lock().specs.clone()
     }
 }
 
@@ -221,7 +231,7 @@ impl Harness for FakeHarness {
                 pane
             }
         };
-        i.spawns.push((spec.name.clone(), spec.args.clone()));
+        i.specs.push(spec.clone());
         let name = spec.name.clone();
         let kind = spec.kind.clone();
         // a resumed pane may already have the agent under an old id; drop it

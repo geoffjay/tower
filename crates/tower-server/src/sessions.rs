@@ -92,10 +92,18 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
         args.push(m.clone());
     }
 
+    // worktree isolation (D§9.2): made before the harness starts, which then
+    // runs in it; no fallback to the main checkout when it can't be made
+    let worktree = if req.worktree {
+        Some(make_worktree(req.workdir.as_deref(), &req.name)?)
+    } else {
+        None
+    };
+
     let spec = AgentSpec {
         name: req.name.clone(),
         kind: kind.clone(),
-        workdir: req.workdir.clone(),
+        workdir: worktree.clone().or_else(|| req.workdir.clone()),
         args,
         env,
         pane: None,
@@ -106,19 +114,6 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
     let machine = crate::inventory::ensure_local_machine(state).await?;
     let now = tower_core::now_ms();
     let perms = req.permissions.unwrap_or_else(|| "default".into());
-
-    // worktree isolation (best-effort; workdir must be a git repo)
-    let worktree = if req.worktree {
-        match make_worktree(req.workdir.as_deref()) {
-            Ok(p) => Some(p),
-            Err(e) => {
-                tracing::warn!(error = %e, "worktree creation failed; using workdir");
-                None
-            }
-        }
-    } else {
-        None
-    };
 
     // per-agent args only (the per-kind [harness.<kind>] args defaults are
     // applied at spawn, not stored — they are config, not row state)
@@ -223,7 +218,8 @@ async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
     let spec = AgentSpec {
         name: req.name.clone(),
         kind: kind.clone(),
-        workdir: row.workdir.clone(),
+        // an isolated agent relaunches in its worktree (D§9.2)
+        workdir: row.worktree.clone().or_else(|| row.workdir.clone()),
         args,
         env,
         pane: row.pane_id.clone(),
@@ -259,22 +255,85 @@ async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
         .expect("row exists"))
 }
 
-fn make_worktree(workdir: Option<&str>) -> anyhow::Result<String> {
-    let dir = workdir.ok_or_else(|| anyhow::anyhow!("workdir required for worktree"))?;
-    let name = format!(".worktrees/{}", tower_core::new_id().to_lowercase());
+/// Run git in `dir`: stdout, or an error carrying git's own message.
+fn git(dir: &str, args: &[&str]) -> anyhow::Result<String> {
+    let what = args.iter().take(2).copied().collect::<Vec<_>>().join(" ");
     let out = std::process::Command::new("git")
-        .args(["worktree", "add", "--detach"])
-        .arg(&name)
+        .args(args)
         .current_dir(dir)
         .output()
-        .map_err(|e| anyhow::anyhow!("git worktree add: {e}"))?;
+        .map_err(|e| anyhow::anyhow!("git {what}: {e}"))?;
     if !out.status.success() {
         anyhow::bail!(
-            "git worktree add failed: {}",
-            String::from_utf8_lossy(&out.stderr)
+            "git {what}: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    Ok(format!("{dir}/{name}"))
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The agent's worktree, `<workdir>/.worktrees/<name>` (D§9.2): reused when
+/// it is already a worktree of the workdir's repository (a re-created agent
+/// keeps its files and branches), else added on a detached HEAD at the
+/// workdir's current commit. Errors carry git's message.
+fn make_worktree(workdir: Option<&str>, name: &str) -> anyhow::Result<String> {
+    let dir =
+        workdir.ok_or_else(|| anyhow::anyhow!("--worktree needs a workdir (a git checkout)"))?;
+    // the name becomes one path component under .worktrees/
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+        anyhow::bail!("agent name {name:?} can't name a worktree directory");
+    }
+    let path = format!("{}/.worktrees/{name}", dir.trim_end_matches('/'));
+    if is_worktree_of(dir, &path)? {
+        return Ok(path);
+    }
+    git(dir, &["worktree", "add", "--detach", &path])?;
+    Ok(path)
+}
+
+/// Whether `path` is a registered worktree of `dir`'s repository (paths
+/// compared canonically: macOS reports /tmp as /private/tmp).
+fn is_worktree_of(dir: &str, path: &str) -> anyhow::Result<bool> {
+    let Ok(want) = std::fs::canonicalize(path) else {
+        return Ok(false);
+    };
+    let list = git(dir, &["worktree", "list", "--porcelain"])?;
+    Ok(list
+        .lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .any(|p| std::fs::canonicalize(p).is_ok_and(|p| p == want)))
+}
+
+/// What `stop --remove` did with the agent's worktree (D§9.2).
+#[derive(Debug, serde::Serialize)]
+pub struct WorktreeCleanup {
+    pub path: String,
+    pub removed: bool,
+    /// Why it was kept: git's message (modified or untracked files, …).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// `git worktree remove` without `--force`: git itself refuses a worktree
+/// with modified or untracked files, and that refusal is the reason kept.
+fn remove_worktree(workdir: Option<&str>, path: &str) -> WorktreeCleanup {
+    let kept = |reason: String| WorktreeCleanup {
+        path: path.to_string(),
+        removed: false,
+        reason: Some(reason),
+    };
+    // run from the main checkout, not from inside the worktree itself
+    let Some(dir) = workdir else {
+        return kept("no workdir recorded for this agent".into());
+    };
+    match git(dir, &["worktree", "remove", path]) {
+        Ok(_) => WorktreeCleanup {
+            path: path.to_string(),
+            removed: true,
+            reason: None,
+        },
+        Err(e) => kept(e.to_string()),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -366,7 +425,14 @@ pub async fn read(state: &AppState, name: &str, ansi: bool) -> anyhow::Result<St
     Ok(state.driver.read(&agent.name, source, ansi).await?.text)
 }
 
-pub async fn stop(state: &AppState, name: &str, remove: bool) -> anyhow::Result<()> {
+/// What `stop` did beyond ending the session.
+#[derive(Debug, Default)]
+pub struct StopOutcome {
+    /// `remove` on an agent with a worktree: removed, or kept and why.
+    pub worktree: Option<WorktreeCleanup>,
+}
+
+pub async fn stop(state: &AppState, name: &str, remove: bool) -> anyhow::Result<StopOutcome> {
     let agent = crate::inventory::get_agent(state, name)
         .await?
         .ok_or_else(|| TowerError::not_found(format!("agent {name} not found")))?;
@@ -402,23 +468,28 @@ pub async fn stop(state: &AppState, name: &str, remove: bool) -> anyhow::Result<
                 serde_json::json!({"name": agent.name}),
             )
             .await?;
-    } else {
-        sqlx::query("UPDATE agents SET state='dead', pane_id=NULL, updated_at=?1 WHERE id=?2")
-            .bind(tower_core::now_ms())
-            .bind(agent.id.0.as_str())
-            .execute(&state.pool)
-            .await?;
-        state
-            .events
-            .append(
-                tower_core::EventKind::AgentStateChange,
-                Some("agent"),
-                Some(&agent.id.0),
-                serde_json::json!({"from": agent.state.as_str(), "to": "dead"}),
-            )
-            .await?;
+        // after the pane is gone, so nothing runs in the worktree any more
+        let worktree = agent
+            .worktree
+            .as_deref()
+            .map(|path| remove_worktree(agent.workdir.as_deref(), path));
+        return Ok(StopOutcome { worktree });
     }
-    Ok(())
+    sqlx::query("UPDATE agents SET state='dead', pane_id=NULL, updated_at=?1 WHERE id=?2")
+        .bind(tower_core::now_ms())
+        .bind(agent.id.0.as_str())
+        .execute(&state.pool)
+        .await?;
+    state
+        .events
+        .append(
+            tower_core::EventKind::AgentStateChange,
+            Some("agent"),
+            Some(&agent.id.0),
+            serde_json::json!({"from": agent.state.as_str(), "to": "dead"}),
+        )
+        .await?;
+    Ok(StopOutcome::default())
 }
 
 /// Row → Agent for the sessions API responses.

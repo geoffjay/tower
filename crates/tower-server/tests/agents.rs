@@ -492,3 +492,151 @@ async fn resume_and_adopt_refuse_a_row_that_is_not_dead() {
         assert_eq!(status, StatusCode::CONFLICT, "{v}");
     }
 }
+
+/// A git checkout in a temp dir with one commit (identity via -c: CI
+/// runners have no git user configured).
+fn git_repo() -> tempfile::TempDir {
+    let dir = tempfile::Builder::new()
+        .prefix("tower-wt")
+        .tempdir()
+        .unwrap();
+    for args in [
+        &["init", "-q"][..],
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ][..],
+    ] {
+        git(dir.path(), args);
+    }
+    dir
+}
+
+fn git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// Issue #2: the harness runs in the worktree, a re-created agent reuses it,
+/// and `stop --remove` removes it only when clean.
+#[tokio::test]
+async fn worktree_spawn_runs_the_harness_in_the_worktree_and_reuses_it() {
+    let (state, harness, _d) = boot(FakeHarness::new()).await;
+    let app = router(state);
+    let repo = git_repo();
+    let workdir = repo.path().to_str().unwrap().to_string();
+    let expected = format!("{workdir}/.worktrees/wt");
+    let spawn = serde_json::json!({
+        "name": "wt", "kind": "pi", "workdir": workdir, "worktree": true,
+    });
+
+    let (status, v) = json_req(&app, "POST", "/v1/agents", Some(spawn.clone())).await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    // the harness starts in the worktree, and the row reports the same path
+    assert_eq!(
+        harness.specs()[0].workdir.as_deref(),
+        Some(expected.as_str())
+    );
+    assert_eq!(v["agent"]["worktree"], expected);
+    assert_eq!(v["agent"]["workdir"], workdir);
+    let wt = std::path::Path::new(&expected);
+    assert_eq!(
+        git(wt, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "HEAD",
+        "detached HEAD"
+    );
+
+    // a dirty worktree survives `stop --remove`, with git's reason
+    std::fs::write(wt.join("notes.txt"), "work in progress").unwrap();
+    let (status, v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents/wt/stop",
+        Some(serde_json::json!({"remove": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["worktree"]["removed"], false, "{v}");
+    assert!(
+        v["worktree"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("untracked"),
+        "{v}"
+    );
+    assert!(wt.join("notes.txt").exists());
+
+    // re-creating the agent reuses its worktree and its files
+    let (status, v) = json_req(&app, "POST", "/v1/agents", Some(spawn)).await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(
+        harness.specs()[1].workdir.as_deref(),
+        Some(expected.as_str())
+    );
+    assert!(wt.join("notes.txt").exists());
+
+    // once clean, `stop --remove` removes it from disk and from git
+    std::fs::remove_file(wt.join("notes.txt")).unwrap();
+    let (status, v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents/wt/stop",
+        Some(serde_json::json!({"remove": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["worktree"]["removed"], true, "{v}");
+    assert!(!wt.exists());
+    assert!(!git(repo.path(), &["worktree", "list"]).contains(".worktrees/wt"));
+}
+
+#[tokio::test]
+async fn worktree_that_cannot_be_created_fails_the_spawn() {
+    let (state, harness, _d) = boot(FakeHarness::new()).await;
+    let app = router(state.clone());
+    let not_git = tempfile::Builder::new()
+        .prefix("tower-nogit")
+        .tempdir()
+        .unwrap();
+    let repo = git_repo();
+    for (body, why) in [
+        (
+            serde_json::json!({"name": "x", "workdir": not_git.path(), "worktree": true}),
+            "not a git repository",
+        ),
+        (
+            serde_json::json!({"name": "x", "worktree": true}),
+            "needs a workdir",
+        ),
+        (
+            serde_json::json!({"name": "../x", "workdir": repo.path(), "worktree": true}),
+            "can't name a worktree directory",
+        ),
+    ] {
+        let (status, v) = json_req(&app, "POST", "/v1/agents", Some(body)).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{v}");
+        assert!(v["error"]["message"].as_str().unwrap().contains(why), "{v}");
+    }
+    // no fallback to the main checkout: nothing started, no row
+    assert!(harness.specs().is_empty());
+    assert!(tower_server::inventory::get_agent(&state, "x")
+        .await
+        .unwrap()
+        .is_none());
+}
