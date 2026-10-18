@@ -24,9 +24,9 @@ text. Drill-down is deliberately minimal and optional.
 
 ## 12.1 The agent cloud (primary view)
 
-Agents rendered as **points in a 2D cloud** (server-side deterministic layout,
-[§12.3](#123-technology); agents gather around their machine's hub, spread on
-a golden-angle spiral, repulsion passes keep points apart):
+Agents rendered as **points in a 2D cloud** (server-side deterministic
+layout, [§12.3](#123-technology); agents gather around their stack's root
+node, spread on a golden-angle spiral, repulsion passes keep points apart):
 
 | Visual channel | Encodes |
 |---|---|
@@ -34,7 +34,8 @@ a golden-angle spiral, repulsion passes keep points apart):
 | Point **size** | activity volume — event/message/output rate over a rolling window (bigger = busier) |
 | Point **halo/pulse** | attention needed: blocked or expired items glow/pulse |
 | Point **brightness** | health/quality score (recency of heartbeats/stale detection = dim) |
-| **Machine hub** + spoke lines | each machine is a small central node; thin lines bind its agents' points to it, so multi-machine grouping reads at a glance; the hub carries the machine name as tooltip |
+| **Stack root + spoke lines** | one central node per stack (derived from the `<stack>-<role>` agent-name convention, [operator skills](../../decisions/operator-skills.md)); thin lines bind the stack's agents' points to it, so independent stacks read as disconnected systems; a name with no `-` is its own stack. The root carries the stack name as tooltip |
+| **Machine node** + root links | each machine is a node distinct from stack roots — a hollow circle (stroke, no fill) — sized larger than a stack root, carrying the machine name and agent count as tooltip; the machine's stack roots link to it with a thin line, and its color is the machine's connection status (online = green, offline = red, like the machine strip). Agents never bind to the machine node directly |
 | **Point label** | agent name under the point, truncated to keep neighbors readable; the full name lives in the tooltip and panel |
 | Drift | a slow, small per-point CSS animation (± ~1.5 units, 24–35 s) keeps the cloud alive without hiding the spokes |
 | Edge lines by message volume (backlog) | thickness = traffic between agents; toggleable |

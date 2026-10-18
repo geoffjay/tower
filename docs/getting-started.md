@@ -349,13 +349,15 @@ left off.
 
 The web UI is the **agent cloud** — a single highly graphical page:
 every agent a colored point in a slowly drifting cloud (state = color,
-activity = size, attention = pulsing halo, health = brightness). Each
-machine is a small central node its agents bind to with spoke lines, so
-you can see the grouping at a glance; agent names sit under their points,
-truncated if long (the full name is in the hover tooltip and the floating
-panel for the agent you click). Read-only by design: it answers "who
-needs me right now?" at a glance; configuration and control stay in the
-CLI and TUI.
+activity = size, attention = pulsing halo, health = brightness). Points
+bind with spoke lines to their **stack's root node** — the stack comes
+from the agent name (`<stack>-<role>`), so independent stacks read as
+disconnected systems. Each **machine** is a hollow circle its stacks'
+roots link to, colored by connection status (green online, red offline);
+agent names sit under their points, truncated if long (the full name is
+in the hover tooltip and the floating panel for the agent you click).
+Read-only by design: it answers "who needs me right now?" at a glance;
+configuration and control stay in the CLI and TUI.
 
 ```console
 $ tower ui
