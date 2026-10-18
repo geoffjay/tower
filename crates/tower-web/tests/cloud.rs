@@ -562,7 +562,7 @@ async fn panel_follows_the_selection_and_counts_the_lease_down() {
 
     let addr = free_addr();
     let _server = serve(app, addr).await;
-    let mut ws = connect(addr, serde_json::json!({ sig.clone(): "A_ag01" })).await;
+    let mut ws = connect(addr, serde_json::json!({ sig.clone(): "agent:A_ag01" })).await;
     let panel = frame_where(&mut ws, Duration::from_secs(5), |h| {
         h.contains("id=\"panel\"") && h.contains("ag01")
     })
@@ -585,8 +585,78 @@ async fn panel_follows_the_selection_and_counts_the_lease_down() {
     })
     .await;
 
-    // an id that is not an agent renders no panel
-    let mut ws = connect(addr, serde_json::json!({ sig: "<script>" })).await;
+    // an id that is not an agent renders no panel; neither does a bare
+    // agent id — selections are typed (`agent:` / `stack:`, D§12.1)
+    for junk in ["<script>", "agent:<script>", "A_ag01"] {
+        let mut ws = connect(addr, serde_json::json!({ sig.clone(): junk })).await;
+        frame_where(&mut ws, Duration::from_secs(5), |h| {
+            h.contains("panel closed")
+        })
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn stack_root_selection_opens_the_stack_panel() {
+    let mut snap = Snapshot {
+        machines: vec![machine("local", "coordinator", "online")],
+        agents: [
+            agent("s1-lead", AgentState::Working),
+            agent("s1-web", AgentState::Blocked),
+            agent("s1-api", AgentState::Working),
+            agent("s2-lead", AgentState::Idle),
+        ]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    snap.machines.push(machine("node-a", "node", "offline"));
+    let fx = Fixture::new(snap);
+    // activity for one s1 agent: the panel sums it into the stack's rate
+    fx.push(
+        EventKind::AgentOutput,
+        Some("s1-lead"),
+        serde_json::json!({}),
+    );
+    let app = tower_web::router(fx.clone());
+    let (_, _, html) = get(&app, "/ui").await;
+
+    // each root's click selects `stack:<machine>/<stack>`; points select
+    // `agent:<id>` — the typed selection the panel parses
+    assert!(html.contains("stack:local/s1"), "root click value");
+    assert!(html.contains("stack:local/s2"));
+    assert!(html.contains("agent:A_s1-lead"), "point click value");
+    let sig = selected_signal_id(&html);
+
+    let addr = free_addr();
+    let _server = serve(app, addr).await;
+    let mut ws = connect(addr, serde_json::json!({ sig.clone(): "stack:local/s1" })).await;
+    let frame = frame_where(&mut ws, Duration::from_secs(5), |h| {
+        h.contains("panel stack")
+    })
+    .await;
+    // the frame is the whole page: assert on the panel's <aside> only
+    let at = frame.find("<aside id=\"panel\"").unwrap();
+    let panel = &frame[at..at + frame[at..].find("</aside>").unwrap()];
+    // heading = stack name; machine, agent count, per-state breakdown
+    assert!(
+        panel.contains("<h2><i class=\"dot stack\"></i>s1</h2>"),
+        "{panel}"
+    );
+    assert!(panel.contains("<dd>local</dd>"), "{panel}");
+    assert!(panel.contains("<dd>3</dd>"), "agent count: {panel}");
+    assert!(panel.contains("2 working"), "{panel}");
+    assert!(panel.contains("1 blocked"), "{panel}");
+    assert!(
+        !panel.contains("idle"),
+        "s2's idle agent is not in s1: {panel}"
+    );
+    // the stack's agent names, and none of another stack's
+    assert!(panel.contains("s1-lead, s1-web, s1-api"), "{panel}");
+    assert!(!panel.contains("s2-lead"), "{panel}");
+
+    // an unknown (machine, stack) pair renders no panel
+    let mut ws = connect(addr, serde_json::json!({ sig: "stack:node-a/s1" })).await;
     frame_where(&mut ws, Duration::from_secs(5), |h| {
         h.contains("panel closed")
     })
