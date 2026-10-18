@@ -40,10 +40,23 @@ node, spread on a golden-angle spiral, repulsion passes keep points apart):
 | Drift | a slow, small per-point CSS animation (± ~1.5 units, 24–35 s) keeps the cloud alive without hiding the spokes |
 | Edge lines by message volume (backlog) | thickness = traffic between agents; toggleable |
 
-A **floating side panel** appears when a point is selected: agent name, kind,
-machine, state, current task + lease countdown, message rate, recent event
-sparkline, last output snippet. That is the extent of drill-down in v1 —
-full detail lives in the TUI, by design.
+A **floating side panel** appears when a node is selected, and the panel
+comes in kinds per selection kind (the selection signal carries
+`agent:<id>` / `stack:<machine>/<stack>` / `machine:<machine>`):
+
+- **Agent panel** (a point clicked): agent name, kind, machine, state,
+  current task + lease countdown, message rate, recent event sparkline,
+  last output snippet.
+- **Stack panel** (a stack root clicked): stack name, machine, agent
+  count, per-state breakdown of the stack's agents, aggregate event
+  rate for the window, and the stack's agent names. Roll-up of data the
+  agent panels already show — no new depth.
+- **Machine panel** (a machine node clicked): machine name, role,
+  address, connection status, last seen, agent count, the stacks running
+  on it, and a per-state rollup of its agents (#25, backlog).
+
+That is the extent of drill-down in v1 — full detail lives in the TUI,
+by design.
 
 ## 12.2 Supporting widgets
 
