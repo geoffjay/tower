@@ -68,6 +68,18 @@ full detail lives in the TUI, by design.
   every reconnect sees the same positions; a per-point CSS drift animation
   keeps the cloud alive without client code. State changes animate through
   CSS transitions on morphed elements
+- Zoom (client-side): the server still renders `#cloud`'s viewBox as the
+  fit frame, but a small trusted-static script (the palette-script
+  pattern, §12.5) owns zoom state in the browser: wheel/trackpad zooms
+  toward the cursor and `+`/`−`/reset buttons sit in a corner overlay,
+  clamped (≈0.25×–8×). The effective viewBox is the server frame scaled
+  around an anchor point; a MutationObserver on the viewBox re-applies the
+  zoom after each Topcoat morph, so zoom persists across refreshes
+  without jitter. No free pan in v1; the anchored-zoom translate is
+  internal state. The script changes only the viewport — never positions
+  — so the drift animation, tooltips, and point selection behave
+  identically at every zoom level, and the layout stays server-side and
+  deterministic
 - Data: initial render server-side from the DB; live updates through a
   Topcoat `live!` region on a connected page: the server follows the event
   log (the same `seq` cursor `/v1/events` serves, [D§7](07-server-api.md)) and pushes re-rendered
