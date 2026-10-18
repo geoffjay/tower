@@ -15,7 +15,9 @@ use topcoat::view::*;
 
 use crate::Ui;
 use crate::metrics::BUCKETS;
-use crate::model::{Attention, Cloud, MachineNode, Panel, PanelKind, Point, StackPanel};
+use crate::model::{
+    Attention, Cloud, MachineNode, MachinePanel, Panel, PanelKind, Point, StackPanel,
+};
 use crate::shell;
 
 /// Legend order = the D§12.1 color table.
@@ -182,10 +184,16 @@ async fn cloud_view(model: Cloud, selected: Signal<String>) -> Result<impl View>
                     <line class="mlink" x1=(format!("{:.1}", r.x)) y1=(format!("{:.1}", r.y)) x2=(format!("{:.1}", r.machine_x)) y2=(format!("{:.1}", r.machine_y))></line>
                 }
             }
-            // machine nodes: hollow circles colored by connection status
+            // machine nodes: hollow circles colored by connection status;
+            // clicking selects the machine (machine:<id>), its panel kind
+            // (D§12.1). Roots and points are drawn after, so they stay on
+            // top where they overlap the ring.
             #[key(format!("machine-{}", m.id.clone()))]
             for m in &model.machine_nodes {
-                <g class=(format!("machine{}", if m.online { " online" } else { " offline" })) transform=(format!("translate({:.1} {:.1})", m.x, m.y))>
+                let mid = format!("machine:{}", m.id);
+                <g class=(format!("machine{}", if m.online { " online" } else { " offline" })) transform=(format!("translate({:.1} {:.1})", m.x, m.y))
+                    :data-selected=$(selected.get() == mid)
+                    @click=$(|_e| selected.set(mid.to_owned()))>
                     <title>(machine_tooltip(m))</title>
                     <circle class="machine-core" r="11"></circle>
                 </g>
@@ -268,6 +276,7 @@ async fn panel_view(model: Option<PanelKind>, selected: Signal<String>) -> Resul
             None => <aside id="panel" class="panel closed"></aside>,
             Some(PanelKind::Agent(p)) => agent_panel(p: p, selected: selected.clone()),
             Some(PanelKind::Stack(p)) => stack_panel_view(p: p, selected: selected.clone()),
+            Some(PanelKind::Machine(p)) => machine_panel_view(p: p, selected: selected.clone()),
         }
     })
 }
@@ -349,6 +358,40 @@ async fn stack_panel_view(p: StackPanel, selected: Signal<String>) -> Result<imp
             </svg>
             <p class="quiet">"agents"</p>
             <p class="names">(p.agent_names.join(", "))</p>
+        </aside>
+    })
+}
+
+/// A machine node's panel (D§12.1): the machine row — role, address,
+/// connection status, last seen — and a roll-up of its agents: count,
+/// stacks, per-state breakdown (the selection kind `machine:<machine>`).
+/// The heading dot takes the node's connection color.
+#[component]
+async fn machine_panel_view(p: MachinePanel, selected: Signal<String>) -> Result<impl View> {
+    let dash = |v: Option<String>| v.unwrap_or_else(|| "—".to_owned());
+    Ok(view! {
+        <aside id="panel" class="panel machine">
+            <button class="close" title="close (Esc)" @click=$(|_e| selected.set("".to_owned()))>"×"</button>
+            <h2><i class=(if p.online { "dot done" } else { "dot dead" })></i>(p.name.clone())</h2>
+            <dl>
+                <dt>"role"</dt><dd>(dash(p.role.clone()))</dd>
+                <dt>"address"</dt><dd>(dash(p.address.clone()))</dd>
+                <dt>"status"</dt><dd class=(if p.online { "st done" } else { "st dead" })>(p.status.clone())</dd>
+                <dt title="since the last heartbeat">"last seen"</dt>
+                <dd>(p.last_seen.clone().map_or_else(|| "never".to_owned(), |a| format!("{a} ago")))</dd>
+                <dt>"agents"</dt><dd>(p.agents)</dd>
+                <dt title="how many agents per state, non-zero only">"states"</dt>
+                <dd>
+                    for (s, n) in &p.states {
+                        <span class=(format!("st {}", s.as_str()))>(format!("{} {}", n, s.as_str()))" "</span>
+                    }
+                    if p.states.is_empty() {
+                        "—"
+                    }
+                </dd>
+            </dl>
+            <p class="quiet">"stacks"</p>
+            <p class="names">(if p.stacks.is_empty() { "—".to_owned() } else { p.stacks.join(", ") })</p>
         </aside>
     })
 }
