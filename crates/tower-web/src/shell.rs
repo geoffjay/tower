@@ -194,6 +194,151 @@ pub(crate) fn palette(cx: &topcoat::context::Cx) -> topcoat::Result<topcoat::vie
     .boxed())
 }
 
+/// Cloud zoom wiring, embedded as trusted static JS (the palette-script
+/// pattern, D§12.3 zoom): the server renders `#cloud`'s viewBox as the
+/// fit frame; this script scales that frame around an anchor point —
+/// wheel toward the cursor, `+`/`-`/reset via the `.zoom` overlay (the
+/// buttons live inside a live region and are re-morphed on every
+/// render, so clicks are delegated at the document level). No
+/// `stopPropagation`: the background-click clear-selection and point
+/// clicks keep working. A MutationObserver re-applies the zoom after
+/// each Topcoat morph replaces the server's viewBox, so zoom persists
+/// across refreshes; self-writes are skipped by value.
+pub(crate) const ZOOM_JS: &str = r#"
+(function () {
+  var MIN = 0.25, MAX = 8;
+  var svg = document.getElementById('cloud');
+  if (!svg) return;
+  var base = null; // the server's fit frame, replaced on each morph
+  var view = null; // the effective frame: base narrowed by the zoom
+
+  // viewBox "x y w h" -> {x, y, w, h}; null when absent or malformed
+  function parse(s) {
+    var p = (s || '').split(/\s+/).map(Number);
+    if (p.length !== 4 || p.some(isNaN) || p[2] <= 0 || p[3] <= 0) return null;
+    return { x: p[0], y: p[1], w: p[2], h: p[3] };
+  }
+  function viewBox() {
+    return view.x + ' ' + view.y + ' ' + view.w + ' ' + view.h;
+  }
+  function write() {
+    if (!view) return;
+    // same value = a self-write from an earlier zoom step; skip so the
+    // observer never loops and never rebases its own zoom away
+    if (svg.getAttribute('viewBox') !== viewBox())
+      svg.setAttribute('viewBox', viewBox());
+  }
+
+  // narrow the view by k around anchor (ax, ay) in view coordinates;
+  // k > 1 zooms in. The drift, tooltips, and hit-testing are untouched:
+  // only the viewBox changes, never the positions (D§12.3).
+  function zoomAt(k, ax, ay) {
+    view.x = ax - (ax - view.x) / k;
+    view.y = ay - (ay - view.y) / k;
+    view.w /= k;
+    view.h /= k;
+  }
+  function scale() {
+    return base ? base.w / view.w : 1;
+  }
+
+  // a server morph replaced the viewBox with a fresh fit frame: adopt
+  // it as the new base and re-project the old view onto it, so the
+  // zoom and the anchor stay steady across refreshes. The frames this
+  // script itself writes are skipped by value — only a real server
+  // frame (fit) rebases, or the zoom would compound into the base.
+  function rebase() {
+    var attr = svg.getAttribute('viewBox');
+    if (!view || attr === viewBox()) return; // our own write
+    var fresh = parse(attr);
+    if (!fresh) return;
+    if (!base) { base = fresh; }
+    // fractions of the old base where the old view's center sits
+    var fx = (view.x + view.w / 2 - base.x) / base.w;
+    var fy = (view.y + view.h / 2 - base.y) / base.h;
+    var k = base.w / view.w; // the kept zoom
+    base = fresh;
+    view = { x: fresh.x, y: fresh.y, w: fresh.w, h: fresh.h };
+    zoomAt(k, fresh.x + fx * fresh.w, fresh.y + fy * fresh.h);
+    write();
+  }
+
+  function wheel(e) {
+    e.preventDefault(); // zoom, don't scroll — and never stopPropagation:
+    if (!view) return;   // the bg click (clear selection) must still run
+    // ctrlKey = trackpad pinch; plain wheel zooms in steps. Factor from
+    // gesture speed, capped so one event can never jump far
+    var step = e.ctrlKey ? 1 + Math.min(Math.abs(e.deltaY) / 100, 0.25)
+                         : 1 + Math.min(Math.abs(e.deltaY) / 400, 0.1);
+    var k = e.deltaY < 0 ? step : 1 / step;
+    var next = scale() * k;
+    if (next < MIN || next > MAX) return;
+    // pointer position -> user coordinates, so the zoom centers on it
+    var pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    pt = pt.matrixTransform(svg.getScreenCTM().inverse());
+    zoomAt(k, pt.x, pt.y);
+    write();
+  }
+
+  function button(k) {
+    return function () {
+      if (!view) return;
+      if (k === 0) { view = { x: base.x, y: base.y, w: base.w, h: base.h }; write(); return; } // reset: the fit frame
+      var target = scale() * k;
+      if (target < MIN || target > MAX) return;
+      var c = { x: view.x + view.w / 2, y: view.y + view.h / 2 };
+      zoomAt(target / scale(), c.x, c.y);
+      write();
+    };
+  }
+
+  svg.addEventListener('wheel', wheel, { passive: false });
+  // the buttons live inside a live region (re-morphed every render);
+  // delegate their clicks, like the palette button
+  document.addEventListener('click', function (e) {
+    var z = e.target.closest('[data-zoom-in], [data-zoom-out], [data-zoom-reset]');
+    if (!z) return;
+    if (z.hasAttribute('data-zoom-in')) button(1.35)();
+    else if (z.hasAttribute('data-zoom-out')) button(1 / 1.35)();
+    else button(0)();
+  });
+  new MutationObserver(rebase).observe(svg, {
+    attributes: true,
+    attributeFilter: ['viewBox'],
+  });
+  // boot: adopt the server's first frame as both base and view (a copy:
+  // zooming mutates `view` in place and must never touch `base`)
+  var first = parse(svg.getAttribute('viewBox'));
+  if (first) {
+    base = first;
+    view = { x: first.x, y: first.y, w: first.w, h: first.h };
+  }
+  rebase();
+})();
+"#;
+
+/// The cloud's zoom controls, as one raw node: the `data-*` attributes
+/// are wiring for [ZOOM_JS], delegated like [palette_button]'s are for
+/// [PALETTE_JS]. Rendered inside a live region on the cloud page, so
+/// no state lives here.
+pub(crate) fn zoom_controls() -> Unescaped<&'static str> {
+    Unescaped::new_unchecked(
+        r#"<div class="zoom">
+  <button type="button" data-zoom-in title="zoom in — wheel up or pinch out">+</button>
+  <button type="button" data-zoom-out title="zoom out — wheel down or pinch in">−</button>
+  <button type="button" data-zoom-reset title="reset zoom to fit">⤢</button>
+</div>"#,
+    )
+}
+
+/// The zoom script, as an unescaped node. Trusted static JS — no user
+/// input reaches this (D§12.3 zoom).
+pub(crate) fn zoom_script() -> Unescaped<String> {
+    Unescaped::new_unchecked(format!("<script>{}</script>", ZOOM_JS))
+}
+
 /// JSON array of [COMMANDS] for the palette script. Trusted static data;
 /// embedded in a script literal, so quotes are escaped.
 fn command_json() -> String {

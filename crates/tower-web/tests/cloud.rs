@@ -321,6 +321,26 @@ async fn long_names_get_truncated_labels_but_full_tooltips() {
 }
 
 #[tokio::test]
+async fn cloud_page_wires_the_zoom_script_and_controls() {
+    let fx = Fixture::new(roster(2));
+    let app = tower_web::router(fx.clone());
+    let (_, _, html) = get(&app, "/ui").await;
+    // the zoom script ships with the page and owns the #cloud viewport
+    assert!(html.contains("MutationObserver(rebase)"), "{}", html);
+    assert!(html.contains("data-zoom-in"), "{}", html);
+    assert!(html.contains("data-zoom-out"), "{}", html);
+    assert!(html.contains("data-zoom-reset"), "{}", html);
+    assert!(
+        html.matches("<div class=\"zoom\">").count() == 1,
+        "{}",
+        html
+    );
+    // the server's fit frame is untouched: zoom is client-side only
+    // (D§12.3) — the script rewrites the viewBox in the browser
+    assert!(html.contains("id=\"cloud\" viewBox="), "{}", html);
+}
+
+#[tokio::test]
 async fn mixed_states_render_color_halo_and_brightness() {
     let states = [
         ("w", AgentState::Working),
