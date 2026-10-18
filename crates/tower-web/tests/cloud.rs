@@ -662,3 +662,85 @@ async fn stack_root_selection_opens_the_stack_panel() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn machine_node_selection_opens_the_machine_panel() {
+    let mut snap = Snapshot {
+        machines: vec![
+            machine("local", "coordinator", "online"),
+            machine("node-a", "node", "offline"),
+        ],
+        agents: [
+            agent("s1-lead", AgentState::Working),
+            agent("s2-lead", AgentState::Idle),
+            agent("s1-web", AgentState::Working),
+            agent("s3-ops", AgentState::Dead),
+        ]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    // s3 runs on the offline node
+    snap.agents[3].machine_id = MachineId("node-a".into());
+    let fx = Fixture::new(snap);
+    let app = tower_web::router(fx.clone());
+    let (_, _, html) = get(&app, "/ui").await;
+
+    // each machine node's click selects `machine:<id>`
+    assert!(html.contains("machine:local"), "machine click value");
+    assert!(html.contains("machine:node-a"));
+    let sig = selected_signal_id(&html);
+
+    let addr = free_addr();
+    let _server = serve(app, addr).await;
+    let panel_of = |frame: &str| {
+        // the frame is the whole page: the panel's <aside> only
+        let at = frame.find("<aside id=\"panel\"").unwrap();
+        frame[at..at + frame[at..].find("</aside>").unwrap()].to_owned()
+    };
+
+    let mut ws = connect(addr, serde_json::json!({ sig.clone(): "machine:local" })).await;
+    let panel = panel_of(
+        &frame_where(&mut ws, Duration::from_secs(5), |h| {
+            h.contains("panel machine")
+        })
+        .await,
+    );
+    // heading dot = the node's connection color; role, status, rollup
+    assert!(
+        panel.contains("<h2><i class=\"dot done\"></i>local</h2>"),
+        "{panel}"
+    );
+    assert!(panel.contains("<dd>coordinator</dd>"), "{panel}");
+    assert!(panel.contains(">online</dd>"), "{panel}");
+    assert!(panel.contains("<dd>3</dd>"), "agent count: {panel}");
+    assert!(panel.contains("2 working"), "{panel}");
+    assert!(panel.contains("1 idle"), "{panel}");
+    assert!(!panel.contains("dead"), "node-a's agent: {panel}");
+    // every stack on it, first-seen order; not node-a's
+    assert!(panel.contains("s1, s2"), "{panel}");
+    assert!(!panel.contains("s3"), "{panel}");
+
+    // an offline machine still opens: dead dot, offline status, its agent
+    let mut ws = connect(addr, serde_json::json!({ sig.clone(): "machine:node-a" })).await;
+    let panel = panel_of(
+        &frame_where(&mut ws, Duration::from_secs(5), |h| {
+            h.contains("panel machine")
+        })
+        .await,
+    );
+    assert!(
+        panel.contains("<h2><i class=\"dot dead\"></i>node-a</h2>"),
+        "{panel}"
+    );
+    assert!(panel.contains(">offline</dd>"), "{panel}");
+    assert!(panel.contains("1 dead"), "{panel}");
+    assert!(panel.contains("s3"), "{panel}");
+
+    // an unknown machine renders no panel
+    let mut ws = connect(addr, serde_json::json!({ sig: "machine:nope" })).await;
+    frame_where(&mut ws, Duration::from_secs(5), |h| {
+        h.contains("panel closed")
+    })
+    .await;
+}
