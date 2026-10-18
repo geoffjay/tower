@@ -157,7 +157,13 @@ async fn stop(
 ) -> impl IntoResponse {
     let remove = body.map(|b| b.0.remove).unwrap_or_default();
     match crate::sessions::stop(&state, &id, remove).await {
-        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Ok(o) => {
+            let mut v = serde_json::json!({ "ok": true });
+            if let Some(w) = o.worktree {
+                v["worktree"] = serde_json::json!(w);
+            }
+            Json(v).into_response()
+        }
         Err(e) => crate::http::error_response(e),
     }
 }

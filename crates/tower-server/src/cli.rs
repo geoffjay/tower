@@ -577,12 +577,22 @@ async fn stop(cli: Cli) -> anyhow::Result<()> {
         unreachable!()
     };
     let c = client(cli.token).await?;
-    c.post(
-        &format!("/v1/agents/{name}/stop"),
-        Some(serde_json::json!({"remove": remove})),
-    )
-    .await?;
+    let v = c
+        .post(
+            &format!("/v1/agents/{name}/stop"),
+            Some(serde_json::json!({"remove": remove})),
+        )
+        .await?;
     println!("stopped {name}");
+    let w = &v["worktree"];
+    if let Some(path) = w["path"].as_str() {
+        if w["removed"].as_bool().unwrap_or(false) {
+            println!("  worktree removed {path}");
+        } else {
+            let why = w["reason"].as_str().unwrap_or("unknown reason");
+            println!("  worktree kept {path}: {why}");
+        }
+    }
     Ok(())
 }
 
