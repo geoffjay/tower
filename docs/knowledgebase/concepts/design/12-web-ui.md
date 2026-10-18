@@ -36,7 +36,7 @@ node, spread on a golden-angle spiral, repulsion passes keep points apart):
 | Point **brightness** | health/quality score (recency of heartbeats/stale detection = dim) |
 | **Stack root + spoke lines** | one central node per stack (derived from the `<stack>-<role>` agent-name convention, [operator skills](../../decisions/operator-skills.md)); thin lines bind the stack's agents' points to it, so independent stacks read as disconnected systems; a name with no `-` is its own stack. The root carries the stack name as tooltip |
 | **Machine node** + root links | each machine is a node distinct from stack roots — a hollow circle (stroke, no fill) — sized larger than a stack root, carrying the machine name and agent count as tooltip; the machine's stack roots link to it with a thin line, and its color is the machine's connection status (online = green, offline = red, like the machine strip). Agents never bind to the machine node directly |
-| **Point label** | agent name under the point, truncated to keep neighbors readable; the full name lives in the tooltip and panel |
+| **Point label** | agent name under the point, truncated to keep neighbors readable; the full name lives in the tooltip and panel. Culled by the zoom script (§12.3): below a zoom-scale threshold derived from label pixel width vs the layout's minimum point separation — with hysteresis so the boundary never flickers — the labels hide; hovering still identifies a point via the tooltip |
 | Drift | a slow, small per-point CSS animation (± ~1.5 units, 24–35 s) keeps the cloud alive without hiding the spokes |
 | Edge lines by message volume (backlog) | thickness = traffic between agents; toggleable |
 
