@@ -38,6 +38,20 @@ one herdr reports for the pane) and `continue` start the harness in the
 row's pane — or a fresh pane if it is gone — with the per-kind resume args
 ([§8.4](08-harness-layer.md)); the row is updated in place.
 
+**Worktree isolation** (`spawn --worktree`, issue #2). The worktree is
+`<workdir>/.worktrees/<name>`, created *before* the harness starts, and the
+harness starts in it (`AgentSpec.workdir` = the worktree; the row keeps
+`workdir` = the checkout and `worktree` = the path). A new worktree starts
+on a detached HEAD at the workdir's current commit. An existing worktree at
+that path is reused, so a re-created agent keeps its files and branches.
+If the worktree can't be created (no workdir, not a git checkout, a
+non-worktree directory already at the path, a name that isn't one path
+component), the spawn fails with git's message — there is no fallback to
+the main checkout. `stop --remove` removes the worktree with
+`git worktree remove` when it is clean; one with modified or untracked
+files is kept, and the stop response says so with git's reason.
+`resume`/`continue` relaunch in the worktree.
+
 ## 9.3 messaging
 
 Unified message store + delivery. "Delivery" to a human = the message appears

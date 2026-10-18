@@ -103,7 +103,7 @@ spawned writer
   kind     pi              (detection: herdr manifest "pi")
   machine  local
   workdir  ~/Projects/example
-  worktree ~/Projects/example/.worktrees/writer   (isolated branch)
+  worktree ~/Projects/example/.worktrees/writer   (detached HEAD; the agent runs here)
   state    launching → idle (2.1s)
 
 $ tower spawn backend --kind claude --workdir ~/Projects/example --worktree
@@ -126,7 +126,7 @@ Useful spawn flags:
 |---|---|
 | `--kind pi` / `--kind claude` | harness (any herdr-detected kind works) |
 | `--workdir DIR` | where the agent runs |
-| `--worktree` | isolated git worktree per agent (recommended for coders) |
+| `--worktree` | isolated git worktree per agent at `<workdir>/.worktrees/<name>` (recommended for coders): the agent runs in it, starting on a detached HEAD at the workdir's current commit; re-spawning the same name reuses it; `tower stop <name> --remove` removes it if clean. A worktree that can't be created fails the spawn |
 | `--permissions yolo` | explicit opt-in to full-bypass mode (recorded in events) |
 | `--machine NAME` | spawn on a remote machine (phase 5) |
 | `--name foo` | spawn from the definition `~/.config/tower/agents/foo/` |
@@ -177,6 +177,9 @@ $ tower read backend --source visible --format ansi | less -R
 $ tower prompt backend 'stop what you are doing'   # also: interrupt
 $ tower stop writer           # stop the session; the agent row survives
 $ tower spawn writer --adopt  # a "seat": same name, same identity, new session
+$ tower stop writer --remove  # delete the agent; its worktree goes too if clean
+stopped writer
+  worktree removed ~/Projects/example/.worktrees/writer
 ```
 
 ## 6. Questions and approvals find you
