@@ -42,7 +42,11 @@ generated:
    (jev vs laya — both have Rust libraries; laya can run locally as a GGUF
    via ollama/llama.cpp), and how the orchestrator's still-working checks
    are rate-limited — after the job-queue primitive is proven (phase 2);
-   see the [job-queue decision](../../decisions/job-queue.md).
+   see the [job-queue decision](../../decisions/job-queue.md). Proposed
+   answer: no fixed model — any endpoint speaking the System One API,
+   optional, no still-working pings (the lease answers liveness); resolved
+   by [phase 7](../../plans/phase-7-decision-models.md) per the
+   [decision-models decision](../../decisions/decision-models.md).
 9. Supervisor agent for fleet self-governance: whether tower needs a
    dedicated agent (possibly pi with custom extensions, surfaced as a
    distinct harness type) that watches the fleet — decides context
@@ -53,4 +57,6 @@ generated:
    hold the job, the brief is restated per delivery. Revisit when fleet
    self-governance (auto-assign, compaction control) is wanted; the
    [job-queue decision](../../decisions/job-queue.md) already reserves an
-   orchestrator role that may absorb this.
+   orchestrator role that may absorb this. Auto-assign and question triage
+   move to [phase 7](../../plans/phase-7-decision-models.md) (decision
+   models); compaction and reset control stay open.

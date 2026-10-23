@@ -11,4 +11,5 @@ Plans for the tower project.
 * [Phase 4 — Web UI](phase-4-web-ui.md) - read-only agent cloud via Topcoat.
 * [Phase 5 — Multi-machine](phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.
 * [Phase 6 — A2A edge](phase-6-a2a-edge.md) - Agent Card + A2A delegation.
+* [Phase 7 — Decision models](phase-7-decision-models.md) - not started; optional System One decision layer: dispatch ranking, inbox triage, question routing, shadow mode first.
 * [Release management](release-management.md) - tag-push releases: CI gate, cross-platform tarballs, Homebrew tap, AUR.

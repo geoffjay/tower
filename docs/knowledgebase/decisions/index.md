@@ -10,5 +10,6 @@ Decisions for the tower project.
 * [Scheduled jobs](scheduled-jobs.md) - reserved delivery when an agent is free, `not_before`, cron schedules with skip / replace / coalesce / pause policies.
 * [Operator skills](operator-skills.md) - five repo-local skills drive the CLI so an agent can operate tower; a stack is a naming convention; MCP gains stop, cancel, inbox, schedule show.
 * [Job queue dispatch](job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
+* [Decision models](decision-models.md) - proposed: optional System One decision layer in `tower serve` (any compatible endpoint, off by default), hard rules in code, shadow/suggest/act modes, every call recorded; approvals never model-decided.
 * [Web UI](web-ui.md) - Topcoat bridged into the axum app under `/ui`, live regions over Topcoat's WebSocket, server-side layout, derived read-only UI token.
 * [Multi-domain operation](multi-domain-operation.md) - accepted: phased build — herdr plugin (switcher + overview board), tower-primed pi agent via launch recipe, pi-durable deferred; control-session workflow with one tower server driving multiple herdr sessions (driver session binding + multi-session inventory as prerequisites).
