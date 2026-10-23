@@ -154,7 +154,8 @@ and web inbox surfaces from phases 3–4 (both complete).
 
 - Supervisor/controller agent for fleet self-governance (compaction,
   context reset, question triage, hold policy) — [design §17.9](../concepts/design/17-open-questions.md);
-  likely orchestrator-role, not a harness fork.
+  likely orchestrator-role, not a harness fork. Auto-assign and question
+  triage → [phase 7](phase-7-decision-models.md).
 - Harness-hook injection (claude `SessionStart`, pi extensions) — only if
   restatement inside a job is ever needed.
 - Transcript artifacts — the `artifacts` table is unused; full run output

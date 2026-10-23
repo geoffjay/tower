@@ -48,6 +48,7 @@ are recorded as amendments there first, then implemented.
 | [Phase 4 — Web UI (agent cloud)](phase-4-web-ui.md) | Web UI | phase 2 (independent of 3) | **complete** (2026-09-27) |
 | [Phase 5 — Multi-machine](phase-5-multi-machine.md) | Multi-machine | phase 2 | not started |
 | [Phase 6 — A2A edge](phase-6-a2a-edge.md) | A2A edge | phase 2 | not started |
+| [Phase 7 — Decision models](phase-7-decision-models.md) | Decision models | phase 2c | not started |
 
 ## Dependency graph
 
@@ -55,7 +56,8 @@ are recorded as amendments there first, then implemented.
 phase-1 ──► phase-2 ──► phase-2b ──► phase-2c ──┬──► phase-3 (TUI)
                                                ├──► phase-4 (web UI)
                                                ├──► phase-5 (multi-machine)
-                                               └──► phase-6 (A2A edge)
+                                               ├──► phase-6 (A2A edge)
+                                               └──► phase-7 (decision models)
 ```
 
 Phases 3–6 are parallelizable after phase 2, though recommended order is
@@ -66,6 +68,10 @@ whole project.
 Phase 2c slots after 2b although phases 3–4 shipped. It touches the TUI
 and web inbox views they built, but needs no re-plan; its milestones carry
 those surface changes.
+
+Phase 7 needs phase 2c: the stored agent brief is its dispatch and routing
+signal, and the question hold defines what inbox triage may close. It is
+independent of phases 5 and 6.
 
 ## Cross-cutting rules (all phases)
 

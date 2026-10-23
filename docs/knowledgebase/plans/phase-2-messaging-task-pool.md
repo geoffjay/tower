@@ -162,7 +162,7 @@ Depends on: phase 1 (server shell, driver, inventory, CLI skeleton).
 - `agent.output` artifact chunking beyond the phase-1 append
 - Orchestrator role + agent router (jev/laya decision model; [design §17.8](../concepts/design/17-open-questions.md),
   [job-queue decision](../decisions/job-queue.md)) — automated dispatch after the queue primitive
-  is proven
+  is proven → planned as [phase 7](phase-7-decision-models.md)
 
 ## Verification log
 

@@ -52,6 +52,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [Scheduled jobs](decisions/scheduled-jobs.md) - reserved delivery when an agent is free, `not_before`, cron schedules with skip / replace / coalesce / pause policies.
 * [Operator skills](decisions/operator-skills.md) - five repo-local skills drive the CLI so an agent can operate tower; a stack is a naming convention.
 * [Job queue dispatch](decisions/job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
+* [Decision models](decisions/decision-models.md) - proposed: optional System One decision layer in `tower serve` for dispatch, inbox triage, and question routing; off by default, shadow mode first.
 * [Web UI](decisions/web-ui.md) - Topcoat inside the server under `/ui`, live regions over its WebSocket, server-side layout, derived read-only UI token.
 
 ## Patterns
@@ -68,6 +69,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [Phase 4 — Web UI](plans/phase-4-web-ui.md) - complete; read-only agent cloud via Topcoat at `/ui`, scoped UI token, event retention.
 * [Phase 5 — Multi-machine](plans/phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.
 * [Phase 6 — A2A edge](plans/phase-6-a2a-edge.md) - Agent Card + A2A delegation.
+* [Phase 7 — Decision models](plans/phase-7-decision-models.md) - not started; optional decision-model layer: dispatch ranking, inbox triage, question routing.
 
 ## References
 
