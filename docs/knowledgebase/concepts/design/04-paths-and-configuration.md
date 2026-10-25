@@ -13,7 +13,7 @@ sources:
     title: tower design document §4 (original, removed from repo root after ingest)
 generated:
   by: claude-code/1.0
-  at: "2026-10-16T21:42:06Z"
+  at: "2026-10-23T23:30:00Z"
 ---
 
 # 4. Paths and configuration
@@ -41,7 +41,7 @@ event_retention_days = 14     # sweeper deletes older events hourly; 0 keeps all
 socket_path   = "~/.config/herdr/herdr.sock"  # driver target
 cli_fallback  = true          # wrap `herdr` CLI if socket protocol fails
 
-[harness.<kind>]             # one section per harness kind (claude, pi, omp, ...)
+[harness.<kind>]             # one section per harness kind (claude, pi, omp, opencode)
 permission_mode = "acceptEdits"  # claude only: "acceptEdits" | "default"; yolo only per-agent opt-in
 args          = []             # extra args appended to every spawn of that kind
 
@@ -69,12 +69,13 @@ Agent definitions (one folder per named agent under `agents/`):
 `PROMPT.md` is the first prompt, `config.toml` holds spawn arguments
 (`kind`, `workdir`, `worktree`, `model`, `args`); explicit `tower spawn`
 flags override both. `model` becomes `--model <id>` for the harness
-(all harnesses take the same flag); `args` are extra harness flags
-(e.g. omp's `--smol`, `--plan`). Unknown keys are rejected with an error
-naming the key.
+(opencode: `OPENCODE_CONFIG_CONTENT` in the pane env, D§8.5); `args` are
+extra harness flags (e.g. omp's `--smol`, `--plan`). Unknown keys are
+rejected with an error naming the key.
 
-Harness argument order at spawn: `[harness.<kind>] args` from `config.toml`
-first (per-kind defaults), then the agent's own `args` (per-agent
+Harness argument order at spawn: the kind's own launch flags (opencode:
+`--standalone`, D§8.5) first, then `[harness.<kind>] args` from
+`config.toml` (per-kind defaults), then the agent's own `args` (per-agent
 overrides and extras), then `--model <id>`.
 
 `tower doctor` validates: herdr reachable, socket/CLI, database writable,

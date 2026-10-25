@@ -70,6 +70,8 @@ pub struct HarnessConfigs {
     pub pi: HarnessConfig,
     #[serde(default)]
     pub omp: HarnessConfig,
+    #[serde(default)]
+    pub opencode: HarnessConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -87,6 +89,7 @@ impl HarnessConfigs {
             "claude" => &self.claude.args,
             "pi" => &self.pi.args,
             "omp" => &self.omp.args,
+            "opencode" => &self.opencode.args,
             _ => &[],
         }
     }
@@ -127,11 +130,13 @@ mod tests {
     #[test]
     fn harness_args_are_read_per_kind() {
         let cfg: Config = toml::from_str(
-            "[harness.omp]\nargs = [\"--smol\"]\n[harness.pi]\nargs = [\"--plan\"]\n",
+            "[harness.omp]\nargs = [\"--smol\"]\n[harness.pi]\nargs = [\"--plan\"]\n\
+             [harness.opencode]\nargs = [\"--auto\"]\n",
         )
         .unwrap();
         assert_eq!(cfg.harnesses.args_for("omp"), ["--smol"]);
         assert_eq!(cfg.harnesses.args_for("pi"), ["--plan"]);
+        assert_eq!(cfg.harnesses.args_for("opencode"), ["--auto"]);
         assert_eq!(cfg.harnesses.args_for("claude"), Vec::<String>::new());
         assert_eq!(cfg.harnesses.args_for("other"), Vec::<String>::new());
     }

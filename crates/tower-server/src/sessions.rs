@@ -47,8 +47,8 @@ pub struct SpawnRequest {
     pub continue_last: bool,
     #[serde(default)]
     pub prompt: Option<String>,
-    /// Model the harness runs on; passed as `--model <id>` (all harnesses
-    /// take the same flag).
+    /// Model the harness runs on: `--model <id>`, or opencode's
+    /// `OPENCODE_CONFIG_CONTENT` env (D§8.5).
     #[serde(default)]
     pub model: Option<String>,
     /// Extra harness flags (definition `args` or `tower spawn --arg`).
@@ -82,14 +82,23 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
     if let Ok(home) = std::env::var("TOWER_HOME") {
         env.push(("TOWER_HOME".into(), home));
     }
-    // Harness args (D§4): per-kind defaults from config.toml, then the
-    // agent's own args, then `--model <id>`. All reach the harness after
-    // `--` in `herdr agent start` (D§8).
-    let mut args: Vec<String> = state.config.harnesses.args_for(&kind).to_vec();
+    // Harness args (D§4): the kind's own launch flags, then per-kind
+    // defaults from config.toml, then the agent's own args, then the model.
+    // All reach the harness after `--` in `herdr agent start` (D§8).
+    let mut args = launch_args(&kind);
+    args.extend(state.config.harnesses.args_for(&kind).iter().cloned());
     args.extend(req.args.iter().cloned());
     if let Some(m) = &req.model {
-        args.push("--model".into());
-        args.push(m.clone());
+        if kind == "opencode" {
+            // the TUI rejects `--model`; inline config is its last source
+            env.push((
+                "OPENCODE_CONFIG_CONTENT".into(),
+                serde_json::json!({ "model": m }).to_string(),
+            ));
+        } else {
+            args.push("--model".into());
+            args.push(m.clone());
+        }
     }
 
     // worktree isolation (D§9.2): made before the harness starts, which then
@@ -183,7 +192,8 @@ async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
 
     // which session: explicit `resume`, else continue, else the session
     // herdr last reported for the pane
-    let args: Vec<String> = if let Some(session) = &req.resume {
+    let mut args = launch_args(&kind);
+    if let Some(session) = &req.resume {
         let session = if session.is_empty() {
             let reported = match row.pane_id.as_deref() {
                 Some(p) => state.driver.agent_at(p).await?,
@@ -198,15 +208,14 @@ async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
         } else {
             session.clone()
         };
-        match kind.as_str() {
-            "pi" => vec!["--session".into(), session],
-            _ => vec!["--resume".into(), session], // omp, claude
-        }
+        let flag = match kind.as_str() {
+            "pi" | "opencode" => "--session",
+            _ => "--resume", // omp, claude
+        };
+        args.extend([flag.into(), session]);
     } else if req.continue_last {
-        vec!["--continue".into()]
-    } else {
-        Vec::new()
-    };
+        args.push("--continue".into());
+    }
 
     let guard = lock_for(&req.name);
     let creating = guard.lock().await;
@@ -253,6 +262,16 @@ async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
     Ok(crate::inventory::get_agent(state, &req.name)
         .await?
         .expect("row exists"))
+}
+
+/// Flags a harness kind needs on every launch, before any configured args
+/// (D§8.5): opencode's TUI otherwise attaches to a shared background
+/// service that never sees the pane env (`TOWER_AGENT`, the model).
+fn launch_args(kind: &str) -> Vec<String> {
+    match kind {
+        "opencode" => vec!["--standalone".into()],
+        _ => Vec::new(),
+    }
 }
 
 /// Run git in `dir`: stdout, or an error carrying git's own message.

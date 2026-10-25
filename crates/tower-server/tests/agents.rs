@@ -356,6 +356,58 @@ async fn spawn_applies_kind_args_from_config() {
 }
 
 #[tokio::test]
+async fn opencode_launches_standalone_with_the_model_in_its_env() {
+    let (state, harness, _d) = boot(FakeHarness::new()).await;
+    let app = router(state.clone());
+
+    // the TUI rejects `--model`: the model rides in OPENCODE_CONFIG_CONTENT,
+    // and `--standalone` keeps the pane env (TOWER_AGENT, model) in reach
+    let (status, v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({
+            "name": "oc", "kind": "opencode",
+            "model": "opencode/big-pickle", "args": ["--auto"],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(v["agent"]["model"], "opencode/big-pickle");
+    let spec = harness.specs().pop().unwrap();
+    assert_eq!(spec.args, ["--standalone", "--auto"]);
+    let config = spec
+        .env
+        .iter()
+        .find(|(k, _)| k == "OPENCODE_CONFIG_CONTENT")
+        .map(|(_, v)| serde_json::from_str::<serde_json::Value>(v).unwrap());
+    assert_eq!(
+        config,
+        Some(serde_json::json!({"model": "opencode/big-pickle"}))
+    );
+    assert!(spec
+        .env
+        .iter()
+        .any(|(k, v)| k == "TOWER_AGENT" && v == "oc"));
+
+    // resume keeps `--standalone`; opencode takes `--session <id>`
+    harness.kill("oc");
+    tower_server::inventory::reconcile(&state).await.unwrap();
+    let (status, v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({"name": "oc", "resume": "ses_42"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(
+        harness.specs().pop().unwrap().args,
+        ["--standalone", "--session", "ses_42"]
+    );
+}
+
+#[tokio::test]
 async fn readopt_dead_row_keeps_its_id_and_renames_the_harness() {
     let (state, harness, _d) =
         boot(FakeHarness::new().with_agent("qa", "omp", HarnessState::Idle)).await;
