@@ -124,13 +124,13 @@ Useful spawn flags:
 
 | Flag | Meaning |
 |---|---|
-| `--kind pi` / `--kind claude` | harness (any herdr-detected kind works) |
+| `--kind pi` / `--kind claude` / `--kind omp` / `--kind opencode` | harness (any herdr-detected kind works). opencode always runs `--standalone`, so the pane env (`TOWER_AGENT`) reaches its tools |
 | `--workdir DIR` | where the agent runs |
 | `--worktree` | isolated git worktree per agent at `<workdir>/.worktrees/<name>` (recommended for coders): the agent runs in it, starting on a detached HEAD at the workdir's current commit; re-spawning the same name reuses it; `tower stop <name> --remove` removes it if clean. A worktree that can't be created fails the spawn |
 | `--permissions yolo` | explicit opt-in to full-bypass mode (recorded in events) |
 | `--machine NAME` | spawn on a remote machine (phase 5) |
 | `--name foo` | spawn from the definition `~/.config/tower/agents/foo/` |
-| `--model <id>` | model the harness runs on (`--model anthropic/claude-sonnet-5-5`); overrides the definition's `model` |
+| `--model <id>` | model the harness runs on (`--model anthropic/claude-sonnet-5-5`); overrides the definition's `model`. opencode gets it as `OPENCODE_CONFIG_CONTENT` (its TUI has no `--model`) |
 | `--arg <flag>` | extra harness flag, repeatable (`--arg --smol --arg --plan` for omp) |
 | `--adopt` | take ownership of a harness agent already running; for a `dead` row, re-attach it in place (same id, jobs, and schedules keep their target) |
 | `--resume [<session>]` | relaunch a `dead` agent's harness with a given session (or the one herdr last reported for its pane); the agent keeps its id |

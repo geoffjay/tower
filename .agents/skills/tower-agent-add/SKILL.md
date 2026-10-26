@@ -1,6 +1,6 @@
 ---
 name: tower-agent-add
-description: Add an agent to the tower fleet. Use when the user wants a new tower-managed agent (a coding harness such as omp, claude, or pi running in a herdr pane) with a role. Collects the name, harness kind, working directory, role, and whether to save a named definition, spawns the agent with a standing brief, and confirms that it started and can reach its model.
+description: Add an agent to the tower fleet. Use when the user wants a new tower-managed agent (a coding harness such as omp, claude, pi, or opencode running in a herdr pane) with a role. Collects the name, harness kind, working directory, role, and whether to save a named definition, spawns the agent with a standing brief, and confirms that it started and can reach its model.
 argument-hint: "[name] [kind] [role]"
 ---
 
@@ -31,7 +31,7 @@ one message.
 | Fact | Rule | Default |
 |---|---|---|
 | Name | Lowercase letters, digits, and `-`. Must not be in `tower ps`. In a stack, use `<stack>-<role>` | Derive from the role |
-| Kind | A herdr harness kind: `omp`, `claude`, `pi`, `codex`, … | `omp` |
+| Kind | A herdr harness kind: `omp`, `claude`, `pi`, `opencode`, `codex`, … | `omp` |
 | Working directory | Absolute path of the project the agent works in | The current project root |
 | Worktree | `--worktree` gives the agent its own git branch and directory. Use it when two agents write in the same repo | Off |
 | Role | What the agent is for, and what is out of its scope | — (required) |

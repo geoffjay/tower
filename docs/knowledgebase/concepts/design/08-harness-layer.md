@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: Design §8 — Harness layer
-description: Harness adapter trait, HerdrDriver and TmuxDriver, Claude Code and pi specifics, harness discovery and adoption.
+description: Harness adapter trait, HerdrDriver and TmuxDriver, Claude Code, pi, and opencode specifics, harness discovery and adoption.
 tags:
   - design
   - design-s8
@@ -14,7 +14,7 @@ sources:
     title: tower design document §8 (original, removed from repo root after ingest)
 generated:
   by: claude-code/1.0
-  at: "2026-10-16T21:42:06Z"
+  at: "2026-10-23T23:30:00Z"
 ---
 
 # 8. Harness layer
@@ -47,11 +47,12 @@ Two implementations:
    workspace, created on first spawn — tower never splits panes inside the
    operator's own workspaces. `agent start` retries `agent_pane_busy`
    (≤10s) while the fresh tab's shell comes up.
-   Harness arguments at spawn (D§4): `[harness.<kind>] args` from
-   `config.toml` first, then the agent's own `args` (definition or
-   spawn request), then `--model <id>` — all passed after `--` to
-   `herdr agent start`. Every harness takes the same `--model` flag
-   (omp, claude, pi).
+   Harness arguments at spawn (D§4): the kind's own launch flags
+   (opencode: `--standalone`, D§8.5), then `[harness.<kind>] args` from
+   `config.toml`, then the agent's own `args` (definition or spawn
+   request), then `--model <id>` — all passed after `--` to
+   `herdr agent start`. omp, claude, and pi take the same `--model`
+   flag; opencode takes the model as config in its env (D§8.5).
 2. **TmuxDriver** (fallback, phase 2+): for machines without herdr. Minimal
    PTY + `tail`-based reads, no detection (state = `unknown` unless manual).
    Exists only for escape; not a goal.
@@ -104,5 +105,21 @@ pane. Re-attachment keeps the row's identity (issue #1):
 - **Resume** (`spawn <name> --resume [<session>]` / `--continue`): for a
   `dead` row, `herdr agent start` in the row's pane (a new pane if it is
   gone) with the per-kind resume args — omp/claude `--resume <session>` /
-  `--continue`, pi `--session <session>` / `--continue`; the session
-  defaults to the one herdr reports for the pane. The row keeps its id.
+  `--continue`, pi/opencode `--session <session>` / `--continue`; the
+  session defaults to the one herdr reports for the pane. The row keeps
+  its id.
+
+## 8.5 opencode specifics
+
+- Launch with kind `opencode`; herdr detects it out of the box (0.9.3).
+- Always `--standalone`. Without it the opencode TUI attaches to a shared
+  background service (`opencode serve --service`) that runs the tools and
+  loads config. That service never sees the pane's env, so `TOWER_AGENT`,
+  `TOWER_HOME`, and the model do not reach the agent. `--standalone`
+  runs a private server as a child of the TUI, which inherits the env.
+- Model: the TUI rejects `--model` (only `opencode run` takes it).
+  tower sets `OPENCODE_CONFIG_CONTENT={"model":"<id>"}` in the pane env
+  instead; opencode merges it as the last config source.
+- `blocked` (a permission prompt) goes to the inbox as a `question`, like
+  pi: the approve keystrokes of D§8.2 are claude-only, so the operator
+  answers opencode's prompt in herdr.
