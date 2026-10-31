@@ -1,4 +1,4 @@
-//! Error → HTTP response mapping (D§7 conventions).
+//! Error → HTTP response mapping (D§7 conventions), and request-body helpers.
 //!
 //! Service functions return `anyhow::Error`; a wrapped `TowerError` carries
 //! its code (conflict, not_found, ...), a `DriverError` maps to `driver`,
@@ -25,4 +25,15 @@ pub fn error_response(e: anyhow::Error) -> Response {
     let status =
         StatusCode::from_u16(err.code.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (status, Json(serde_json::json!({ "error": err }))).into_response()
+}
+
+/// `deserialize_with` for PATCH bodies (with `#[serde(default)]`): a field
+/// that is present — even as `null` — becomes `Some(..)`, so an
+/// `Option<Option<T>>` tells "absent: unchanged" from "null: clear".
+pub fn present<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    T::deserialize(d).map(Some)
 }

@@ -31,4 +31,4 @@ expression: "text(&mut a, 120, 30)"
 │                                                                ││                                                    │
 │                                                                ││                                                    │
 └────────────────────────────────────────────────────────────────┘└────────────────────────────────────────────────────┘
-esc close · j/k scroll · a assign · x x cancel · : command · ? help · q quit
+esc close · j/k scroll · e edit · a assign · x x cancel · : command · ? help · q quit

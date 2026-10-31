@@ -54,14 +54,20 @@ fn task_queue_fields_roundtrip() {
         not_before: None,
         schedule_id: Some(ScheduleId::from("s_1")),
         occurrence_at: Some(99),
+        pre_run: Some("/compact".into()),
+        post_run: None,
+        hook: Some(HookPhase::Pre),
         result: None,
         created_at: 1,
         updated_at: 2,
     };
     let v = serde_json::to_value(&t).unwrap();
     assert_eq!(v["state"], "input-required");
+    assert_eq!(v["hook"], "pre");
     let back: Task = serde_json::from_value(v).unwrap();
     assert_eq!(back.owner_id, t.owner_id);
+    assert_eq!(back.pre_run.as_deref(), Some("/compact"));
+    assert_eq!(back.hook, Some(HookPhase::Pre));
 }
 
 #[test]
@@ -146,12 +152,15 @@ fn event_kind_as_str_is_the_wire_name() {
         TaskCompleted,
         TaskFailed,
         TaskReserved,
+        TaskUpdated,
+        TaskHook,
         ScheduleCreated,
         ScheduleFired,
         ScheduleSkipped,
         SchedulePaused,
         ScheduleResumed,
         ScheduleRemoved,
+        ScheduleUpdated,
         MessageCreated,
         MessageStatusChange,
         ApprovalExpired,

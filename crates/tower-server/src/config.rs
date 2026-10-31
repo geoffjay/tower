@@ -10,8 +10,25 @@ pub struct Config {
     pub server: ServerConfig,
     pub herdr: HerdrConfig,
     pub inbox: InboxConfig,
+    pub jobs: JobsConfig,
     #[serde(rename = "harness")]
     pub harnesses: HarnessConfigs,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct JobsConfig {
+    /// How long a lifecycle prompt may wait for the agent to settle, before
+    /// it is sent and after (D§5.2.3).
+    pub hook_timeout_s: u64,
+}
+
+impl Default for JobsConfig {
+    fn default() -> Self {
+        Self {
+            hook_timeout_s: 600,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

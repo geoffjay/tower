@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::{AgentId, MachineId, MessageId, ScheduleId, TaskId};
 use crate::states::{
-    AgentState, DesiredState, EventKind, MessageKind, MessageStatus, PartyKind, Permissions,
-    TaskState,
+    AgentState, DesiredState, EventKind, HookPhase, MessageKind, MessageStatus, PartyKind,
+    Permissions, TaskState,
 };
 
 /// An agent row: named seat bound to a harness instance (D§5.1).
@@ -71,6 +71,17 @@ pub struct Task {
     pub schedule_id: Option<ScheduleId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub occurrence_at: Option<i64>,
+    /// Lifecycle prompt typed into the harness before the job prompt, on
+    /// every delivery (D§5.2.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_run: Option<String>,
+    /// Lifecycle prompt typed after the owner closes the job (D§5.2.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_run: Option<String>,
+    /// The lifecycle prompt in flight, if any (lease expiry pauses during
+    /// `pre`; the owner counts as busy during `post`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<HookPhase>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
     pub created_at: i64,
@@ -99,6 +110,11 @@ pub struct Schedule {
     pub next_run_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_run_at: Option<i64>,
+    /// Lifecycle prompts copied into every job it fires (D§5.2.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_run: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_run: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

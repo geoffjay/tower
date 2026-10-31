@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use tower_client::Client;
 use tower_core::{Agent, Event, Machine, Message, Schedule, Task};
 
-use crate::app::Api;
+use crate::app::{Api, EditTarget, Field};
 use crate::store::{Fetch, Loaded, ScheduleDetail, TaskDetail};
 
 fn take<T: DeserializeOwned>(v: &mut Value, key: &str) -> anyhow::Result<T> {
@@ -228,5 +228,62 @@ pub async fn api(c: &Client, a: &Api) -> anyhow::Result<String> {
                 None => "schedule run requested".into(),
             }
         }
+        Api::Edit {
+            target,
+            field,
+            value,
+        } => {
+            let (path, who) = match target {
+                EditTarget::Job(id) => {
+                    (format!("/v1/tasks/{id}"), format!("job …{}", short(&id.0)))
+                }
+                EditTarget::Schedule(id) => (
+                    format!("/v1/schedules/{id}"),
+                    format!("schedule …{}", short(&id.0)),
+                ),
+            };
+            c.patch(&path, edit_body(target, *field, value)?).await?;
+            let done = if value.trim().is_empty() {
+                "cleared"
+            } else {
+                "saved"
+            };
+            format!("{who} {} {done}", field.label())
+        }
+    })
+}
+
+/// The `PATCH` body for one field (D§7): blank clears (`null`); a job's
+/// schedule is its local `at` time, a schedule's is `HH:MM` or cron.
+fn edit_body(target: &EditTarget, field: Field, value: &str) -> anyhow::Result<Value> {
+    let value = value.trim();
+    let text = || {
+        if value.is_empty() {
+            Value::Null
+        } else {
+            json!(value)
+        }
+    };
+    Ok(match (field, target) {
+        (Field::Title, _) => json!({ "title": value }),
+        (Field::Prompt, _) => json!({ "description": text() }),
+        (Field::PreRun, _) => json!({ "pre_run": text() }),
+        (Field::PostRun, _) => json!({ "post_run": text() }),
+        (Field::Schedule, EditTarget::Job(_)) if value.is_empty() => json!({ "not_before": null }),
+        (Field::Schedule, EditTarget::Job(_)) => {
+            json!({ "not_before": tower_client::parse_local_time(value)? })
+        }
+        (Field::Schedule, EditTarget::Schedule(_)) if is_hhmm(value) => json!({ "daily": value }),
+        (Field::Schedule, EditTarget::Schedule(_)) => json!({ "cron": value }),
+    })
+}
+
+/// `HH:MM` (daily sugar) rather than a cron expression.
+fn is_hhmm(s: &str) -> bool {
+    s.split_once(':').is_some_and(|(h, m)| {
+        !h.is_empty()
+            && h.len() <= 2
+            && m.len() == 2
+            && h.chars().chain(m.chars()).all(|c| c.is_ascii_digit())
     })
 }

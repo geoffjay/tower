@@ -304,17 +304,28 @@ impl Harness for FakeHarness {
         })
     }
 
+    /// Polls until the agent is in one of `states` — tests move it with
+    /// `set_state` — or `timeout_ms` passes (herdr's `agent wait`).
     async fn wait_until(
         &self,
         name: &str,
         states: &[HarnessState],
-        _timeout_ms: u64,
+        timeout_ms: u64,
     ) -> Result<(), DriverError> {
-        let i = self.inner.lock();
-        match i.agents.iter().find(|a| a.name == name && a.up) {
-            Some(a) if states.contains(&a.state) => Ok(()),
-            Some(_) => Err(DriverError::Timeout(format!("waiting for {name}"))),
-            None => Err(DriverError::NotFound(name.into())),
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+        loop {
+            {
+                let i = self.inner.lock();
+                match i.agents.iter().find(|a| a.name == name && a.up) {
+                    Some(a) if states.contains(&a.state) => return Ok(()),
+                    Some(_) => {}
+                    None => return Err(DriverError::NotFound(name.into())),
+                }
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(DriverError::Timeout(format!("waiting for {name}")));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     }
 

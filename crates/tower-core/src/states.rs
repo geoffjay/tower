@@ -110,6 +110,24 @@ impl TaskState {
     }
 }
 
+/// Which lifecycle prompt is in flight on a job (D§5.2.3): `pre` before
+/// its job prompt, `post` after its owner closed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HookPhase {
+    Pre,
+    Post,
+}
+
+impl HookPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HookPhase::Pre => "pre",
+            HookPhase::Post => "post",
+        }
+    }
+}
+
 /// Message kinds (unified table, D§5.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -250,6 +268,10 @@ pub enum EventKind {
     TaskFailed,
     #[serde(rename = "task.reserved")]
     TaskReserved,
+    #[serde(rename = "task.updated")]
+    TaskUpdated,
+    #[serde(rename = "task.hook")]
+    TaskHook,
     #[serde(rename = "schedule.created")]
     ScheduleCreated,
     #[serde(rename = "schedule.fired")]
@@ -262,6 +284,8 @@ pub enum EventKind {
     ScheduleResumed,
     #[serde(rename = "schedule.removed")]
     ScheduleRemoved,
+    #[serde(rename = "schedule.updated")]
+    ScheduleUpdated,
     #[serde(rename = "message.created")]
     MessageCreated,
     #[serde(rename = "message.status")]
@@ -293,12 +317,15 @@ impl EventKind {
             EventKind::TaskCompleted => "task.completed",
             EventKind::TaskFailed => "task.failed",
             EventKind::TaskReserved => "task.reserved",
+            EventKind::TaskUpdated => "task.updated",
+            EventKind::TaskHook => "task.hook",
             EventKind::ScheduleCreated => "schedule.created",
             EventKind::ScheduleFired => "schedule.fired",
             EventKind::ScheduleSkipped => "schedule.skipped",
             EventKind::SchedulePaused => "schedule.paused",
             EventKind::ScheduleResumed => "schedule.resumed",
             EventKind::ScheduleRemoved => "schedule.removed",
+            EventKind::ScheduleUpdated => "schedule.updated",
             EventKind::MessageCreated => "message.created",
             EventKind::MessageStatusChange => "message.status",
             EventKind::ApprovalExpired => "approval.expired",

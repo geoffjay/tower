@@ -25,11 +25,11 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use sqlx::Row;
 use tower_core::{
-    Agent, AgentId, AgentState, EventKind, MessageKind, Part, PartyKind, Task, TaskId, TaskState,
-    TowerError,
+    Agent, AgentId, AgentState, EventKind, HookPhase, MessageKind, Part, PartyKind, Task, TaskId,
+    TaskState, TowerError,
 };
 
-use crate::http::error_response;
+use crate::http::{error_response, present};
 use crate::state::AppState;
 use crate::storage::{enum_str, parse_enum};
 
@@ -38,14 +38,15 @@ pub const DEFAULT_LEASE_S: i64 = 60;
 
 /// Owner-writable (non-terminal, owned) states.
 const OWNED: &str = "('assigned','working','input-required')";
-/// States whose lease can expire (`input-required` pauses expiry).
-const EXPIRABLE: &str = "('assigned','working')";
+/// Leases that can expire: `input-required` pauses expiry, and so does a
+/// running pre-run prompt (`hook = 'pre'`, D§5.2.3).
+const EXPIRABLE: &str = "state IN ('assigned','working') AND hook IS NULL";
 const TERMINAL: &str = "('completed','failed','canceled','rejected')";
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/tasks", get(list_route).post(create_route))
-        .route("/v1/tasks/{id}", get(show_route))
+        .route("/v1/tasks/{id}", get(show_route).patch(update_route))
         .route("/v1/tasks/{id}/assign", post(assign_route))
         .route("/v1/tasks/{id}/start", post(start_route))
         .route("/v1/tasks/{id}/heartbeat", post(heartbeat_route))
@@ -79,6 +80,29 @@ pub struct CreateTask {
     pub lease_s: Option<i64>,
     #[serde(default)]
     pub max_attempts: Option<i64>,
+    /// Lifecycle prompts (D§5.2.3): typed before the job prompt on every
+    /// delivery / after the owner closes the job. Blank → none.
+    #[serde(default)]
+    pub pre_run: Option<String>,
+    #[serde(default)]
+    pub post_run: Option<String>,
+}
+
+/// `PATCH /v1/tasks/{id}` (D§5.2.3): an absent field is unchanged; `null`
+/// or `""` clears an optional one.
+#[derive(Deserialize, Default)]
+pub struct UpdateTask {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    pub pre_run: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    pub post_run: Option<Option<String>>,
+    /// Reserved jobs only: the dispatcher holds the job until this time (ms).
+    #[serde(default, deserialize_with = "present")]
+    pub not_before: Option<Option<i64>>,
 }
 
 #[derive(Deserialize)]
@@ -164,8 +188,9 @@ pub async fn create(state: &AppState, req: CreateTask, now: i64) -> anyhow::Resu
 
     let id = TaskId::new();
     sqlx::query(
-        "INSERT INTO tasks (id, title, description, state, priority, tags, max_attempts, lease_s, created_at, updated_at)
-         VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, ?8, ?8)",
+        "INSERT INTO tasks (id, title, description, state, priority, tags, max_attempts, lease_s,
+                            pre_run, post_run, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
     )
     .bind(id.0.as_str())
     .bind(&req.title)
@@ -174,6 +199,8 @@ pub async fn create(state: &AppState, req: CreateTask, now: i64) -> anyhow::Resu
     .bind(serde_json::to_string(&req.tags)?)
     .bind(max_attempts)
     .bind(lease_s)
+    .bind(crate::hooks::prompt_text(req.pre_run.as_deref()))
+    .bind(crate::hooks::prompt_text(req.post_run.as_deref()))
     .bind(now)
     .execute(&state.pool)
     .await?;
@@ -211,8 +238,8 @@ pub async fn create_occurrence(
     let res = sqlx::query(
         "INSERT INTO tasks (id, title, description, state, priority, tags, max_attempts, lease_s,
                             origin, target_agent_id, not_before, schedule_id, occurrence_at,
-                            created_at, updated_at)
-         VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, 'schedule', ?8, ?9, ?10, ?9, ?11, ?11)
+                            pre_run, post_run, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, 'schedule', ?8, ?9, ?10, ?9, ?11, ?12, ?13, ?13)
          ON CONFLICT(schedule_id, occurrence_at) DO NOTHING",
     )
     .bind(id.0.as_str())
@@ -225,6 +252,8 @@ pub async fn create_occurrence(
     .bind(s.target_agent_id.as_ref().map(|a| a.0.as_str()))
     .bind(occurrence_at)
     .bind(s.id.0.as_str())
+    .bind(&s.pre_run)
+    .bind(&s.post_run)
     .bind(now)
     .execute(&state.pool)
     .await?;
@@ -406,17 +435,20 @@ pub async fn dispatch_all(state: &AppState, now: i64) -> anyhow::Result<usize> {
 }
 
 async fn agent_busy(state: &AppState, agent: &AgentId) -> anyhow::Result<bool> {
-    Ok(open_job_of(state, agent).await?.is_some())
+    Ok(busy_with(state, agent).await?.is_some())
 }
 
-async fn open_job_of(state: &AppState, agent: &AgentId) -> anyhow::Result<Option<TaskId>> {
-    let open: Option<String> = sqlx::query_scalar(&format!(
-        "SELECT id FROM tasks WHERE owner_id = ?1 AND state IN {OWNED} LIMIT 1"
+/// What keeps an agent busy (one job per agent, D§5.2.2): the open job it
+/// owns, or a closed job whose post-run prompt still runs (D§5.2.3, `true`).
+async fn busy_with(state: &AppState, agent: &AgentId) -> anyhow::Result<Option<(TaskId, bool)>> {
+    let row: Option<(String, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT id, hook FROM tasks
+         WHERE owner_id = ?1 AND (state IN {OWNED} OR hook IS NOT NULL) LIMIT 1"
     ))
     .bind(agent.0.as_str())
     .fetch_optional(&state.pool)
     .await?;
-    Ok(open.map(TaskId::from))
+    Ok(row.map(|(id, hook)| (TaskId::from(id), hook.as_deref() == Some("post"))))
 }
 
 /// Assign a queued job to an agent (D§5.2.1). `by` is the dispatching
@@ -436,18 +468,21 @@ pub async fn assign(
     // one expiry code path: an expired lease is swept before the CAS
     expire_lease(state, id, now).await?;
 
-    // one statement = one atomic check: the job is unowned AND the agent owns
-    // no other open job (one job per agent, D§5.2.2). Assigning a job
-    // reserved for someone else is an explicit override: the reservation
-    // is dropped.
+    // one statement = one atomic check: the job is unowned AND the agent is
+    // not busy — no other open job, no post-run prompt running (one job per
+    // agent, D§5.2.2-5.2.3). Assigning a job reserved for someone else is
+    // an explicit override: the reservation is dropped. A pre-run prompt
+    // marks the job `hook = 'pre'` here, so its lease never ticks unpaused.
     let res = sqlx::query(&format!(
         "UPDATE tasks SET owner_id = ?1, state = 'assigned',
                 lease_s = COALESCE(?2, lease_s),
                 lease_expires_at = ?3 + COALESCE(?2, lease_s) * 1000,
                 target_agent_id = CASE WHEN target_agent_id = ?1 THEN target_agent_id END,
+                hook = CASE WHEN pre_run IS NOT NULL THEN 'pre' END,
                 updated_at = ?3
          WHERE id = ?4 AND owner_id IS NULL AND state = 'queued'
-           AND NOT EXISTS (SELECT 1 FROM tasks o WHERE o.owner_id = ?1 AND o.state IN {OWNED})"
+           AND NOT EXISTS (SELECT 1 FROM tasks o WHERE o.owner_id = ?1
+                             AND (o.state IN {OWNED} OR o.hook IS NOT NULL))"
     ))
     .bind(agent.id.0.as_str())
     .bind(lease_s)
@@ -456,14 +491,19 @@ pub async fn assign(
     .execute(&state.pool)
     .await?;
     if res.rows_affected() == 0 {
-        if let Some(busy_with) = open_job_of(state, &agent.id).await? {
-            if busy_with != *id {
+        if let Some((busy, post_run)) = busy_with(state, &agent.id).await? {
+            if busy != *id {
+                let what = if post_run {
+                    format!("running the post-run prompt of job {busy}")
+                } else {
+                    format!("busy with job {busy}")
+                };
                 let mut err = TowerError::conflict(format!(
-                    "{} is busy with job {busy_with} (one job at a time); \
+                    "{} is {what} (one job at a time); \
                      reserve with --when-available to deliver it when free",
                     agent.name
                 ));
-                err.detail = Some(serde_json::json!({ "busy_with": busy_with }));
+                err.detail = Some(serde_json::json!({ "busy_with": busy }));
                 return Err(err.into());
             }
         }
@@ -481,7 +521,7 @@ pub async fn assign(
         }),
     )
     .await?;
-    notify_assignee(state, &agent, &task, by).await;
+    crate::hooks::deliver(state, &agent, &task, by).await;
     Ok(task)
 }
 
@@ -528,7 +568,9 @@ pub async fn heartbeat(
 }
 
 /// Owner status report (D§5.2.1): `working | input-required` renew the
-/// lease; `completed | failed` close the task (lease cleared, result kept).
+/// lease; `completed | failed` close the task (lease cleared, result kept)
+/// and, with a post-run prompt, keep the owner busy until it settles
+/// (`hook = 'post'` in the same statement, D§5.2.3).
 pub async fn report(
     state: &AppState,
     id: &TaskId,
@@ -545,7 +587,8 @@ pub async fn report(
             "state = ?5, result = COALESCE(?4, result), lease_expires_at = ?3 + lease_s * 1000"
         }
         Some(TaskState::Completed | TaskState::Failed) => {
-            "state = ?5, result = COALESCE(?4, result), lease_expires_at = NULL"
+            "state = ?5, result = COALESCE(?4, result), lease_expires_at = NULL,
+             hook = CASE WHEN post_run IS NOT NULL THEN 'post' END"
         }
         Some(other) => {
             return Err(TowerError::invalid(format!(
@@ -586,7 +629,9 @@ pub async fn report(
             serde_json::json!({"task_id": id, "owner_id": owner.id, "result": task.result}),
         )
         .await?;
-        // the owner is free: its next reserved job may go (if it's idle)
+        crate::hooks::closed(state, &owner, &task);
+        // the owner is free (unless its post-run prompt holds it): its next
+        // reserved job may go (if it's idle)
         dispatch_for(state, &owner.id, now).await?;
     }
     Ok(task)
@@ -607,8 +652,9 @@ pub async fn release(
         &owner.id,
         &format!("state IN {OWNED}"),
         // a job reserved for the releaser would be dispatched straight back:
-        // releasing it drops that reservation (general queue)
-        "owner_id = NULL, state = 'queued', lease_expires_at = NULL,
+        // releasing it drops that reservation (general queue); a pre-run
+        // prompt still in flight no longer leads to this delivery
+        "owner_id = NULL, state = 'queued', lease_expires_at = NULL, hook = NULL,
          target_agent_id = CASE WHEN target_agent_id = ?2 THEN NULL ELSE target_agent_id END",
         now,
     )
@@ -629,11 +675,12 @@ pub async fn release(
 }
 
 /// Operator cancel: any non-terminal job → `canceled`; the owning agent
-/// (if any) is interrupted (D§7).
+/// (if any) is interrupted (D§7). A pre-run prompt in flight then sends no
+/// delegation (its mark is cleared here).
 pub async fn cancel(state: &AppState, id: &TaskId, now: i64) -> anyhow::Result<Task> {
     let before = require(state, id).await?;
     let res = sqlx::query(&format!(
-        "UPDATE tasks SET state = 'canceled', lease_expires_at = NULL, updated_at = ?1
+        "UPDATE tasks SET state = 'canceled', lease_expires_at = NULL, hook = NULL, updated_at = ?1
          WHERE id = ?2 AND state NOT IN {TERMINAL}"
     ))
     .bind(now)
@@ -658,6 +705,108 @@ pub async fn cancel(state: &AppState, id: &TaskId, now: i64) -> anyhow::Result<T
     Ok(task)
 }
 
+/// Operator edit (D§5.2.3): a queued job takes every field; a delivered one
+/// (`assigned`/`working`/`input-required`) only `post_run` — the rest
+/// already reached the agent; a closed one nothing. The `UPDATE` is a CAS
+/// on the state the checks saw, so a job assigned meanwhile conflicts. A
+/// new `not_before` on a reserved job re-runs delivery at once.
+pub async fn update(
+    state: &AppState,
+    id: &TaskId,
+    req: UpdateTask,
+    now: i64,
+) -> anyhow::Result<Task> {
+    let before = require(state, id).await?;
+    let fields: Vec<&str> = [
+        ("title", req.title.is_some()),
+        ("description", req.description.is_some()),
+        ("pre_run", req.pre_run.is_some()),
+        ("post_run", req.post_run.is_some()),
+        ("not_before", req.not_before.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(f, given)| given.then_some(f))
+    .collect();
+    if fields.is_empty() {
+        return Err(TowerError::invalid(
+            "nothing to change: give title, description, pre_run, post_run, or not_before",
+        )
+        .into());
+    }
+    if req.title.as_deref().is_some_and(|t| t.trim().is_empty()) {
+        return Err(TowerError::invalid("title must not be empty").into());
+    }
+    if before.state.is_terminal() {
+        return Err(TowerError::conflict(format!(
+            "job {id} is {}: a closed job can't be edited",
+            enum_str(before.state)
+        ))
+        .into());
+    }
+    let post_run_only = fields == ["post_run"];
+    if before.state != TaskState::Queued && !post_run_only {
+        return Err(TowerError::conflict(format!(
+            "job {id} is already delivered ({}): only its post_run prompt can change",
+            enum_str(before.state)
+        ))
+        .into());
+    }
+    if matches!(req.not_before, Some(Some(_))) && before.target_agent_id.is_none() {
+        return Err(TowerError::invalid(
+            "not_before needs a reservation: reserve the job for an agent first \
+             (assign --when-available)",
+        )
+        .into());
+    }
+
+    let guard = if post_run_only {
+        format!("state NOT IN {TERMINAL}")
+    } else {
+        "state = 'queued' AND owner_id IS NULL".to_string()
+    };
+    let description = req.description.map(|d| d.filter(|d| !d.trim().is_empty()));
+    let res = sqlx::query(&format!(
+        "UPDATE tasks SET
+            title       = CASE WHEN ?3 THEN ?4 ELSE title END,
+            description = CASE WHEN ?5 THEN ?6 ELSE description END,
+            pre_run     = CASE WHEN ?7 THEN ?8 ELSE pre_run END,
+            post_run    = CASE WHEN ?9 THEN ?10 ELSE post_run END,
+            not_before  = CASE WHEN ?11 THEN ?12 ELSE not_before END,
+            updated_at  = ?2
+         WHERE id = ?1 AND {guard}"
+    ))
+    .bind(id.0.as_str())
+    .bind(now)
+    .bind(req.title.is_some())
+    .bind(&req.title)
+    .bind(description.is_some())
+    .bind(description.flatten())
+    .bind(req.pre_run.is_some())
+    .bind(crate::hooks::prompt_text(req.pre_run.flatten().as_deref()))
+    .bind(req.post_run.is_some())
+    .bind(crate::hooks::prompt_text(req.post_run.flatten().as_deref()))
+    .bind(req.not_before.is_some())
+    .bind(req.not_before.flatten())
+    .execute(&state.pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(conflict_reason(state, id, None).await);
+    }
+    event(
+        state,
+        EventKind::TaskUpdated,
+        id,
+        serde_json::json!({ "task_id": id, "fields": fields }),
+    )
+    .await?;
+    if fields.contains(&"not_before") {
+        if let Some(target) = &before.target_agent_id {
+            dispatch_for(state, target, now).await?;
+        }
+    }
+    require(state, id).await
+}
+
 /// Sweep one task's lease if it expired (D§5.2.1): requeue with an attempt
 /// bump, or `failed` with `lease_exhausted` once attempts hit
 /// `max_attempts`. CAS on the observed owner + lease so a concurrent
@@ -665,7 +814,7 @@ pub async fn cancel(state: &AppState, id: &TaskId, now: i64) -> anyhow::Result<T
 pub async fn expire_lease(state: &AppState, id: &TaskId, now: i64) -> anyhow::Result<bool> {
     let row = sqlx::query(&format!(
         "SELECT owner_id, attempt_count, max_attempts, lease_expires_at FROM tasks
-         WHERE id = ?1 AND owner_id IS NOT NULL AND state IN {EXPIRABLE}
+         WHERE id = ?1 AND owner_id IS NOT NULL AND {EXPIRABLE}
            AND lease_expires_at < ?2"
     ))
     .bind(id.0.as_str())
@@ -686,7 +835,7 @@ pub async fn expire_lease(state: &AppState, id: &TaskId, now: i64) -> anyhow::Re
     };
     let res = sqlx::query(&format!(
         "UPDATE tasks SET {set}, attempt_count = ?1, updated_at = ?2
-         WHERE id = ?3 AND owner_id = ?4 AND lease_expires_at = ?5 AND state IN {EXPIRABLE}"
+         WHERE id = ?3 AND owner_id = ?4 AND lease_expires_at = ?5 AND {EXPIRABLE}"
     ))
     .bind(attempts)
     .bind(now)
@@ -729,7 +878,7 @@ pub async fn expire_lease(state: &AppState, id: &TaskId, now: i64) -> anyhow::Re
 pub async fn sweep_leases(state: &AppState, now: i64) -> anyhow::Result<usize> {
     let ids: Vec<String> = sqlx::query_scalar(&format!(
         "SELECT id FROM tasks
-         WHERE owner_id IS NOT NULL AND state IN {EXPIRABLE} AND lease_expires_at < ?1"
+         WHERE owner_id IS NOT NULL AND {EXPIRABLE} AND lease_expires_at < ?1"
     ))
     .bind(now)
     .fetch_all(&state.pool)
@@ -938,6 +1087,11 @@ pub fn row_to_task(r: &sqlx::sqlite::SqliteRow) -> Task {
             .get::<Option<String>, _>("schedule_id")
             .map(tower_core::ScheduleId::from),
         occurrence_at: r.get("occurrence_at"),
+        pre_run: r.get("pre_run"),
+        post_run: r.get("post_run"),
+        hook: r
+            .get::<Option<String>, _>("hook")
+            .map(parse_enum::<HookPhase>),
         result: result.and_then(|s| serde_json::from_str(&s).ok()),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
@@ -1054,8 +1208,9 @@ async fn status_event(state: &AppState, task: &Task) -> anyhow::Result<()> {
 
 /// Assignment notice (D§5.2.1): a `delegation` message prompts the owner.
 /// Failure is logged, never fatal — the lease covers an agent that never
-/// starts.
-async fn notify_assignee(state: &AppState, agent: &Agent, task: &Task, by: &str) {
+/// starts. A job with a pre-run prompt gets it from the hooks runner, after
+/// that prompt settled (D§5.2.3).
+pub(crate) async fn notify_assignee(state: &AppState, agent: &Agent, task: &Task, by: &str) {
     let mut text = format!("Job {} is assigned to you: {}", task.id, task.title);
     if let Some(d) = &task.description {
         text.push_str(&format!("\n\n{d}"));
@@ -1121,6 +1276,14 @@ async fn list_route(State(s): State<AppState>, Query(f): Query<ListFilter>) -> R
         Ok(tasks) => Json(serde_json::json!({ "tasks": tasks })).into_response(),
         Err(e) => error_response(e),
     }
+}
+
+async fn update_route(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(b): Json<UpdateTask>,
+) -> Response {
+    task_json(update(&s, &TaskId::from(id), b, tower_core::now_ms()).await)
 }
 
 async fn show_route(State(s): State<AppState>, Path(id): Path<String>) -> Response {

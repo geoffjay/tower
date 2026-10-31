@@ -79,6 +79,21 @@ impl Client {
         Self::parse(resp).await
     }
 
+    pub async fn patch(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let resp = self
+            .http
+            .patch(self.url(path)?)
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await?;
+        Self::parse(resp).await
+    }
+
     pub async fn delete(&self, path: &str) -> anyhow::Result<serde_json::Value> {
         let resp = self
             .http
@@ -176,4 +191,35 @@ fn read_token_file() -> anyhow::Result<String> {
         anyhow::bail!("token file {} is empty", file.display());
     }
     Ok(token)
+}
+
+/// A job time as the operator types it (`--at`, the TUI's schedule field):
+/// `HH:MM` (today, or tomorrow if already past), `YYYY-MM-DD HH:MM` in
+/// local time, or RFC 3339. Returns ms epoch.
+pub fn parse_local_time(s: &str) -> anyhow::Result<i64> {
+    use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
+    let s = s.trim();
+    if let Ok(t) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Ok(t.timestamp_millis());
+    }
+    let local = |naive: NaiveDateTime| {
+        Local
+            .from_local_datetime(&naive)
+            .earliest()
+            .map(|t| t.timestamp_millis())
+            .ok_or_else(|| anyhow!("{s}: not a valid local time (DST gap?)"))
+    };
+    if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
+        return local(naive);
+    }
+    if let Ok(time) = NaiveTime::parse_from_str(s, "%H:%M") {
+        let today: NaiveDate = Local::now().date_naive();
+        let at = local(today.and_time(time))?;
+        return if at > tower_core::now_ms() {
+            Ok(at)
+        } else {
+            local(today.succ_opt().unwrap_or(today).and_time(time))
+        };
+    }
+    anyhow::bail!("{s}: use HH:MM, \"YYYY-MM-DD HH:MM\", or RFC 3339")
 }

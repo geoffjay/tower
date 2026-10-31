@@ -284,11 +284,20 @@ async fn call_tool(
                 max_attempts: arg(args, "max_attempts")?,
                 when_available: arg(args, "when_available")?.unwrap_or(false),
                 not_before: arg(args, "not_before")?,
+                pre_run: arg(args, "pre_run")?,
+                post_run: arg(args, "post_run")?,
             };
             if req.assign.is_some() {
                 operator_only(caller, "assign jobs")?;
             }
             json!({ "task": crate::tasks::create(state, req, now).await? })
+        }
+        "tower_task_edit" => {
+            operator_only(caller, "edit jobs")?;
+            let id = TaskId::from(req_arg::<String>(args, "task_id")?);
+            let req: crate::tasks::UpdateTask = serde_json::from_value(args.clone())
+                .map_err(|e| ToolError::Protocol(format!("tower_task_edit arguments: {e}")))?;
+            json!({ "task": crate::tasks::update(state, &id, req, now).await? })
         }
         "tower_task_assign" => {
             operator_only(caller, "assign jobs")?;
@@ -354,8 +363,17 @@ async fn call_tool(
                 cron: arg(args, "cron")?,
                 daily: arg(args, "daily")?,
                 timezone: arg(args, "timezone")?,
+                pre_run: arg(args, "pre_run")?,
+                post_run: arg(args, "post_run")?,
             };
             json!({ "schedule": crate::schedules::create(state, req, now).await? })
+        }
+        "tower_schedule_edit" => {
+            operator_only(caller, "manage schedules")?;
+            let id = tower_core::ScheduleId::from(req_arg::<String>(args, "schedule_id")?);
+            let req: crate::schedules::UpdateSchedule = serde_json::from_value(args.clone())
+                .map_err(|e| ToolError::Protocol(format!("tower_schedule_edit arguments: {e}")))?;
+            json!({ "schedule": crate::schedules::update(state, &id, req, now).await? })
         }
         "tower_schedule_pause"
         | "tower_schedule_resume"
@@ -396,6 +414,14 @@ fn tool_list() -> Vec<Value> {
     let as_agent = json!({
         "type": "string",
         "description": "acting agent (defaults to the X-Tower-Agent header)"
+    });
+    let pre_run = json!({
+        "type": "string",
+        "description": "lifecycle prompt typed verbatim before the job prompt, every delivery (e.g. /compact)"
+    });
+    let post_run = json!({
+        "type": "string",
+        "description": "lifecycle prompt typed verbatim after the owner reports completed/failed (e.g. /reflect)"
     });
     vec![
         tool("tower_ps", "List agents with live states.", json!({}), &[]),
@@ -493,8 +519,20 @@ fn tool_list() -> Vec<Value> {
                 "assign": {"type": "string"}, "lease_s": {"type": "integer"},
                 "max_attempts": {"type": "integer"},
                 "when_available": {"type": "boolean"}, "not_before": {"type": "integer", "description": "ms epoch"},
+                "pre_run": pre_run, "post_run": post_run,
             }),
             &["title"],
+        ),
+        tool(
+            "tower_task_edit",
+            "Edit a job (operator only): a queued job takes every field, a delivered one only post_run; null or \"\" clears.",
+            json!({
+                "task_id": task_id, "title": {"type": "string"},
+                "description": {"type": ["string", "null"]},
+                "pre_run": {"type": ["string", "null"]}, "post_run": {"type": ["string", "null"]},
+                "not_before": {"type": ["integer", "null"], "description": "ms epoch; reserved jobs only"},
+            }),
+            &["task_id"],
         ),
         tool(
             "tower_task_assign",
@@ -550,8 +588,21 @@ fn tool_list() -> Vec<Value> {
                 "target": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}},
                 "priority": {"type": "integer"}, "lease_s": {"type": "integer"},
                 "max_attempts": {"type": "integer"},
+                "pre_run": pre_run.clone(), "post_run": post_run.clone(),
             }),
             &["title"],
+        ),
+        tool(
+            "tower_schedule_edit",
+            "Edit a schedule (operator only); later firings use it. A cadence change (cron/daily/timezone) moves next run; null or \"\" clears.",
+            json!({
+                "schedule_id": {"type": "string"}, "title": {"type": "string"},
+                "description": {"type": ["string", "null"]},
+                "pre_run": {"type": ["string", "null"]}, "post_run": {"type": ["string", "null"]},
+                "daily": {"type": "string", "description": "HH:MM"},
+                "cron": {"type": "string"}, "timezone": {"type": "string"},
+            }),
+            &["schedule_id"],
         ),
         tool("tower_schedule_pause", "Stop a schedule firing (operator only).", json!({"schedule_id": {"type": "string"}}), &["schedule_id"]),
         tool("tower_schedule_resume", "Resume a schedule from now (operator only).", json!({"schedule_id": {"type": "string"}}), &["schedule_id"]),

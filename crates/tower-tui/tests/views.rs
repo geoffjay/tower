@@ -7,7 +7,7 @@ use crossterm::event::KeyCode;
 use ratatui::style::Color;
 use support::*;
 use tower_core::*;
-use tower_tui::app::{Api, Effect, InputPurpose, ViewId};
+use tower_tui::app::{Api, EditTarget, Effect, Field, InputPurpose, ViewId};
 use tower_tui::store::{Fetch, Loaded, ScheduleDetail, TaskDetail};
 
 #[test]
@@ -607,4 +607,190 @@ fn task_detail_scrolls_when_content_overflows() {
     assert!(frame.contains("working (A_worker_39)"), "{frame}");
     a.on_key(code(KeyCode::Esc));
     assert!(a.tasks.detail.is_none());
+}
+
+// ---- edit panel (phase 2d, D§11) --------------------------------------------
+
+fn edit(target: EditTarget, field: Field, value: &str) -> Vec<Effect> {
+    vec![Effect::Api(Api::Edit {
+        target,
+        field,
+        value: value.into(),
+    })]
+}
+
+fn type_line(a: &mut tower_tui::app::App, s: &str) -> Vec<Effect> {
+    // the input line opens prefilled: clear it first
+    a.on_key(crossterm::event::KeyEvent::new(
+        KeyCode::Char('u'),
+        crossterm::event::KeyModifiers::CONTROL,
+    ));
+    for c in s.chars() {
+        a.on_key(key(c));
+    }
+    a.on_key(code(KeyCode::Enter))
+}
+
+#[test]
+fn edit_panel_saves_each_field_of_a_queued_job_on_submit() {
+    let mut a = mixed();
+    let mut t4 = task("T4", "write launch blog post", TaskState::Queued);
+    t4.target_agent_id = Some(AgentId("A_docs".into()));
+    t4.pre_run = Some("/clear".into());
+    a.store.load(Loaded::TasksDelta(vec![t4]));
+    a.on_key(key('3'));
+    a.on_key(key('l')); // queue pane: T4
+    assert!(a.on_key(key('e')).is_empty());
+    insta::assert_snapshot!(text(&mut a, 120, 24));
+    let job = EditTarget::Job(TaskId("T4".into()));
+
+    // title: the input line comes prefilled; submit saves it
+    a.on_key(code(KeyCode::Enter));
+    assert_eq!(
+        a.input
+            .as_ref()
+            .map(|(p, l)| (p.clone(), l.text().to_string())),
+        Some((
+            InputPurpose::Edit {
+                target: job.clone(),
+                field: Field::Title
+            },
+            "write launch blog post".to_string()
+        ))
+    );
+    assert_eq!(
+        type_line(&mut a, "write the launch post"),
+        edit(job.clone(), Field::Title, "write the launch post")
+    );
+    assert!(a.tasks.edit.is_some(), "the panel stays for the next field");
+
+    // pre-run: an empty submit clears it
+    for _ in 0..3 {
+        a.on_key(key('j'));
+    }
+    a.on_key(code(KeyCode::Enter));
+    assert_eq!(a.input.as_ref().unwrap().1.text(), "/clear");
+    assert_eq!(type_line(&mut a, ""), edit(job.clone(), Field::PreRun, ""));
+
+    // a required field is not cleared
+    a.on_key(key('g'));
+    a.on_key(code(KeyCode::Enter));
+    assert!(type_line(&mut a, "").is_empty());
+    assert!(a.toast.as_ref().is_some_and(|t| t.error));
+
+    a.on_key(code(KeyCode::Esc));
+    assert!(a.tasks.edit.is_none());
+}
+
+#[test]
+fn a_delivered_job_edits_post_run_only_and_a_closed_one_not_at_all() {
+    let mut a = mixed();
+    a.on_key(key('3')); // owned pane, soonest lease: T2 (working)
+    a.on_key(key('e'));
+    let job = EditTarget::Job(TaskId("T2".into()));
+    assert_eq!(
+        a.tasks.edit.as_ref().map(|p| p.field),
+        Some(Field::PostRun),
+        "starts on the only field it takes"
+    );
+    a.on_key(key('k')); // pre-run
+    assert!(a.on_key(code(KeyCode::Enter)).is_empty());
+    assert!(a.input.is_none(), "locked: no input line");
+    assert!(a
+        .toast
+        .as_ref()
+        .is_some_and(|t| t.text.contains("only post-run")));
+    a.on_key(key('j'));
+    a.on_key(code(KeyCode::Enter));
+    assert_eq!(
+        type_line(&mut a, "/reflect"),
+        edit(job, Field::PostRun, "/reflect")
+    );
+    a.on_key(code(KeyCode::Esc));
+
+    for _ in 0..2 {
+        a.on_key(key('l')); // recent pane: T5 (completed)
+    }
+    a.on_key(key('e'));
+    assert!(a.tasks.edit.is_none());
+    assert!(a
+        .toast
+        .as_ref()
+        .is_some_and(|t| t.text.contains("closed jobs can't be edited")));
+}
+
+#[test]
+fn multi_line_values_and_e_open_the_editor() {
+    let mut a = mixed();
+    let mut t4 = task("T4", "write launch blog post", TaskState::Queued);
+    t4.description = Some("goal: a post\ninputs: CHANGELOG.md".into());
+    a.store.load(Loaded::TasksDelta(vec![t4]));
+    a.on_key(key('3'));
+    a.on_key(key('l'));
+    a.on_key(key('e'));
+    let job = EditTarget::Job(TaskId("T4".into()));
+    a.on_key(key('j')); // prompt: two lines → never the one-line input
+    assert_eq!(
+        a.on_key(code(KeyCode::Enter)),
+        vec![Effect::Editor {
+            target: job.clone(),
+            field: Field::Prompt,
+            text: "goal: a post\ninputs: CHANGELOG.md".into(),
+        }]
+    );
+    for _ in 0..3 {
+        a.on_key(key('j')); // post-run, empty: E still opens the editor
+    }
+    assert_eq!(
+        a.on_key(key('E')),
+        vec![Effect::Editor {
+            target: job.clone(),
+            field: Field::PostRun,
+            text: String::new(),
+        }]
+    );
+    // the editor's result is one save; unchanged saves nothing
+    assert_eq!(
+        a.on_edited(
+            job.clone(),
+            Field::PostRun,
+            Ok(Some("/reflect\n/learn".into()))
+        ),
+        edit(job.clone(), Field::PostRun, "/reflect\n/learn")
+    );
+    assert!(a.on_edited(job, Field::PostRun, Ok(None)).is_empty());
+}
+
+#[test]
+fn a_schedule_edits_its_cron_and_lifecycle_prompts() {
+    let mut a = mixed();
+    a.store.load(Loaded::Schedules(vec![schedule(
+        "S1",
+        "dependency audit",
+        "0 9 * * *",
+    )]));
+    a.on_key(key('3'));
+    for _ in 0..3 {
+        a.on_key(key('l')); // schedules pane
+    }
+    a.on_key(key('e'));
+    let sched = EditTarget::Schedule(ScheduleId("S1".into()));
+    assert_eq!(
+        a.tasks.edit.as_ref().map(|p| p.target.clone()),
+        Some(sched.clone())
+    );
+    for _ in 0..2 {
+        a.on_key(key('j')); // schedule
+    }
+    a.on_key(code(KeyCode::Enter));
+    assert_eq!(a.input.as_ref().unwrap().1.text(), "0 9 * * *");
+    assert!(
+        type_line(&mut a, "").is_empty(),
+        "a schedule needs a cadence"
+    );
+    a.on_key(code(KeyCode::Enter));
+    assert_eq!(
+        type_line(&mut a, "10:30"),
+        edit(sched, Field::Schedule, "10:30")
+    );
 }

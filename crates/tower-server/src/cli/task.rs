@@ -43,6 +43,32 @@ pub enum TaskCmd {
         /// Lease window in seconds (default 60)
         #[arg(long)]
         lease_s: Option<i64>,
+        /// Lifecycle prompt typed into the harness before the job prompt,
+        /// on every delivery (e.g. '/clear')
+        #[arg(long)]
+        pre_run: Option<String>,
+        /// Lifecycle prompt typed after the owner reports completed or
+        /// failed (e.g. '/reflect')
+        #[arg(long)]
+        post_run: Option<String>,
+    },
+    /// Edit an open job: a queued job takes every field, a delivered one
+    /// only --post-run ('' clears a field)
+    Edit {
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        /// The job prompt
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        pre_run: Option<String>,
+        #[arg(long)]
+        post_run: Option<String>,
+        /// Reserved jobs: hold until this time (HH:MM today/tomorrow,
+        /// "YYYY-MM-DD HH:MM" local, or RFC 3339)
+        #[arg(long)]
+        at: Option<String>,
     },
     /// Dispatch a queued job to an agent (one job per agent at a time)
     Assign {
@@ -129,12 +155,18 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
             when_available,
             at,
             lease_s,
+            pre_run,
+            post_run,
         } => {
-            let not_before = at.as_deref().map(parse_local_time).transpose()?;
+            let not_before = at
+                .as_deref()
+                .map(|t| tower_client::parse_local_time(t).map_err(|e| e.context("--at")))
+                .transpose()?;
             let body = json!({
                 "title": title, "description": description, "tags": tags,
                 "priority": priority, "assign": assign, "lease_s": lease_s,
                 "when_available": when_available, "not_before": not_before,
+                "pre_run": pre_run, "post_run": post_run,
             });
             let v = c.post("/v1/tasks", Some(body)).await?;
             if json_out {
@@ -142,6 +174,58 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
             }
             let names = agent_names(c).await?;
             println!("{}", summary(&v["task"], &names));
+        }
+        TaskCmd::Edit {
+            id,
+            title,
+            description,
+            pre_run,
+            post_run,
+            at,
+        } => {
+            let mut body = serde_json::Map::new();
+            let mut changed = Vec::new();
+            // '' clears an optional field (null on the wire)
+            let text = |s: String| if s.is_empty() { Value::Null } else { json!(s) };
+            if let Some(t) = title {
+                body.insert("title".into(), json!(t));
+                changed.push("title");
+            }
+            for (key, flag, val) in [
+                ("description", "description", description),
+                ("pre_run", "pre-run", pre_run),
+                ("post_run", "post-run", post_run),
+            ] {
+                if let Some(v) = val {
+                    body.insert(key.into(), text(v));
+                    changed.push(flag);
+                }
+            }
+            if let Some(a) = at {
+                let nb = if a.trim().is_empty() {
+                    Value::Null
+                } else {
+                    json!(tower_client::parse_local_time(&a).map_err(|e| e.context("--at"))?)
+                };
+                body.insert("not_before".into(), nb);
+                changed.push("at");
+            }
+            if changed.is_empty() {
+                anyhow::bail!(
+                    "nothing to change: give --title, --description, --pre-run, --post-run, or --at"
+                );
+            }
+            let v = c
+                .patch(&format!("/v1/tasks/{id}"), Value::Object(body))
+                .await?;
+            if json_out {
+                return print_json(&v);
+            }
+            println!(
+                "{}  updated ({})",
+                v["task"]["id"].as_str().unwrap_or(&id),
+                changed.join(", ")
+            );
         }
         TaskCmd::Assign {
             id,
@@ -275,9 +359,14 @@ fn summary(t: &Value, names: &HashMap<String, String>) -> String {
     let id = t["id"].as_str().unwrap_or("?");
     match t["state"].as_str() {
         Some("assigned") => format!(
-            "{id}  assigned to {} (lease {}s)",
+            "{id}  assigned to {} (lease {}s{})",
             name(names, &t["owner_id"]),
-            t["lease_s"].as_i64().unwrap_or(0)
+            t["lease_s"].as_i64().unwrap_or(0),
+            if t["hook"] == "pre" {
+                ", pre-run first"
+            } else {
+                ""
+            }
         ),
         Some("queued") if t["target_agent_id"].is_string() => {
             let who = name(names, &t["target_agent_id"]);
@@ -291,36 +380,6 @@ fn summary(t: &Value, names: &HashMap<String, String>) -> String {
         Some(s) => format!("{id}  {s}"),
         None => id.to_string(),
     }
-}
-
-/// `--at`: `HH:MM` (today, or tomorrow if already past), `YYYY-MM-DD HH:MM`
-/// in local time, or RFC 3339. Returns ms epoch.
-pub fn parse_local_time(s: &str) -> anyhow::Result<i64> {
-    use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
-    let s = s.trim();
-    if let Ok(t) = chrono::DateTime::parse_from_rfc3339(s) {
-        return Ok(t.timestamp_millis());
-    }
-    let local = |naive: NaiveDateTime| {
-        Local
-            .from_local_datetime(&naive)
-            .earliest()
-            .map(|t| t.timestamp_millis())
-            .ok_or_else(|| anyhow::anyhow!("{s}: not a valid local time (DST gap?)"))
-    };
-    if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
-        return local(naive);
-    }
-    if let Ok(time) = NaiveTime::parse_from_str(s, "%H:%M") {
-        let today: NaiveDate = Local::now().date_naive();
-        let at = local(today.and_time(time))?;
-        return if at > tower_core::now_ms() {
-            Ok(at)
-        } else {
-            local(today.succ_opt().unwrap_or(today).and_time(time))
-        };
-    }
-    anyhow::bail!("--at {s}: use HH:MM, \"YYYY-MM-DD HH:MM\", or RFC 3339")
 }
 
 /// Owner, or `→name` for a job reserved for an agent.
@@ -401,8 +460,19 @@ fn print_show(v: &Value, names: &HashMap<String, String>, now: i64) {
         "  created  {}",
         clock(t["created_at"].as_i64().unwrap_or(0), true)
     );
-    if let Some(d) = t["description"].as_str() {
-        println!("  about    {d}");
+    for (label, key) in [
+        ("about", "description"),
+        ("pre-run", "pre_run"),
+        ("post-run", "post_run"),
+    ] {
+        if let Some(text) = t[key].as_str() {
+            print_text(label, text);
+        }
+    }
+    match t["hook"].as_str() {
+        Some("pre") => println!("  hook     pre-run prompt running (lease paused)"),
+        Some("post") => println!("  hook     post-run prompt running (owner busy)"),
+        _ => {}
     }
     if !t["result"].is_null() {
         println!("  result   {}", t["result"]);
@@ -455,7 +525,42 @@ fn trail_line(e: &Value, names: &HashMap<String, String>) -> String {
         ),
         "task.completed" => format!("completed by {}", name(names, &p["owner_id"])),
         "task.failed" => format!("failed: {}", p["result"]),
+        "task.updated" => format!("edited: {}", edited_fields(&p["fields"])),
+        "task.hook" => hook_line(p),
         other => other.to_string(),
+    }
+}
+
+/// `["description","pre_run"]` → `description, pre-run`.
+pub fn edited_fields(fields: &Value) -> String {
+    fields
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|f| match f {
+            "pre_run" => "pre-run",
+            "post_run" => "post-run",
+            "not_before" => "at",
+            other => other,
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `task.hook`: `pre-run prompt sent` / `… done` / `… failed: why`.
+pub fn hook_line(p: &Value) -> String {
+    let phase = match p["phase"].as_str() {
+        Some("post") => "post-run",
+        _ => "pre-run",
+    };
+    match (p["status"].as_str(), p["error"].as_str()) {
+        (Some("running"), _) => format!("{phase} prompt sent"),
+        (Some("done"), _) => format!("{phase} prompt done"),
+        (Some(s), Some(e)) => format!("{phase} prompt {s}: {e}"),
+        (Some(s), None) => format!("{phase} prompt {s}"),
+        (None, _) => format!("{phase} prompt"),
     }
 }
 
@@ -466,5 +571,14 @@ pub(super) fn clock(ms: i64, with_date: bool) -> String {
         Some(t) if with_date => t.format("%Y-%m-%d %H:%M:%S").to_string(),
         Some(t) => t.format("%H:%M:%S").to_string(),
         None => ms.to_string(),
+    }
+}
+
+/// `  label    text`, later lines indented under the text (prompts span
+/// lines).
+pub(super) fn print_text(label: &str, text: &str) {
+    for (i, line) in text.lines().enumerate() {
+        let head = if i == 0 { label } else { "" };
+        println!("  {head:<8} {line}");
     }
 }
