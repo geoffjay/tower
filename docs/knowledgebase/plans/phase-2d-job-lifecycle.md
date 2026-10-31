@@ -8,7 +8,7 @@ tags:
   - job-queue
   - scheduling
   - tui
-status: draft
+status: stable
 generated:
   by: omp/claude-opus-5-5
   at: "2026-10-31T12:00:00Z"
@@ -106,3 +106,9 @@ view). Independent of phase 2c; its migrations renumber after 0006.
 
 | Date | Check | Result |
 |---|---|---|
+| 2026-10-31 | T1.1 migration 0006 applies; checksum pinned (`storage::tests`); `Task`/`Schedule` round-trip with `pre_run`/`hook`; event names pinned to serde | pass |
+| 2026-10-31 | T1.2–T1.4 edit rules over REST: queued job takes every field (`null`/`""` clear, absent unchanged, `task.updated` names fields); empty patch / blank title / `not_before` without a reservation → 400; delivered job → 409 except `post_run`; closed → 409; a new `not_before` re-runs delivery; schedule cadence edit recomputes `next_run_at`, an open occurrence keeps its copy, the next firing carries the edit; bad cron/tz/both → 400 | pass (`tests/lifecycle.rs`) |
+| 2026-10-31 | T2.1–T2.3 sequencing with FakeHarness (`wait_until` now polls): pre-run typed first and trimmed, no delegation and no lease sweep until the agent settles, full lease from the delegation; cancel during pre-run → no delegation; never-settling prompt (`hook_timeout_s = 1`) → `failed` recorded, delegation still sent; post-run holds the reserved next job (manual assign → 409 naming the post-run) and it is dispatched once the prompt settles; cancel / release / lease expiry never run post-run; `hooks::recover` clears both marks (`interrupted`), the lease then requeues the undelivered job | pass (11 tests) |
+| 2026-10-31 | T3.1 CLI smoke (isolated `TOWER_HOME`, :8299): `task create --pre-run ' /clear ' --post-run` (stored trimmed), `task edit` (`''` clears; `--at` without reservation refused; nothing to change refused), `task show` (prompts, multi-line indented, trail `edited: …`), `schedule create/edit/show` (`--daily 23:15` → next moved; bad cron refused); MCP edit tools refuse agent callers | pass |
+| 2026-10-31 | T3.2 TUI: view tests (panel snapshot, per-field saves, locked fields on a delivered job, closed job refused, multi-line → `$EDITOR`, `on_edited`, schedule cron/`HH:MM`, required fields kept); server-backed test edits a queued job's pre-run from the jobs view and the panel shows it off the bus. Live in tmux: prompt edited inline, post-run via `E` with `VISUAL` set to a script writing two lines → saved, panel shows `(+1 lines)`. Found: `tower task show` printed continuation lines unindented | pass; fixed (`print_text`) |
+| 2026-10-31 | **T4.1 live**, herdr 0.9.5 + Claude Code 2.1.316 (`smoke2`, haiku; folder trust approved through `tower approve`): pre-run `/clear` typed into the real harness, delegation 5 s later (no working state seen → taken-up window → settled); lease paused meanwhile, full lease after. The pane could not reach its model API (gateway env missing in a `/tmp` workdir), so the job lease ran out → requeued; redelivery ran `/clear` again (every delivery). The owner's report was issued with the agent's own CLI verbs (`task start/status --as smoke2`): post-run prompt sent at once, settled 5 s later, and only then the reserved next job was dispatched. Harness screen order: `/clear` → job prompt → post-run → next job. Server killed 0.5 s into a pre-run: boot logged `interrupted lifecycle prompts cleared`, trail `pre-run prompt interrupted: server restarted`, lease ticking again | pass |

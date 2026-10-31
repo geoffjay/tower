@@ -44,7 +44,7 @@ are recorded as amendments there first, then implemented.
 | [Phase 2 — Messaging + job queue](phase-2-messaging-task-pool.md) | Messaging + job queue | phase 1 | **complete** (2026-09-27) |
 | [Phase 2b — Scheduled jobs](phase-2b-scheduled-jobs.md) | Scheduled + recurring jobs | phase 2 | **complete** (2026-09-27) |
 | [Phase 2c — Run outcomes, standing brief, job hold](phase-2c-outcomes-and-brief.md) | Outcomes + brief + hold | phase 2 (TUI/web touch) | not started |
-| [Phase 2d — Job lifecycle prompts and editing](phase-2d-job-lifecycle.md) | Lifecycle prompts + editing | phase 2b, phase 3 | in progress |
+| [Phase 2d — Job lifecycle prompts and editing](phase-2d-job-lifecycle.md) | Lifecycle prompts + editing | phase 2b, phase 3 | **complete** (2026-10-31) |
 | [Phase 3 — TUI](phase-3-tui.md) | TUI | phase 2 | **complete** (2026-09-27) |
 | [Phase 4 — Web UI (agent cloud)](phase-4-web-ui.md) | Web UI | phase 2 (independent of 3) | **complete** (2026-09-27) |
 | [Phase 5 — Multi-machine](phase-5-multi-machine.md) | Multi-machine | phase 2 | not started |
