@@ -1,6 +1,7 @@
 # Decisions
 
 Decisions for the tower project.
+* [Knowledge hive](knowledge-hive.md) - proposed: shared OKF markdown directory as the fleet knowledge substrate behind tower CLI/REST/MCP, derived SQLite index (FTS5 now, sqlite-vec spike) for retrieval, graph DBs as optional backends, tinyhivemind mechanics adopted as principles not code.
 
 * [Architecture recommendations](architecture-recommendations.md) - synthesis: single Rust server over herdr, SQLite, SSE, CLI/TUI/web/MCP, A2A edge; rejected alternatives.
 * [IPC: inter-agent and human-agent communication](ipc.md) - one HTTP port, SSE streaming, MCP for agents, A2A shapes, unified messages table.
