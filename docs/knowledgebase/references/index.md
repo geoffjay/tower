@@ -7,3 +7,5 @@ References for the tower project.
 * [herdr research](herdr.md) - herdr 0.8.2 socket API, agent launch, detection manifests; tower's execution substrate.
 * [openrig research](openrig.md) - daemon/adapter architecture, herdr provider split, concepts to borrow, cautions.
 * [OKF spec](okf-spec.md) - pointer to the Open Knowledge Format v0.2 specification.
+* [tinyhivemind research](tinyhivemind.md) - hive-mind mechanics (quorum, cross-inhibition, decay, stigmergy) as pure folds over a host-owned transcript; host contract, benchmark results including negatives, license constraint vs Apache-2.0 tower.
+* [Knowledge-store research](knowledge-stores.md) - graph DBs (FalkorDB SSPL, Memgraph BSL, Kuzu archived → LadybugDB), Graphiti's temporal schema, sqlite-vec + FTS5 in SQLite, and the OKF-directory alternative — licenses, Rust clients, tower fit.
