@@ -44,6 +44,7 @@ are recorded as amendments there first, then implemented.
 | [Phase 2 — Messaging + job queue](phase-2-messaging-task-pool.md) | Messaging + job queue | phase 1 | **complete** (2026-09-27) |
 | [Phase 2b — Scheduled jobs](phase-2b-scheduled-jobs.md) | Scheduled + recurring jobs | phase 2 | **complete** (2026-09-27) |
 | [Phase 2c — Run outcomes, standing brief, job hold](phase-2c-outcomes-and-brief.md) | Outcomes + brief + hold | phase 2 (TUI/web touch) | not started |
+| [Phase 2d — Job lifecycle prompts and editing](phase-2d-job-lifecycle.md) | Lifecycle prompts + editing | phase 2b, phase 3 | in progress |
 | [Phase 3 — TUI](phase-3-tui.md) | TUI | phase 2 | **complete** (2026-09-27) |
 | [Phase 4 — Web UI (agent cloud)](phase-4-web-ui.md) | Web UI | phase 2 (independent of 3) | **complete** (2026-09-27) |
 | [Phase 5 — Multi-machine](phase-5-multi-machine.md) | Multi-machine | phase 2 | not started |
@@ -53,9 +54,10 @@ are recorded as amendments there first, then implemented.
 
 ```
 phase-1 ──► phase-2 ──► phase-2b ──► phase-2c ──┬──► phase-3 (TUI)
-                                               ├──► phase-4 (web UI)
-                                               ├──► phase-5 (multi-machine)
-                                               └──► phase-6 (A2A edge)
+                             │                 ├──► phase-4 (web UI)
+                             │                 ├──► phase-5 (multi-machine)
+                             │                 └──► phase-6 (A2A edge)
+                             └──► phase-2d (lifecycle + editing; needs phase-3's TUI)
 ```
 
 Phases 3–6 are parallelizable after phase 2, though recommended order is
@@ -66,6 +68,10 @@ whole project.
 Phase 2c slots after 2b although phases 3–4 shipped. It touches the TUI
 and web inbox views they built, but needs no re-plan; its milestones carry
 those surface changes.
+
+Phase 2d extends the 2b job queue and the phase-3 TUI. It does not touch
+2c's surfaces, so either can land first; 2c's migrations take the numbers
+after 0006.
 
 ## Cross-cutting rules (all phases)
 

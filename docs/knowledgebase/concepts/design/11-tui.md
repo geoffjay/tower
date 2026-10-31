@@ -12,7 +12,7 @@ sources:
     title: tower design document §11 (original, removed from repo root after ingest)
 generated:
   by: omp/claude-opus-5-5
-  at: "2026-09-26T22:59:25Z"
+  at: "2026-10-31T12:00:00Z"
 ---
 
 # 11. TUI
@@ -35,10 +35,20 @@ Views:
   until herdr's detach key returns it
 - **Inbox**: pending questions/approvals; reply inline (`y`/`n`/text)
 - **Tasks**: task list + state (queue/owned split, lease countdowns on owned
-  tasks, reserved-for target on waiting jobs); schedules with next run;
-  detail shows trail + assignment history — Enter opens a job detail, or a
+  tasks — `pre-run` instead while a pre-run prompt pauses the lease;
+  reserved-for target on waiting jobs); schedules with next run;
+  detail shows trail + assignment history and the lifecycle prompts — Enter opens a job detail, or a
   schedule detail (definition + the jobs it fired) from the schedules pane,
-  both scrollable bottom-anchored with `j/k` (g/G snap, ctrl-d/u page)
+  both scrollable bottom-anchored with `j/k` (g/G snap, ctrl-d/u page).
+  `e` opens the **edit panel** for the selected (or open) job or schedule
+  ([§5.2.3](05-core-objects.md)): title, prompt, schedule (a job's `at`
+  time, a schedule's cron or `HH:MM`), pre-run, post-run. `j/k` pick a
+  field, `enter` edits it in the input line prefilled with its value, `E`
+  opens it in `$VISUAL`/`$EDITOR` (else `vi`; a multi-line value always
+  opens there). Each field is saved (one `PATCH`) when it is submitted;
+  an empty value clears an optional field; there is no save step. A
+  delivered job shows its other fields read-only and edits post-run only;
+  a closed job is not editable.
 - **Events**: filtered feed of `/v1/events`
 - **Machines**: inventory + node status
 

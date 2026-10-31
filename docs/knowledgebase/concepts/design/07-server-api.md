@@ -14,8 +14,8 @@ sources:
   - resource: git:340c189:DESIGN.md
     title: tower design document §7 (original, removed from repo root after ingest)
 generated:
-  by: claude-code/1.0
-  at: "2026-10-16T21:42:06Z"
+  by: omp/claude-opus-5-5
+  at: "2026-10-31T12:00:00Z"
 ---
 
 # 7. Server API
@@ -44,14 +44,16 @@ Conventions:
 | `POST /v1/messages` | `{to, kind, parts, task_id?, deadline_s?}` | unified send (any direction) |
 | `POST /v1/messages/{id}/respond` | `{parts}` | answer/question or approval-response; sets `responded_at` |
 | `POST /v1/messages/{id}/dismiss` | — | operator-only: close as `dismissed` without notifying the sender; sets `responded_at`; CAS on `pending` (409 otherwise) |
-| `POST /v1/tasks` | `{title, description?, priority?, tags?, assign?, when_available?, not_before?}` | create task; `assign: <agent>` pre-assigns (with `when_available`/`not_before`: reserves it for delivery when the agent is free), else it waits in the queue for assignment |
+| `POST /v1/tasks` | `{title, description?, priority?, tags?, assign?, when_available?, not_before?, pre_run?, post_run?}` | create task; `assign: <agent>` pre-assigns (with `when_available`/`not_before`: reserves it for delivery when the agent is free), else it waits in the queue for assignment. `pre_run`/`post_run` are lifecycle prompts ([§5.2.3](05-core-objects.md)) |
+| `PATCH /v1/tasks/{id}` | `{title?, description?, pre_run?, post_run?, not_before?}` | edit (operator-only); `null`/`""` clears; queued jobs take every field, delivered jobs only `post_run`, closed jobs none (409); emits `task.updated` |
 | `POST /v1/tasks/{id}/assign` | `{to: <agent_id>, lease_s?, when_available?}` | assign to an agent (assign-capable principals only); atomic CAS (conflict on 0 rows); state → `assigned` |
 | `POST /v1/tasks/{id}/start` | `{as: <agent_id>}` | owner declares work started; `assigned` → `working` (renews lease) |
 | `POST /v1/tasks/{id}/heartbeat` | `{as: <agent_id>}` | renew lease (owner-only, 409 otherwise) |
 | `POST /v1/tasks/{id}/status` | `{as: <agent_id>, state?, result?}` | owner status report; emits `task.status`; terminal states close the task |
 | `POST /v1/tasks/{id}/release` | `{as: <agent_id>, reason?}` | voluntary release → back to the queue (`queued`) |
 | `POST /v1/tasks/{id}/cancel` | — | cancel + interrupt owning agent |
-| `POST /v1/schedules` | `{title, cron \| daily, timezone?, target?, description?, tags?, priority?, lease_s?, max_attempts?}` | create a recurring job template (operator-only) |
+| `POST /v1/schedules` | `{title, cron \| daily, timezone?, target?, description?, tags?, priority?, lease_s?, max_attempts?, pre_run?, post_run?}` | create a recurring job template (operator-only) |
+| `PATCH /v1/schedules/{id}` | `{title?, description?, cron? \| daily?, timezone?, pre_run?, post_run?}` | edit in place; a cadence change recomputes `next_run_at` from now; later firings only; emits `schedule.updated` |
 | `POST /v1/schedules/{id}/pause` · `/resume` · `/run` | — | stop firing / resume from now / fire one extra occurrence now |
 | `DELETE /v1/schedules/{id}` | — | remove (open jobs it created are left alone) |
 
@@ -100,12 +102,12 @@ runtime re-render `POST`); the bearer token opens everything.
 
 tools: `tower_ps`, `tower_spawn`, `tower_stop`, `tower_prompt`, `tower_send`,
 `tower_ask`, `tower_approve`, `tower_dismiss`, `tower_inbox`, `tower_task_list`, `tower_task_show`,
-`tower_task_create`, `tower_task_assign`, `tower_task_cancel`, `tower_task_start`,
+`tower_task_create`, `tower_task_edit`, `tower_task_assign`, `tower_task_cancel`, `tower_task_start`,
 `tower_task_heartbeat`, `tower_task_status`, `tower_task_release`,
 `tower_machine_list`, `tower_schedule_list`, `tower_schedule_show`,
-`tower_schedule_create`, `tower_schedule_pause`, `tower_schedule_resume`,
+`tower_schedule_create`, `tower_schedule_edit`, `tower_schedule_pause`, `tower_schedule_resume`,
 `tower_schedule_run`, `tower_schedule_remove`. Operator-only: assign,
-`tower_stop`, `tower_task_cancel`, and schedule mutations. `tower_inbox`
+`tower_stop`, `tower_task_cancel`, `tower_task_edit`, and schedule mutations. `tower_inbox`
 returns the caller's messages (an agent's own, or the operator's `me`).
 One management surface for humans and agents
 (openrig-proven pattern). Agents have no self-serve claim: `tower_task_list

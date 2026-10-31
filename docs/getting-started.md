@@ -304,6 +304,45 @@ across several firings, it fires **once**; removing the target agent
 **pauses** the schedule. Schedules only fire while `tower serve` runs —
 `tower service install` keeps it running as a user service.
 
+### Lifecycle prompts and editing
+
+A job can carry two extra prompts that tower types into the agent's
+harness around the run. They go in verbatim, so harness commands work:
+
+```console
+$ tower task create 'refactor the CSV parser' --assign backend \
+    --pre-run '/clear' --post-run '/reflect'
+t_01J9X8E  assigned to backend (lease 60s, pre-run first)
+
+$ tower schedule create 'dependency audit' --daily 09:00 --assign backend \
+    --pre-run '/compact' --post-run '/learn'
+s_01J9X9B  daily 09:00 America/Los_Angeles → backend  next: 2026-09-28 09:00:00
+```
+
+The **pre-run** prompt goes first, on every delivery; the job prompt
+follows once the agent is idle again, and the lease waits for it. The
+**post-run** prompt follows the agent's own `completed`/`failed` report;
+the agent counts as busy until it settles, so the next reserved job waits
+behind it. Cancel, release, and lease expiry skip it. `tower task show`
+lists both prompts, and the trail records each run of them.
+
+Open jobs and schedules are edited in place; `''` clears a field:
+
+```console
+$ tower task edit t_01J9X8D --description 'also prune old logs' --at 23:00
+t_01J9X8D  updated (description, at)
+
+$ tower task edit t_01J9X8E --post-run ''
+t_01J9X8E  updated (post-run)
+
+$ tower schedule edit s_01J9X9B --daily 10:00 --pre-run '/clear'
+s_01J9X9B  updated (daily, pre-run)  next: 2026-09-28 10:00:00
+```
+
+A queued job takes every change; a delivered job only its post-run
+prompt; a closed job none. A schedule edit applies from its next firing —
+a job it already fired keeps what it was fired with.
+
 ## 8. Watch the system
 
 ```console
@@ -337,7 +376,7 @@ enter open · i prompt · x interrupt · o herdr · f state · m machine · s so
 | `1` Fleet | agents with state, job and why they wait; the line under the table shows the selected agent's full name and task; `f`/`m`/`s` filter by state or machine, sort; `enter` opens an agent |
 | Agent | its live screen (colors kept), message history; `i` prompt, `x` interrupt, `o` jump to the pane in herdr (focus when the TUI runs inside herdr, else attach; herdr's detach key brings you back) |
 | `2` Inbox | questions and approvals with deadlines and the agent's screen; `y`/`n` approve/deny (or yes/no), `r` answer in words |
-| `3` Tasks | owned jobs with live lease countdowns, the queue (with reservations), recently closed, schedules; `n` new job, `a` assign (`<name> later` reserves), `x x` cancel, `enter` trail; on a schedule `p` pause/resume, `R` run now |
+| `3` Tasks | owned jobs with live lease countdowns, the queue (with reservations), recently closed, schedules; `n` new job, `a` assign (`<name> later` reserves), `x x` cancel, `enter` trail, `e` edit (title, prompt, schedule, pre-run, post-run — `enter` edits a field, `E` opens `$EDITOR`, each field is saved on submit); on a schedule `p` pause/resume, `R` run now |
 | `4` Events | the feed; `f` type filter, `s` subject (an agent name works), `O` include output chunks; scrolling pauses, `G` follows |
 | `5` Machines | inventory and node status |
 
@@ -442,8 +481,8 @@ it to run outside the sandbox.
 | `tower stream NAME` / `tower read NAME` | live output / snapshot read |
 | `tower interrupt NAME` / `tower stop NAME` | ctrl+c / end session (seat survives) |
 | `tower inbox` / `tower ask` / `tower approve ID` / `tower dismiss ID` | human ↔ agent loop; dismiss = drop stale, no answer sent |
-| `tower task create/list/assign/show/cancel/release` | job queue (you assign, agents own) |
-| `tower schedule create/list/show/pause/resume/run/rm` | recurring jobs |
+| `tower task create/list/assign/show/edit/cancel/release` | job queue (you assign, agents own) |
+| `tower schedule create/list/show/edit/pause/resume/run/rm` | recurring jobs |
 | `tower service install/uninstall/status` | keep `tower serve` running |
 | `tower events --follow [--filter ...]` | system event stream |
 | `tower machines add/remove/list` | node registry |

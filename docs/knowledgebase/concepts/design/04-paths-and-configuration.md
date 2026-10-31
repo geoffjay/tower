@@ -12,8 +12,8 @@ sources:
   - resource: git:340c189:DESIGN.md
     title: tower design document §4 (original, removed from repo root after ingest)
 generated:
-  by: claude-code/1.0
-  at: "2026-10-23T23:30:00Z"
+  by: omp/claude-opus-5-5
+  at: "2026-10-31T12:00:00Z"
 ---
 
 # 4. Paths and configuration
@@ -58,6 +58,9 @@ external_url = "https://agents.example.com"   # used in agent card
 
 [inbox]
 blocked_deadline_s = 86400   # blocked-agent questions/approvals (24h)
+
+[jobs]
+hook_timeout_s = 600         # how long a lifecycle prompt may wait for the agent to settle (D§5.2.3)
 ```
 
 The blocked-agent inbox deadline defaults to 24 hours so operators can

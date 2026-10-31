@@ -11,8 +11,8 @@ sources:
   - resource: git:340c189:DESIGN.md
     title: tower design document §10 (original, removed from repo root after ingest)
 generated:
-  by: claude-code/1.0
-  at: "2026-10-16T21:42:06Z"
+  by: omp/claude-opus-5-5
+  at: "2026-10-31T12:00:00Z"
 ---
 
 # 10. Client CLI
@@ -33,14 +33,16 @@ tower dismiss <msg-id>               # close as stale, no answer delivered
 tower send <to> --kind <kind> ...    # generic unified send
 tower task list [--state queued] [--tag x] [--mine <name>]   # queue + owned views
 tower task show <id>                          # detail incl. assignment/lease trail
-tower task create 'title' [--tag x] [--assign name] [--priority N]
+tower task create 'title' [--tag x] [--assign name] [--priority N] [--pre-run P] [--post-run P]
+tower task edit <id> [--title T] [--description D] [--pre-run P] [--post-run P] [--at TIME]   # '' clears; D§5.2.3
 tower task assign <id> <name>                 # dispatch (operator; orchestrator later)
 tower task cancel <id> / task release <id> [--as <agent>]
 tower task start|heartbeat <id> [--as <agent>]            # agent work loop
 tower task status <id> <working|input-required|completed|failed> [--result R] [--as <agent>]
 tower task create 'title' --assign name --when-available | --at <time>   # reserve: deliver when free / after time
 tower task assign <id> <name> --when-available                          # reserve instead of immediate
-tower schedule create 'title' (--daily HH:MM | --cron '…') [--tz Zone] [--assign name] [--tag x] [--lease-s N]
+tower schedule create 'title' (--daily HH:MM | --cron '…') [--tz Zone] [--assign name] [--tag x] [--lease-s N] [--pre-run P] [--post-run P]
+tower schedule edit <id> [--title T] [--description D] [--daily HH:MM | --cron '…'] [--tz Zone] [--pre-run P] [--post-run P]
 tower schedule list | show <id> | pause <id> | resume <id> | run <id> | rm <id>
 tower service install | uninstall | status          # run `tower serve` as a user service (launchd / systemd)
                                     # --as defaults to $TOWER_AGENT (set in spawned panes)

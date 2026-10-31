@@ -58,6 +58,14 @@ as "proceed with your default or stop", and approvals are **denied**.
 `{"summary": "…"}`. Report `failed` (with a reason in `result`) rather
 than going silent — silence costs a lease window and an attempt.
 
+**Lifecycle prompts**: the operator may attach a pre-run prompt to a job
+(it arrives before the delegation notice) and a post-run prompt (it
+arrives after you report `completed` or `failed`) — for example `/clear`
+before and `/reflect` after. Each arrives as a plain prompt: do what it
+says. It is not a job, so there is nothing to start, heartbeat, or report
+for it. Tower waits until you are idle before it sends one, and no new job
+reaches you until a post-run prompt is done.
+
 ## Wiring an MCP client
 
 ```console

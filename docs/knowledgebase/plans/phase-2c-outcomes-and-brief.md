@@ -70,10 +70,12 @@ and web inbox surfaces from phases 3–4 (both complete).
 ## Milestone 2 — Standing brief
 ([D§5.2.1](../concepts/design/05-core-objects.md), [D§6](../concepts/design/06-data-model.md), [D§7](../concepts/design/07-server-api.md), [D§10](../concepts/design/10-client-cli.md))
 
-- **T2.1 Migration 0005.** Add `agents.brief TEXT` (nullable); drop the
+- **T2.1 Migration 0007** (renumbered: 0005 shipped the agent model/args
+  columns, 0006 the [phase 2d](phase-2d-job-lifecycle.md) lifecycle
+  prompts). Add `agents.brief TEXT` (nullable); drop the
   dead `agents.config` column. Update the `Agent` struct and every
-  constructor. Verify: migration applies on a phase-2b database; brief
-  round-trips; the migration checksum test pins the new file.
+  constructor. Verify: migration applies on a 0006 database;
+  brief round-trips; the migration checksum test pins the new file.
 - **T2.2 Surfaces.** Spawn stores `--prompt` into `brief` (and still sends
   it once, unchanged). `PATCH /v1/agents/{id}` `{brief}` sets or clears,
   operator-only. CLI `tower brief <name>` shows; `tower brief <name>
@@ -119,9 +121,9 @@ and web inbox surfaces from phases 3–4 (both complete).
 ## Milestone 4 — Job hold
 ([job-hold decision](../decisions/job-hold.md), [D§5.2.1](../concepts/design/05-core-objects.md), [D§5.2.2](../concepts/design/05-core-objects.md))
 
-- **T4.1 Migration 0006 + core.** `tasks.held_at INTEGER` (NULL = not
+- **T4.1 Migration 0008 + core.** `tasks.held_at INTEGER` (NULL = not
   held); `task.held` / `task.resumed` event kinds; Task JSON carries
-  `held_at`. Verify: applies on a 0005 database; serde round-trip;
+  `held_at`. Verify: applies on a 0007 database; serde round-trip;
   checksum test pins the new file.
 - **T4.2 Hold semantics.** `hold` sets the flag on a queued job
   (reservation kept), `resume` clears it and attempts delivery at once;
