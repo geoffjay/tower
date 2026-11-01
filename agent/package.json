@@ -1,0 +1,21 @@
+{
+	"name": "tower-agent",
+	"version": "0.1.0",
+	"private": true,
+	"description": "omp extensions that make an omp session the tower operator agent",
+	"type": "module",
+	"omp": {
+		"extensions": [
+			"./extensions/tower-tools/index.ts",
+			"./extensions/tower-console/index.ts"
+		]
+	},
+	"scripts": {
+		"check": "tsc -p ."
+	},
+	"devDependencies": {
+		"@oh-my-pi/pi-coding-agent": "18.8.7",
+		"@types/bun": "1.4.4",
+		"typescript": "5.9.3"
+	}
+}
