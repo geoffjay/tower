@@ -25,6 +25,7 @@ token
 *.logtarget/
 
 # okf
+docs/knowledgebase/.obsidian
 docs/knowledgebase/site
 docs/notes
 
