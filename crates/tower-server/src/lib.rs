@@ -5,6 +5,7 @@ pub mod auth;
 pub mod config;
 pub mod contract;
 pub mod dialog;
+pub mod hooks;
 pub mod http;
 pub mod inventory;
 pub mod mcp;

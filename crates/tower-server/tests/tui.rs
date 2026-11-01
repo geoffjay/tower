@@ -87,6 +87,7 @@ impl Live {
                     self.app.on_api(r);
                 }
                 Effect::Attach { .. } => panic!("no herdr in tests"),
+                Effect::Editor { .. } => panic!("no $EDITOR in tests: call App::on_edited"),
             }
         }
     }
@@ -197,6 +198,46 @@ async fn prompt_input_posts_to_the_agent() {
     })
     .await;
     assert!(l.frame().contains("me → writer prompt"));
+}
+
+#[tokio::test]
+async fn edit_a_queued_job_from_the_tasks_view() {
+    let mut l = live().await;
+    let (status, v) = l
+        .ctx
+        .req(
+            "POST",
+            "/v1/tasks",
+            Some(serde_json::json!({"title": "dependency audit"})),
+        )
+        .await;
+    assert!(status.is_success());
+    let id = tower_core::TaskId::from(v["task"]["id"].as_str().unwrap());
+    l.until(|a| a.store.tasks.contains_key(&id)).await;
+
+    l.key(KeyCode::Char('3')).await;
+    l.key(KeyCode::Char('l')).await; // queue pane
+    l.key(KeyCode::Char('e')).await;
+    for _ in 0..3 {
+        l.key(KeyCode::Char('j')).await; // pre-run
+    }
+    l.key(KeyCode::Enter).await;
+    l.typed("/compact").await;
+    l.key(KeyCode::Enter).await; // saved right away: one PATCH
+    let toast = l.app.toast.clone().expect("result toast");
+    assert!(!toast.error, "{}", toast.text);
+    assert!(toast.text.ends_with("pre-run saved"), "{}", toast.text);
+
+    // the server has it; task.updated brings it back to the open panel
+    let t = tower_server::tasks::get_task(&l.ctx.state, &id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(t.pre_run.as_deref(), Some("/compact"));
+    l.until(|a| a.store.tasks[&id].pre_run.as_deref() == Some("/compact"))
+        .await;
+    let frame = l.frame();
+    assert!(frame.contains("pre-run  /compact"), "{frame}");
 }
 
 #[tokio::test]

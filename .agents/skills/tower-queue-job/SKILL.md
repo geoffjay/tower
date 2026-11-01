@@ -42,6 +42,7 @@ them together in one message, not one at a time.
 | Timing | Now, when the agent is free, at a time, or recurring | Now if the owner is idle, else when free |
 | Lease | Seconds the agent may go silent before the job requeues | 300 for real work; 60 only for trivial jobs |
 | Priority, tags | Queue order and filtering | Priority 0; tag `stack:<name>` if the agent belongs to a stack |
+| Before / after prompts | Tower types them into the agent's harness before and after the run, for example `/clear` before and `/reflect` after | None. Ask only if the user mentions context, compaction, or reflection |
 
 If the job repeats ("every day", "each Monday"), it is a schedule. Use
 `tower schedule create` in step 3 instead of `tower task create`.
@@ -85,6 +86,13 @@ tower schedule create '<title>' --cron '0 9 * * MON-FRI' --tz America/Los_Angele
 Every form takes `--lease-s`. The job keeps its lease for every later
 assignment, so set it at creation. Add `--tag <tag>` once for each tag. Quote the description with single
 quotes. If it contains a single quote, write `'\''` in its place.
+
+Every form also takes `--pre-run '<prompt>'` and `--post-run '<prompt>'`.
+Tower sends the pre-run prompt before the job, on every delivery. Tower
+sends the post-run prompt after the agent reports `completed` or `failed`.
+Tower sends the text exactly as written, so harness commands such as
+`/compact` work. To change a queued job later, use
+`tower task edit <id>` (`tower schedule edit <id>` for a schedule).
 
 An agent owns one job at a time. A plain `--assign` to a busy agent fails
 with `conflict` and names the open job. In that case, tell the user and

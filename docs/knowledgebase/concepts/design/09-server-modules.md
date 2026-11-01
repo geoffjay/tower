@@ -13,7 +13,7 @@ sources:
     title: tower design document §9 (original, removed from repo root after ingest)
 generated:
   by: omp/claude-opus-5-5
-  at: "2026-09-26T22:59:25Z"
+  at: "2026-10-31T12:00:00Z"
 ---
 
 # 9. Server modules
@@ -91,10 +91,17 @@ Task rows + job-queue semantics ([§5.2.1](05-core-objects.md)): assign
 Task completion is owner-reported (prompt response or detection `done`) —
 never inferred from a delivered message alone (openrig's epistemics rule).
 The sweeper also pauses lease expiry during `input-required` (see [§5.2](05-core-objects.md)
-state machine note). The **dispatcher** delivers reserved jobs to available
+state machine note) and while a pre-run prompt runs. The **dispatcher** delivers reserved jobs to available
 targets (on the agent's `idle`/`done` transition, when its job closes, and
 each sweep); the **scheduler** fires due schedules each sweep
-([§5.2.2](05-core-objects.md)).
+([§5.2.2](05-core-objects.md)). The **hooks runner** (`hooks.rs`,
+[§5.2.3](05-core-objects.md)) sends a job's pre-run prompt before its
+delegation and its post-run prompt after the owner closes it. Each
+sequence runs in its own background task — never inline in the pump, a
+route, or the sweep, which must not wait minutes on a `/compact`. Driver
+calls inside it still take the per-agent lock, but only for the send; the
+waits for the agent to settle hold no lock. Boot clears `hook` marks a
+crash left behind before the first reconcile.
 
 ## 9.5 machine hub
 

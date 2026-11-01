@@ -59,6 +59,66 @@ pub enum Effect {
     Attach {
         target: String,
     },
+    /// Edit `text` in `$VISUAL`/`$EDITOR`; the result comes back through
+    /// `App::on_edited`.
+    Editor {
+        target: EditTarget,
+        field: Field,
+        text: String,
+    },
+}
+
+/// What the tasks view's edit panel changes (D§11, D§5.2.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EditTarget {
+    Job(TaskId),
+    Schedule(ScheduleId),
+}
+
+/// An editable field of a job or a schedule, in panel order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    Title,
+    /// The job's description — the body of its job prompt.
+    Prompt,
+    /// A job's `at` time (`not_before`), a schedule's cron.
+    Schedule,
+    PreRun,
+    PostRun,
+}
+
+impl Field {
+    pub const ALL: [Field; 5] = [
+        Field::Title,
+        Field::Prompt,
+        Field::Schedule,
+        Field::PreRun,
+        Field::PostRun,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Field::Title => "title",
+            Field::Prompt => "prompt",
+            Field::Schedule => "schedule",
+            Field::PreRun => "pre-run",
+            Field::PostRun => "post-run",
+        }
+    }
+
+    /// Free text that may span lines (opens in `$EDITOR`).
+    pub fn is_text(self) -> bool {
+        matches!(self, Field::Prompt | Field::PreRun | Field::PostRun)
+    }
+
+    /// An empty value cannot clear it.
+    fn required(self, target: &EditTarget) -> bool {
+        match self {
+            Field::Title => true,
+            Field::Schedule => matches!(target, EditTarget::Schedule(_)),
+            _ => false,
+        }
+    }
 }
 
 /// Mutating `/v1` calls (the D§10 verbs the TUI wraps).
@@ -112,6 +172,12 @@ pub enum Api {
     ScheduleRun {
         id: ScheduleId,
     },
+    /// One field of a job or schedule (`PATCH`); an empty value clears it.
+    Edit {
+        target: EditTarget,
+        field: Field,
+        value: String,
+    },
 }
 
 /// What the focused input line is for.
@@ -124,6 +190,7 @@ pub enum InputPurpose {
     Assign { task: TaskId },
     EventKind,
     EventSubject,
+    Edit { target: EditTarget, field: Field },
 }
 
 impl InputPurpose {
@@ -136,6 +203,14 @@ impl InputPurpose {
             InputPurpose::Assign { .. } => "assign to agent (`<name> later` reserves) › ".into(),
             InputPurpose::EventKind => "filter type › ".into(),
             InputPurpose::EventSubject => "filter subject › ".into(),
+            InputPurpose::Edit { target, field } => match (field, target) {
+                (Field::Title, _) => "title › ".into(),
+                (Field::Schedule, EditTarget::Job(_)) => {
+                    "at (HH:MM · YYYY-MM-DD HH:MM · empty clears) › ".into()
+                }
+                (Field::Schedule, EditTarget::Schedule(_)) => "cron or HH:MM › ".into(),
+                (f, _) => format!("{} (empty clears) › ", f.label()),
+            },
         }
     }
 }
@@ -458,8 +533,10 @@ impl App {
 
     fn submit(&mut self, purpose: InputPurpose, text: &str) -> Vec<Effect> {
         if text.is_empty()
-            && purpose != InputPurpose::EventKind
-            && purpose != InputPurpose::EventSubject
+            && !matches!(
+                purpose,
+                InputPurpose::EventKind | InputPurpose::EventSubject | InputPurpose::Edit { .. }
+            )
         {
             return Vec::new();
         }
@@ -493,6 +570,42 @@ impl App {
             }
             InputPurpose::EventSubject => {
                 self.events.subject_filter = text.into();
+                Vec::new()
+            }
+            InputPurpose::Edit { target, field } => self.save(target, field, text),
+        }
+    }
+
+    /// One edit-panel field, saved as soon as it is submitted (D§11): an
+    /// empty value clears an optional field.
+    fn save(&mut self, target: EditTarget, field: Field, value: &str) -> Vec<Effect> {
+        if value.trim().is_empty() && field.required(&target) {
+            self.toast_err(format!("{} can't be empty", field.label()));
+            return Vec::new();
+        }
+        vec![Effect::Api(Api::Edit {
+            target,
+            field,
+            value: value.to_string(),
+        })]
+    }
+
+    /// `$EDITOR` came back: the new text (`None` = unchanged), or why it
+    /// failed.
+    pub fn on_edited(
+        &mut self,
+        target: EditTarget,
+        field: Field,
+        r: Result<Option<String>, String>,
+    ) -> Vec<Effect> {
+        match r {
+            Ok(Some(text)) => self.save(target, field, &text),
+            Ok(None) => {
+                self.toast_ok(format!("{} unchanged", field.label()));
+                Vec::new()
+            }
+            Err(e) => {
+                self.toast_err(e);
                 Vec::new()
             }
         }

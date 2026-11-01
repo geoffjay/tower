@@ -94,7 +94,8 @@ once, and nothing refuses an agent that is already busy. A job assigned at
 
 Schedules are **operator-only** (REST/CLI; MCP refuses agent-identified
 callers): a recurring job is a dispatch policy. Editing is remove + create
-in this phase.
+in this phase (superseded 2026-10-31: schedules are edited in place —
+[job lifecycle decision](job-lifecycle-hooks.md)).
 
 ### Always-on server
 

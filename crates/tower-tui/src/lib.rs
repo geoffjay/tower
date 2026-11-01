@@ -102,7 +102,10 @@ async fn event_loop(
                     Vec::new()
                 }
             };
-            for e in effects {
+            // an editor session yields more work (the save), so effects
+            // drain as a queue
+            let mut queue = std::collections::VecDeque::from(effects);
+            while let Some(e) = queue.pop_front() {
                 match e {
                     Effect::Fetch(f) => {
                         let (c, tx) = (client.clone(), tx.clone());
@@ -123,6 +126,15 @@ async fn event_loop(
                         let r = attach(terminal, paused, &target).await;
                         app.now = tower_core::now_ms();
                         app.on_api(r);
+                    }
+                    Effect::Editor {
+                        target,
+                        field,
+                        text,
+                    } => {
+                        let r = edit_in_editor(terminal, paused, &text).await;
+                        app.now = tower_core::now_ms();
+                        queue.extend(app.on_edited(target, field, r));
                     }
                 }
             }
@@ -181,6 +193,55 @@ async fn attach(
         Ok(Err(e)) => Err(format!("herdr: {e}")),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// `E` in the edit panel: hand the terminal to `$VISUAL` / `$EDITOR`
+/// (else `vi`) on a temp file holding `text`, take it back when the editor
+/// exits. `Ok(None)` = saved unchanged. The command runs through `sh` so
+/// values like `code --wait` work, as git does it.
+async fn edit_in_editor(
+    terminal: &mut ratatui::DefaultTerminal,
+    paused: &Arc<AtomicBool>,
+    text: &str,
+) -> Result<Option<String>, String> {
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .ok()
+        .filter(|e| !e.trim().is_empty())
+        .unwrap_or_else(|| "vi".into());
+    let path = std::env::temp_dir().join(format!(
+        "tower-edit-{}-{}.md",
+        std::process::id(),
+        tower_core::now_ms()
+    ));
+    std::fs::write(&path, format!("{text}\n")).map_err(|e| format!("editor file: {e}"))?;
+    paused.store(true, Ordering::Relaxed);
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    ratatui::restore();
+    let file = path.clone();
+    let status = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("{editor} \"$1\""))
+            .arg("sh")
+            .arg(&file)
+            .status()
+    })
+    .await;
+    *terminal = ratatui::init();
+    let _ = terminal.clear();
+    paused.store(false, Ordering::Relaxed);
+    let edited = std::fs::read_to_string(&path);
+    let _ = std::fs::remove_file(&path);
+    match status {
+        Ok(Ok(s)) if s.success() => {}
+        Ok(Ok(s)) => return Err(format!("editor exited {s}: nothing saved")),
+        Ok(Err(e)) => return Err(format!("editor: {e}")),
+        Err(e) => return Err(e.to_string()),
+    }
+    let edited = edited.map_err(|e| format!("editor file: {e}"))?;
+    let edited = edited.trim_end();
+    Ok((edited != text.trim_end()).then(|| edited.to_string()))
 }
 
 /// Terminal input on a plain thread (crossterm's reader blocks). Pausable

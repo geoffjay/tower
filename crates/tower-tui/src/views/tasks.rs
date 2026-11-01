@@ -1,6 +1,7 @@
 //! Tasks (plan T3.2, D§11): owned jobs with live lease countdowns, the
 //! queue (with reserved-for targets), recently closed jobs, schedules with
-//! next run; detail shows the assignment trail and messages.
+//! next run; detail shows the assignment trail and messages; the edit panel
+//! changes a job's or schedule's fields, saving each one on submit.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -8,10 +9,10 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::Frame;
-use tower_core::{Event, Schedule, ScheduleId, Task, TaskId, TaskState};
+use tower_core::{Event, HookPhase, Schedule, ScheduleId, Task, TaskId, TaskState};
 
 use super::{Cmd, Ctx};
-use crate::app::{Api, Effect, InputPurpose};
+use crate::app::{Api, EditTarget, Effect, Field, InputPurpose};
 use crate::fmt;
 use crate::store::{Fetch, Store};
 
@@ -20,6 +21,8 @@ pub const HELP: &[&str] = &[
     "enter   job detail: trail + messages (esc closes)",
     "n       queue a new job",
     "a       assign the selected job to an agent",
+    "e       edit the selected job or schedule: title, prompt, schedule, pre-run,",
+    "        post-run — j/k field, enter edits (saved on submit), E in $EDITOR",
     "x x     cancel the selected job (press twice)",
     "p       pause / resume the selected schedule",
     "R       run the selected schedule now",
@@ -47,10 +50,19 @@ pub struct Tasks {
     pub detail: Option<TaskId>,
     /// Schedule whose detail is open (exclusive with `detail`).
     pub schedule_detail: Option<ScheduleId>,
+    /// The edit panel, drawn over an open detail (esc reveals it again).
+    pub edit: Option<EditPanel>,
     /// Lines scrolled up from the bottom of the open detail (0 = bottom).
     detail_scroll: usize,
     confirm_cancel: Option<TaskId>,
     tables: [TableState; 4],
+}
+
+/// What the edit panel is open on, and the selected field.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EditPanel {
+    pub target: EditTarget,
+    pub field: Field,
 }
 
 impl Tasks {
@@ -74,6 +86,93 @@ impl Tasks {
         self.detail = None;
         self.schedule_detail = None;
         self.detail_scroll = 0;
+    }
+}
+
+/// One field as the edit panel shows it.
+struct FieldView {
+    /// One-line rendering for the panel.
+    shown: String,
+    /// The value to edit (prefill / editor contents).
+    raw: String,
+    /// Why this target can't take an edit of the field right now.
+    locked: Option<&'static str>,
+}
+
+/// First line of `s`, with `(+N lines)` when there are more; `—` if blank.
+fn one_line(s: Option<&str>) -> String {
+    let s = s.unwrap_or_default();
+    let mut lines = s.lines().filter(|l| !l.trim().is_empty());
+    match lines.next() {
+        None => "—".into(),
+        Some(first) => match lines.count() {
+            0 => first.to_string(),
+            n => format!("{first} (+{n} lines)"),
+        },
+    }
+}
+
+/// A field's value and whether it can change (D§5.2.3): a queued job takes
+/// every field, a delivered one only post-run; a job's `at` needs a
+/// reservation. `None` when the target is gone.
+fn field_view(target: &EditTarget, field: Field, ctx: &Ctx) -> Option<FieldView> {
+    let text = |s: &Option<String>, locked| FieldView {
+        shown: one_line(s.as_deref()),
+        raw: s.clone().unwrap_or_default(),
+        locked,
+    };
+    match target {
+        EditTarget::Job(id) => {
+            let t = ctx.store.tasks.get(id)?;
+            let delivered = (t.state != TaskState::Queued)
+                .then_some("already delivered: only post-run can change");
+            Some(match field {
+                Field::Title => FieldView {
+                    shown: t.title.clone(),
+                    raw: t.title.clone(),
+                    locked: delivered,
+                },
+                Field::Prompt => text(&t.description, delivered),
+                Field::Schedule => FieldView {
+                    shown: match (&t.target_agent_id, t.not_before) {
+                        (Some(_), Some(nb)) => format!("at {}", ctx.tz.clock(nb, true)),
+                        (Some(a), None) => {
+                            format!("→{} when available", ctx.store.name_of(a))
+                        }
+                        (None, _) => "— (not reserved)".into(),
+                    },
+                    raw: t
+                        .not_before
+                        .map(|nb| ctx.tz.clock(nb, true))
+                        .unwrap_or_default(),
+                    locked: delivered.or_else(|| {
+                        t.target_agent_id
+                            .is_none()
+                            .then_some("reserve the job first (a → `<name> later`)")
+                    }),
+                },
+                Field::PreRun => text(&t.pre_run, delivered),
+                Field::PostRun => text(&t.post_run, None),
+            })
+        }
+        EditTarget::Schedule(id) => {
+            let s = ctx.store.schedules.iter().find(|s| &s.id == id)?;
+            Some(match field {
+                Field::Title => FieldView {
+                    shown: s.title.clone(),
+                    raw: s.title.clone(),
+                    locked: None,
+                },
+                Field::Prompt => text(&s.description, None),
+                Field::Schedule => FieldView {
+                    shown: format!("{} ({})", s.cron, s.timezone),
+                    raw: s.cron.clone(),
+                    locked: None,
+                },
+                Field::PreRun => text(&s.pre_run, None),
+                Field::PostRun => text(&s.post_run, None),
+            })
+        }
     }
 }
 
@@ -123,13 +222,95 @@ fn short(id: &TaskId) -> String {
 
 impl Tasks {
     pub fn hints(&self) -> &'static str {
-        if self.any_detail() {
-            "esc close · j/k scroll · a assign · x x cancel"
+        if self.edit.is_some() {
+            "j/k field · enter edit (saved on submit) · E $EDITOR · esc done"
+        } else if self.any_detail() {
+            "esc close · j/k scroll · e edit · a assign · x x cancel"
         } else if self.pane == Pane::Schedules {
-            "h/l pane · enter detail · p pause/resume · R run now · n new job"
+            "h/l pane · enter detail · e edit · p pause/resume · R run now · n new job"
         } else {
-            "h/l pane · enter detail · n new job · a assign · x x cancel"
+            "h/l pane · enter detail · e edit · n new job · a assign · x x cancel"
         }
+    }
+
+    /// `e`: the edit panel for the open (or selected) job or schedule. A
+    /// closed job is history — it is not opened.
+    fn open_edit(&mut self, ctx: &Ctx) -> Vec<Cmd> {
+        let schedule = self.schedule_detail.clone().or_else(|| {
+            (self.pane == Pane::Schedules && self.detail.is_none())
+                .then(|| self.target_schedule(ctx.store).map(|s| s.id.clone()))
+                .flatten()
+        });
+        let target = match (schedule, self.target(ctx.store)) {
+            (Some(s), _) => EditTarget::Schedule(s),
+            (None, Some(t)) => {
+                if let Some(task) = ctx.store.tasks.get(&t) {
+                    if task.state.is_terminal() {
+                        return vec![Cmd::Toast(format!(
+                            "job …{} is {} — closed jobs can't be edited",
+                            short(&t),
+                            fmt::wire(task.state)
+                        ))];
+                    }
+                }
+                EditTarget::Job(t)
+            }
+            (None, None) => return Vec::new(),
+        };
+        // start on the first field this target accepts
+        let field = Field::ALL
+            .into_iter()
+            .find(|f| field_view(&target, *f, ctx).is_some_and(|v| v.locked.is_none()))
+            .unwrap_or(Field::Title);
+        self.edit = Some(EditPanel { target, field });
+        Vec::new()
+    }
+
+    /// Keys while the edit panel is open: it owns navigation and enter.
+    fn edit_key(&mut self, k: KeyEvent, ctx: &Ctx) -> Vec<Cmd> {
+        let Some(panel) = self.edit.as_mut() else {
+            return Vec::new();
+        };
+        if k.code == KeyCode::Esc {
+            self.edit = None;
+            return Vec::new();
+        }
+        let i = Field::ALL
+            .iter()
+            .position(|f| *f == panel.field)
+            .unwrap_or(0);
+        if let Some(n) = super::nav(&k) {
+            let last = Field::ALL.len() - 1;
+            panel.field = Field::ALL[match n {
+                super::Nav::Up | super::Nav::PageUp => i.saturating_sub(1),
+                super::Nav::Down | super::Nav::PageDown => (i + 1).min(last),
+                super::Nav::Top => 0,
+                super::Nav::Bottom => last,
+            }];
+            return Vec::new();
+        }
+        let in_editor = match k.code {
+            KeyCode::Enter => false,
+            KeyCode::Char('E') => true,
+            _ => return Vec::new(),
+        };
+        let (target, field) = (panel.target.clone(), panel.field);
+        let Some(view) = field_view(&target, field, ctx) else {
+            self.edit = None;
+            return vec![Cmd::Toast("it is gone (removed meanwhile)".into())];
+        };
+        if let Some(why) = view.locked {
+            return vec![Cmd::Toast(format!("{}: {why}", field.label()))];
+        }
+        // a multi-line value would lose its line breaks in the input line
+        if field.is_text() && (in_editor || view.raw.contains('\n')) {
+            return vec![Cmd::Effect(Effect::Editor {
+                target,
+                field,
+                text: view.raw,
+            })];
+        }
+        vec![Cmd::Input(InputPurpose::Edit { target, field }, view.raw)]
     }
 
     fn pane_tasks<'a>(&self, store: &'a Store, pane: Pane) -> Vec<&'a Task> {
@@ -167,8 +348,14 @@ impl Tasks {
     }
 
     pub fn key(&mut self, k: KeyEvent, ctx: &Ctx) -> Vec<Cmd> {
+        if self.edit.is_some() {
+            return self.edit_key(k, ctx);
+        }
         let store = ctx.store;
         let confirming = self.confirm_cancel.take();
+        if k.code == KeyCode::Char('e') {
+            return self.open_edit(ctx);
+        }
         if self.any_detail() {
             if k.code == KeyCode::Esc {
                 self.close_detail();
@@ -281,7 +468,7 @@ impl Tasks {
     }
 
     pub fn render(&mut self, f: &mut Frame, area: Rect, ctx: &Ctx) {
-        let (lists, detail) = if self.any_detail() {
+        let (lists, detail) = if self.any_detail() || self.edit.is_some() {
             let [l, d] =
                 Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
                     .areas(area);
@@ -300,7 +487,9 @@ impl Tasks {
             self.render_pane(f, areas[i], *pane, ctx);
         }
         let Some(d) = detail else { return };
-        if let Some(id) = &self.detail {
+        if let Some(panel) = &self.edit {
+            render_edit(f, d, panel, ctx);
+        } else if let Some(id) = &self.detail {
             render_detail(f, d, id, self.detail_scroll, ctx);
         } else if let Some(id) = &self.schedule_detail {
             render_schedule_detail(f, d, id, self.detail_scroll, ctx);
@@ -310,7 +499,7 @@ impl Tasks {
     fn render_pane(&mut self, f: &mut Frame, area: Rect, pane: Pane, ctx: &Ctx) {
         let store = ctx.store;
         let i = Self::pane_idx(pane);
-        let focused = pane == self.pane && !self.any_detail();
+        let focused = pane == self.pane && !self.any_detail() && self.edit.is_none();
         let (title, header, widths, rows, sel): (String, Vec<&str>, Vec<Constraint>, Vec<Row>, _) =
             match pane {
                 Pane::Schedules => {
@@ -421,11 +610,15 @@ fn state_style(s: TaskState) -> Style {
     }
 }
 
-/// Live lease cell: countdown, `held` while waiting on input, `expired`
-/// (requeues on the next sweep).
+/// Live lease cell: countdown, `held` while waiting on input, `pre-run`
+/// while a pre-run prompt pauses expiry (D§5.2.3), `expired` (requeues on
+/// the next sweep).
 pub fn lease_cell(t: &Task, now: i64) -> (String, Style) {
     if t.state == TaskState::InputRequired {
         return ("held".into(), Style::new().fg(Color::Yellow));
+    }
+    if t.hook == Some(HookPhase::Pre) {
+        return ("pre-run".into(), Style::new().fg(Color::Yellow));
     }
     match t.lease_expires_at {
         Some(e) if e <= now => ("expired".into(), Style::new().fg(Color::Red)),
@@ -477,12 +670,21 @@ fn queue_row<'a>(t: &'a Task, ctx: &Ctx<'a>) -> Row<'a> {
 
 fn recent_row<'a>(t: &'a Task, ctx: &Ctx<'a>) -> Row<'a> {
     let owner = t.owner_id.as_ref().map_or("—", |o| ctx.store.name_of(o));
+    // the owner stays busy until a running post-run prompt settles
+    let title = if t.hook == Some(HookPhase::Post) {
+        Line::from(vec![
+            Span::styled("post-run… ", Style::new().fg(Color::Yellow)),
+            Span::raw(t.title.as_str()),
+        ])
+    } else {
+        Line::raw(t.title.as_str())
+    };
     Row::new(vec![
         Cell::from(short(&t.id)),
         Cell::from(Span::styled(fmt::wire(t.state), state_style(t.state))),
         Cell::from(owner.to_string()),
         Cell::from(fmt::age(ctx.now - t.updated_at)),
-        Cell::from(t.title.as_str()),
+        Cell::from(title),
     ])
 }
 
@@ -553,8 +755,146 @@ pub fn trail_line(e: &Event, store: &Store) -> String {
         ),
         "task.completed" => format!("completed by {}", name(&p["owner_id"])),
         "task.failed" => format!("failed: {}", p["result"]),
+        "task.updated" => {
+            let fields: Vec<&str> = p["fields"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|f| f.as_str())
+                .map(|f| match f {
+                    "description" => "prompt",
+                    "pre_run" => "pre-run",
+                    "post_run" => "post-run",
+                    "not_before" => "at",
+                    other => other,
+                })
+                .collect();
+            format!("edited: {}", fields.join(", "))
+        }
+        "task.hook" => {
+            let phase = match p["phase"].as_str() {
+                Some("post") => "post-run",
+                _ => "pre-run",
+            };
+            match (p["status"].as_str(), p["error"].as_str()) {
+                (Some("running"), _) => format!("{phase} prompt sent"),
+                (Some(s), Some(err)) => format!("{phase} prompt {s}: {err}"),
+                (Some(s), None) => format!("{phase} prompt {s}"),
+                (None, _) => format!("{phase} prompt"),
+            }
+        }
         other => other.to_string(),
     }
+}
+
+/// `label    text`, continuation lines indented under the text.
+fn labeled(lines: &mut Vec<Line<'_>>, label: &str, text: &str) {
+    for (i, l) in text.lines().enumerate() {
+        let head = if i == 0 { label } else { "" };
+        lines.push(Line::raw(format!("{head:<9}{l}")));
+    }
+}
+
+/// A job's or schedule's lifecycle prompts and the one in flight.
+fn lifecycle_lines(
+    lines: &mut Vec<Line<'_>>,
+    pre: &Option<String>,
+    post: &Option<String>,
+    hook: Option<HookPhase>,
+) {
+    if let Some(p) = pre {
+        labeled(lines, "pre-run", p);
+    }
+    if let Some(p) = post {
+        labeled(lines, "post-run", p);
+    }
+    let running = match hook {
+        Some(HookPhase::Pre) => "pre-run prompt running (lease paused)",
+        Some(HookPhase::Post) => "post-run prompt running (owner busy)",
+        None => return,
+    };
+    lines.push(Line::styled(
+        format!("{:<9}{running}", "hook"),
+        Style::new().fg(Color::Yellow),
+    ));
+}
+
+/// The edit panel (D§11): one row per field, the selected one reversed,
+/// locked ones dim. Each field is saved when its edit is submitted.
+fn render_edit(f: &mut Frame, area: Rect, panel: &EditPanel, ctx: &Ctx) {
+    let (kind, id) = match &panel.target {
+        EditTarget::Job(id) => ("job", id.0.as_str()),
+        EditTarget::Schedule(id) => ("schedule", id.0.as_str()),
+    };
+    let tail: String = id
+        .chars()
+        .skip(id.chars().count().saturating_sub(6))
+        .collect();
+    let block = Block::bordered()
+        .title(format!(" edit {kind} …{tail} — esc done "))
+        .border_style(Style::new().fg(Color::Cyan));
+    let (title, status, note) = match &panel.target {
+        EditTarget::Job(id) => match ctx.store.tasks.get(id) {
+            Some(t) => (
+                t.title.clone(),
+                match t.state {
+                    TaskState::Queued => format!("queued · {}", waiting_for(t, ctx)),
+                    s => format!(
+                        "{} · {}",
+                        fmt::wire(s),
+                        t.owner_id.as_ref().map_or("—", |o| ctx.store.name_of(o))
+                    ),
+                },
+                if t.state == TaskState::Queued {
+                    "an edit reaches the agent with the job"
+                } else {
+                    "delivered: only post-run can change"
+                },
+            ),
+            None => (String::new(), "gone".into(), ""),
+        },
+        EditTarget::Schedule(id) => match ctx.store.schedules.iter().find(|s| &s.id == id) {
+            Some(s) => (
+                s.title.clone(),
+                if s.enabled { "active" } else { "paused" }.to_string(),
+                "edits apply to the jobs it fires next",
+            ),
+            None => (String::new(), "gone".into(), ""),
+        },
+    };
+    let mut lines = vec![
+        Line::styled(title, super::header()),
+        Line::styled(status, super::dim()),
+        Line::raw(""),
+    ];
+    for field in Field::ALL {
+        let Some(v) = field_view(&panel.target, field, ctx) else {
+            continue;
+        };
+        let mark = if field == panel.field { "› " } else { "  " };
+        let style = match (field == panel.field, v.locked.is_some()) {
+            (true, _) => super::selected(),
+            (false, true) => super::dim(),
+            (false, false) => Style::new(),
+        };
+        lines.push(Line::styled(
+            format!("{mark}{:<9}{}", field.label(), v.shown),
+            style,
+        ));
+    }
+    lines.push(Line::raw(""));
+    lines.push(Line::styled(note, super::dim()));
+    lines.push(Line::styled(
+        "enter edits (saved on submit) · E opens $EDITOR · empty clears",
+        super::dim(),
+    ));
+    f.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .block(block),
+        area,
+    );
 }
 
 fn render_detail(f: &mut Frame, area: Rect, id: &TaskId, scroll: usize, ctx: &Ctx) {
@@ -603,8 +943,9 @@ fn render_detail(f: &mut Frame, area: Rect, id: &TaskId, scroll: usize, ctx: &Ct
         Line::raw(format!("created  {}", ctx.tz.clock(t.created_at, true))),
     ];
     if let Some(desc) = &t.description {
-        lines.push(Line::raw(format!("about    {desc}")));
+        labeled(&mut lines, "prompt", desc);
     }
+    lifecycle_lines(&mut lines, &t.pre_run, &t.post_run, t.hook);
     if let Some(r) = &t.result {
         lines.push(Line::raw(format!("result   {r}")));
     }
@@ -692,10 +1033,13 @@ fn render_schedule_detail(f: &mut Frame, area: Rect, id: &ScheduleId, scroll: us
     if let Some(lr) = s.last_run_at {
         lines.push(Line::raw(format!("last     {}", ctx.tz.clock(lr, true))));
     }
-    if let Some(desc) = &s.description {
+    if s.description.is_some() || s.pre_run.is_some() || s.post_run.is_some() {
         lines.push(Line::raw(""));
-        lines.push(Line::raw(format!("about    {desc}")));
     }
+    if let Some(desc) = &s.description {
+        labeled(&mut lines, "prompt", desc);
+    }
+    lifecycle_lines(&mut lines, &s.pre_run, &s.post_run, None);
     lines.push(Line::raw(""));
     lines.push(Line::styled("recent jobs", super::header()));
     for t in &d.jobs {

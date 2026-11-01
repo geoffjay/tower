@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: Design §5 — Core objects and state machines
-description: Agent, Task (job queue with assignment, lease, heartbeat), Message, Event, and Machine objects and their state machines.
+description: Agent, Task (job queue with assignment, lease, heartbeat, lifecycle prompts, editing), Message, Event, and Machine objects and their state machines.
 tags:
   - design
   - design-s5
@@ -13,8 +13,8 @@ sources:
   - resource: git:340c189:DESIGN.md
     title: tower design document §5 (original, removed from repo root after ingest)
 generated:
-  by: omp/claude-opus-5.5
-  at: "2026-09-26T22:59:25Z"
+  by: omp/claude-opus-5-5
+  at: "2026-10-31T12:00:00Z"
 ---
 
 # 5. Core objects and state machines
@@ -57,7 +57,9 @@ queued ──assign──► assigned ──start──► working ──► inp
 queue itself — jobs are assigned by a principal with the assign capability
 (phase 2: the operator; later: an orchestrator agent with a router — see
 [§5.2.1](#521-job-queue-and-ownership)). `assigned` = owner set, lease
-running, agent has not yet declared work started. `working` = owner
+running, agent has not yet declared work started (while a pre-run prompt
+runs, lease expiry pauses and the delegation has not gone out —
+[§5.2.3](#523-lifecycle-prompts-and-editing)). `working` = owner
 declared start (or detection saw `working`). `input-required` = owned,
 blocked on a human answer (lease keeps ticking; the sweeper pauses expiry
 while `input-required` so a human's slow reply doesn't requeue work
@@ -103,7 +105,9 @@ assignment-only, and time-bound:
 - **Assignment notice**: a successful assign sends the owner a
   `delegation` message (task id, title, description, the work-loop
   reminder) — to-agent delivery is a prompt, so an idle agent learns it
-  has work. A failed notice does not undo the assignment; the lease
+  has work. A job with a pre-run prompt sends that first and the
+  delegation only after it settles ([§5.2.3](#523-lifecycle-prompts-and-editing)).
+  A failed notice does not undo the assignment; the lease
   expires if the agent never starts.
 - **Start declaration**: the owner declares work started with
   `POST /v1/tasks/{id}/start` (or `status {state: working}`), →
@@ -165,19 +169,68 @@ table there is normative.
   `task.assigned` records `by: "schedule:<id>"` for schedule jobs, else
   `"dispatch"`.
 - **One job per agent**: every assignment (manual or dispatched) is refused
-  with `conflict` while the agent owns an open job; the check lives in the
-  assignment `UPDATE`, so it is atomic.
+  with `conflict` while the agent owns an open job, or one of its closed
+  jobs still runs its post-run prompt ([§5.2.3](#523-lifecycle-prompts-and-editing));
+  the check lives in the assignment `UPDATE`, so it is atomic.
 - **`not_before`** holds a reserved job back from the dispatcher until a
   time (`task create --at`). Immediate manual `assign` ignores it and may
   take a reserved job for any agent — explicit operator action wins.
-- **Schedules**: a job template + cron expression + IANA timezone. Each
+- **Schedules**: a job template (title, description, lifecycle prompts) +
+  cron expression + IANA timezone. Each
   firing creates an ordinary job (`origin='schedule'`, `schedule_id`,
   `occurrence_at`), reserved for the schedule's target if it has one.
   Firing is exactly-once: CAS on `next_run_at` plus a unique
   `(schedule_id, occurrence_at)`. Overlap → skip; undelivered previous
   occurrence → canceled (`occurrence_expired`); missed firings → coalesced
   into one; target removed → schedule paused, reserved jobs fall back to
-  the general queue. Schedules are operator-only.
+  the general queue. Schedules are operator-only and editable in place
+  ([§5.2.3](#523-lifecycle-prompts-and-editing)).
+
+## 5.2.3 Lifecycle prompts and editing
+
+Decision: [job lifecycle prompts](../../decisions/job-lifecycle-hooks.md).
+
+- **`pre_run` / `post_run`**: optional prompts on a job; a schedule's pair
+  is copied into every job it fires. Each is typed into the harness
+  verbatim as its own prompt, so a slash command (`/compact`, `/clear`,
+  `/reflect`) stays a command. Blank text is stored as none.
+- **Pre-run, every delivery**: assigning a job that has `pre_run` sets
+  `hook = 'pre'` in the assignment `UPDATE`. A background runner waits for
+  the agent to be `idle`/`done`, sends the pre-run prompt, waits up to 5 s
+  to see `working`/`blocked` (an instant command may never show it), then
+  waits for `idle`/`done`. It then clears `hook`, renews the lease in full,
+  and sends the delegation — the job prompt never overtakes the pre-run
+  prompt. Lease expiry pauses while `hook = 'pre'`. A job requeued and
+  delivered again runs its pre-run prompt again.
+- **Post-run, after the owner closes the job**: a terminal owner report
+  (`completed`/`failed`) sets `hook = 'post'` in the closing `UPDATE` when
+  `post_run` is set. The runner waits for `idle`/`done`, sends the prompt,
+  waits for it to settle, clears `hook`, and runs the dispatcher for the
+  agent. Cancel, lease expiry, and release never run it.
+- **Busy until it settles**: an agent with a `hook = 'post'` job is busy
+  (§5.2.2) — manual assign answers `conflict`, the dispatcher waits.
+- **Never blocking**: a send error, or no settle within
+  `[jobs] hook_timeout_s` ([§4](04-paths-and-configuration.md), default
+  600), records the failure and the sequence goes on (the delegation still
+  goes out; the agent is released).
+- **Records**: `task.hook {task_id, phase: pre|post, status:
+  running|done|failed|interrupted, error?}`; each sent prompt is a `prompt`
+  message from `me` with the job's `task_id` (job detail, agent history).
+- **Restart**: boot clears every `hook` (`status: interrupted`) before
+  reconcile. A `pre` job's lease then runs out as usual and requeues it.
+- **Editing a job** (`PATCH /v1/tasks/{id}`): a `queued` job takes
+  `title`, `description`, `pre_run`, `post_run`, `not_before` (only with a
+  reservation; a new time re-runs dispatch for the target). A delivered
+  job (`assigned`/`working`/`input-required`) takes `post_run` only; a
+  closed job nothing (`conflict`). `null` or `""` clears an optional field.
+  The `UPDATE` is a CAS on the state it was checked against; emits
+  `task.updated {task_id, fields}`.
+- **Editing a schedule** (`PATCH /v1/schedules/{id}`): `title`,
+  `description`, `pre_run`, `post_run`, cadence (`cron` | `daily`,
+  `timezone`). A cadence change recomputes `next_run_at` from now (no
+  catch-up). Only later firings see the edit; an open occurrence keeps its
+  copy. Emits `schedule.updated {schedule_id, fields, next_run_at}`.
+- Edits are operator-only, like assignment (MCP refuses agent callers).
 
 ## 5.3 Message
 
@@ -207,6 +260,9 @@ Append-only log row. Every state change anywhere is one event. Event types:
 | `task.assigned` | task_id, owner_id, lease_expires_at |
 | `task.leased_out` | task_id, prior owner, state → queued |
 | `task.completed` / `task.failed` | task_id, owner_id, result ref |
+| `task.updated` | task_id, changed field names ([§5.2.3](#523-lifecycle-prompts-and-editing)) |
+| `task.hook` | task_id, owner_id, phase (`pre`/`post`), status (`running`/`done`/`failed`/`interrupted`), error |
+| `schedule.updated` | schedule_id, changed field names, next_run_at |
 | `message.created` / `message.status` | message summary, status transitions |
 | `approval.expired` | message_id, agent_id |
 | `machine.state` | machine_id, status |

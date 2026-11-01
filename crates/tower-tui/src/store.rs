@@ -125,7 +125,9 @@ impl Store {
             | EventKind::TaskLeasedOut
             | EventKind::TaskCompleted
             | EventKind::TaskFailed
-            | EventKind::TaskReserved => match subject {
+            | EventKind::TaskReserved
+            | EventKind::TaskUpdated
+            | EventKind::TaskHook => match subject {
                 Some(id) => vec![Fetch::Task(id.clone().into()), Fetch::TaskDetail(id.into())],
                 None => vec![Fetch::Tasks],
             },
@@ -134,7 +136,8 @@ impl Store {
             | EventKind::ScheduleSkipped
             | EventKind::SchedulePaused
             | EventKind::ScheduleResumed
-            | EventKind::ScheduleRemoved => vec![Fetch::Schedules],
+            | EventKind::ScheduleRemoved
+            | EventKind::ScheduleUpdated => vec![Fetch::Schedules],
             EventKind::MessageCreated
             | EventKind::MessageStatusChange
             | EventKind::ApprovalExpired => {

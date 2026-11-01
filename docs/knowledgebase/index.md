@@ -50,6 +50,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [IPC: inter-agent and human-agent communication](decisions/ipc.md) - one HTTP port, SSE streaming, MCP for agents, A2A shapes, unified messages table.
 * [Cross-server communication](decisions/cross-server.md) - single coordinator with dial-home node agents; A2A between independent deployments.
 * [Scheduled jobs](decisions/scheduled-jobs.md) - reserved delivery when an agent is free, `not_before`, cron schedules with skip / replace / coalesce / pause policies.
+* [Job lifecycle prompts](decisions/job-lifecycle-hooks.md) - pre-run / post-run prompts typed verbatim around each run, agent busy until they settle; jobs and schedules edited in place, TUI edit panel saves per field.
 * [Operator skills](decisions/operator-skills.md) - five repo-local skills drive the CLI so an agent can operate tower; a stack is a naming convention.
 * [Job queue dispatch](decisions/job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
 * [Web UI](decisions/web-ui.md) - Topcoat inside the server under `/ui`, live regions over its WebSocket, server-side layout, derived read-only UI token.
@@ -64,6 +65,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [Phase 1 — MVP core](plans/phase-1-mvp-core.md) - complete; herdr driver, server, CLI, restart rebind.
 * [Phase 2 — Messaging + job queue](plans/phase-2-messaging-task-pool.md) - complete; messages, blocked inbox, assignment-only job queue, MCP.
 * [Phase 2b — Scheduled jobs](plans/phase-2b-scheduled-jobs.md) - complete; reserved delivery, one job per agent, recurring cron schedules, `tower service`.
+* [Phase 2d — Job lifecycle prompts and editing](plans/phase-2d-job-lifecycle.md) - pre-run / post-run prompts, PATCH editing of jobs and schedules, TUI edit panel.
 * [Phase 3 — TUI](plans/phase-3-tui.md) - daily monitoring from the TUI.
 * [Phase 4 — Web UI](plans/phase-4-web-ui.md) - complete; read-only agent cloud via Topcoat at `/ui`, scoped UI token, event retention.
 * [Phase 5 — Multi-machine](plans/phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.

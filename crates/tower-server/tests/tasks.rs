@@ -18,6 +18,8 @@ fn job(title: &str) -> CreateTask {
         not_before: None,
         lease_s: None,
         max_attempts: None,
+        pre_run: None,
+        post_run: None,
     }
 }
 

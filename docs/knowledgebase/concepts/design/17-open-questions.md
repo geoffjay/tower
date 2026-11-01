@@ -12,7 +12,7 @@ sources:
     title: tower design document §17 (original, removed from repo root after ingest)
 generated:
   by: omp/claude-opus-5-5
-  at: "2026-09-26T22:59:25Z"
+  at: "2026-10-31T12:00:00Z"
 ---
 
 # 17. Open questions
@@ -50,7 +50,12 @@ generated:
    and holds an agent that waits on a human. The phase-2c
    [outcomes-and-brief decision](../../decisions/outcomes-and-brief.md)
    solves the data side without it: results are durable, open questions
-   hold the job, the brief is restated per delivery. Revisit when fleet
+   hold the job, the brief is restated per delivery. Compaction or reset
+   chosen by the operator per job is covered since phase 2d: a job's
+   pre-run prompt (`/compact`, `/clear`) runs before its delegation and
+   its post-run prompt (`/reflect`) after the close ([job lifecycle
+   decision](../../decisions/job-lifecycle-hooks.md)). Still open: an
+   agent that *decides* these per run. Revisit when fleet
    self-governance (auto-assign, compaction control) is wanted; the
    [job-queue decision](../../decisions/job-queue.md) already reserves an
    orchestrator role that may absorb this.

@@ -45,8 +45,15 @@ pub async fn serve() -> anyhow::Result<()> {
     let driver = std::sync::Arc::new(tower_driver::herdr::HerdrDriver::new());
     let state = AppState::new(pool, events, config.clone(), token.clone(), driver);
 
-    // boot: local machine + inventory reconcile (D§9.1)
+    // boot: local machine, interrupted lifecycle prompts, inventory
+    // reconcile (D§9.1) — marks go first so reconcile's dispatch sees free
+    // agents (D§5.2.3)
     crate::inventory::ensure_local_machine(&state).await?;
+    match crate::hooks::recover(&state).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(cleared = n, "interrupted lifecycle prompts cleared"),
+        Err(e) => tracing::warn!(error = %e, "clearing interrupted lifecycle prompts failed"),
+    }
     if let Err(e) = crate::inventory::reconcile(&state).await {
         tracing::warn!(error = %e, "initial inventory reconcile failed (herdr down?)");
     }

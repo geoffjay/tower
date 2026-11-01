@@ -15,4 +15,4 @@ expression: "text(&mut a, 80, 14)"
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ schedules (0) ───────────────────────────────────────────────────────────────┐
 └──────────────────────────────────────────────────────────────────────────────┘
-h/l pane · enter detail · n new job · a assign · x x cancel · : command · ? help
+h/l pane · enter detail · e edit · n new job · a assign · x x cancel · : command

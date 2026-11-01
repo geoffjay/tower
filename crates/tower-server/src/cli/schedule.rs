@@ -35,6 +35,33 @@ pub enum ScheduleCmd {
         /// Lease window in seconds for each job (default 60)
         #[arg(long)]
         lease_s: Option<i64>,
+        /// Lifecycle prompt typed before each job's prompt (e.g. '/compact')
+        #[arg(long)]
+        pre_run: Option<String>,
+        /// Lifecycle prompt typed after each job's owner closes it (e.g. '/learn')
+        #[arg(long)]
+        post_run: Option<String>,
+    },
+    /// Edit a schedule; jobs it fires from now on use the change ('' clears)
+    Edit {
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        /// New cadence: every day at HH:MM
+        #[arg(long, conflicts_with = "cron")]
+        daily: Option<String>,
+        /// New cadence: cron expression
+        #[arg(long)]
+        cron: Option<String>,
+        /// New IANA timezone for the cadence
+        #[arg(long)]
+        tz: Option<String>,
+        #[arg(long)]
+        pre_run: Option<String>,
+        #[arg(long)]
+        post_run: Option<String>,
     },
     /// Schedules with next and last run
     List,
@@ -62,6 +89,8 @@ pub async fn run(c: &Client, cmd: ScheduleCmd, json_out: bool) -> anyhow::Result
             tags,
             priority,
             lease_s,
+            pre_run,
+            post_run,
         } => {
             if daily.is_none() && cron.is_none() {
                 anyhow::bail!("give --daily HH:MM or --cron '<expr>'");
@@ -70,6 +99,7 @@ pub async fn run(c: &Client, cmd: ScheduleCmd, json_out: bool) -> anyhow::Result
                 "title": title, "daily": daily, "cron": cron, "timezone": tz,
                 "target": assign, "description": description, "tags": tags,
                 "priority": priority, "lease_s": lease_s,
+                "pre_run": pre_run, "post_run": post_run,
             });
             let v = c.post("/v1/schedules", Some(body)).await?;
             if json_out {
@@ -77,6 +107,56 @@ pub async fn run(c: &Client, cmd: ScheduleCmd, json_out: bool) -> anyhow::Result
             }
             let names = agent_names(c).await?;
             println!("{}", summary(&v["schedule"], &names));
+        }
+        ScheduleCmd::Edit {
+            id,
+            title,
+            description,
+            daily,
+            cron,
+            tz,
+            pre_run,
+            post_run,
+        } => {
+            let mut body = serde_json::Map::new();
+            let mut changed = Vec::new();
+            for (key, flag, val, clears) in [
+                ("title", "title", title, false),
+                ("description", "description", description, true),
+                ("daily", "daily", daily, false),
+                ("cron", "cron", cron, false),
+                ("timezone", "tz", tz, false),
+                ("pre_run", "pre-run", pre_run, true),
+                ("post_run", "post-run", post_run, true),
+            ] {
+                if let Some(v) = val {
+                    // '' clears an optional field (null on the wire)
+                    let v = if clears && v.is_empty() {
+                        Value::Null
+                    } else {
+                        json!(v)
+                    };
+                    body.insert(key.into(), v);
+                    changed.push(flag);
+                }
+            }
+            if changed.is_empty() {
+                anyhow::bail!(
+                    "nothing to change: give --title, --description, --daily/--cron, --tz, --pre-run, or --post-run"
+                );
+            }
+            let v = c
+                .patch(&format!("/v1/schedules/{id}"), Value::Object(body))
+                .await?;
+            if json_out {
+                return print_json(&v);
+            }
+            println!(
+                "{}  updated ({})  next: {}",
+                v["schedule"]["id"].as_str().unwrap_or(&id),
+                changed.join(", "),
+                when(&v["schedule"]["next_run_at"])
+            );
         }
         ScheduleCmd::List => {
             let v = c.get("/v1/schedules").await?;
@@ -235,6 +315,15 @@ fn print_show(v: &Value, names: &HashMap<String, String>) {
     );
     println!("  next     {}", when(&s["next_run_at"]));
     println!("  last     {}", when(&s["last_run_at"]));
+    for (label, key) in [
+        ("about", "description"),
+        ("pre-run", "pre_run"),
+        ("post-run", "post_run"),
+    ] {
+        if let Some(text) = s[key].as_str() {
+            super::task::print_text(label, text);
+        }
+    }
     println!("  jobs (newest first)");
     for j in v["jobs"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
         println!(

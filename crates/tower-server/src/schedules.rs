@@ -30,13 +30,16 @@ use serde::Deserialize;
 use sqlx::Row;
 use tower_core::{AgentId, EventKind, Schedule, ScheduleId, TaskState, TowerError};
 
-use crate::http::error_response;
+use crate::http::{error_response, present};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/v1/schedules", get(list_route).post(create_route))
-        .route("/v1/schedules/{id}", get(show_route).delete(remove_route))
+        .route(
+            "/v1/schedules/{id}",
+            get(show_route).patch(update_route).delete(remove_route),
+        )
         .route("/v1/schedules/{id}/pause", post(pause_route))
         .route("/v1/schedules/{id}/resume", post(resume_route))
         .route("/v1/schedules/{id}/run", post(run_route))
@@ -69,6 +72,32 @@ pub struct CreateSchedule {
     #[serde(default)]
     pub daily: Option<String>,
     /// IANA zone; defaults to the machine's zone, fixed at creation.
+    #[serde(default)]
+    pub timezone: Option<String>,
+    /// Lifecycle prompts copied into every job it fires (D§5.2.3).
+    #[serde(default)]
+    pub pre_run: Option<String>,
+    #[serde(default)]
+    pub post_run: Option<String>,
+}
+
+/// `PATCH /v1/schedules/{id}` (D§5.2.3): an absent field is unchanged;
+/// `null` or `""` clears an optional one. A cadence change (`cron` or
+/// `daily`, `timezone`) recomputes `next_run_at` from now.
+#[derive(Deserialize, Default)]
+pub struct UpdateSchedule {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    pub pre_run: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    pub post_run: Option<Option<String>>,
+    #[serde(default)]
+    pub cron: Option<String>,
+    #[serde(default)]
+    pub daily: Option<String>,
     #[serde(default)]
     pub timezone: Option<String>,
 }
@@ -194,8 +223,8 @@ pub async fn create(state: &AppState, req: CreateSchedule, now: i64) -> anyhow::
     sqlx::query(
         "INSERT INTO schedules (id, title, description, tags, priority, lease_s, max_attempts,
                                 target_agent_id, cron, timezone, enabled, next_run_at,
-                                created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12, ?12)",
+                                pre_run, post_run, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11, ?12, ?13, ?14, ?14)",
     )
     .bind(id.0.as_str())
     .bind(&req.title)
@@ -208,6 +237,8 @@ pub async fn create(state: &AppState, req: CreateSchedule, now: i64) -> anyhow::
     .bind(&cron)
     .bind(&timezone)
     .bind(next)
+    .bind(crate::hooks::prompt_text(req.pre_run.as_deref()))
+    .bind(crate::hooks::prompt_text(req.post_run.as_deref()))
     .bind(now)
     .execute(&state.pool)
     .await?;
@@ -410,6 +441,86 @@ pub async fn remove(state: &AppState, id: &ScheduleId) -> anyhow::Result<()> {
     .await
 }
 
+/// Operator edit (D§5.2.3). Later firings see it; a job already fired keeps
+/// what it was fired with. A cadence change moves `next_run_at` to the next
+/// occurrence after now (no catch-up), like `resume`.
+pub async fn update(
+    state: &AppState,
+    id: &ScheduleId,
+    req: UpdateSchedule,
+    now: i64,
+) -> anyhow::Result<Schedule> {
+    let s = require(state, id).await?;
+    let fields: Vec<&str> = [
+        ("title", req.title.is_some()),
+        ("description", req.description.is_some()),
+        ("pre_run", req.pre_run.is_some()),
+        ("post_run", req.post_run.is_some()),
+        ("cron", req.cron.is_some() || req.daily.is_some()),
+        ("timezone", req.timezone.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(f, given)| given.then_some(f))
+    .collect();
+    if fields.is_empty() {
+        return Err(TowerError::invalid(
+            "nothing to change: give title, description, pre_run, post_run, cron/daily, or timezone",
+        )
+        .into());
+    }
+    if req.title.as_deref().is_some_and(|t| t.trim().is_empty()) {
+        return Err(TowerError::invalid("title must not be empty").into());
+    }
+    let cron = match (&req.cron, &req.daily) {
+        (Some(_), Some(_)) => {
+            return Err(TowerError::invalid("give one of `cron` or `daily`, not both").into())
+        }
+        (Some(c), None) => c.trim().to_string(),
+        (None, Some(d)) => daily_cron(d)?,
+        (None, None) => s.cron.clone(),
+    };
+    let timezone = req.timezone.clone().unwrap_or_else(|| s.timezone.clone());
+    let cadence = req.cron.is_some() || req.daily.is_some() || req.timezone.is_some();
+    let next = if cadence {
+        Some(next_after(&parse_cron(&cron)?, parse_tz(&timezone)?, now)?)
+    } else {
+        s.next_run_at
+    };
+    let description = req.description.map(|d| d.filter(|d| !d.trim().is_empty()));
+    sqlx::query(
+        "UPDATE schedules SET
+            title       = CASE WHEN ?3 THEN ?4 ELSE title END,
+            description = CASE WHEN ?5 THEN ?6 ELSE description END,
+            pre_run     = CASE WHEN ?7 THEN ?8 ELSE pre_run END,
+            post_run    = CASE WHEN ?9 THEN ?10 ELSE post_run END,
+            cron = ?11, timezone = ?12, next_run_at = ?13, updated_at = ?2
+         WHERE id = ?1",
+    )
+    .bind(id.0.as_str())
+    .bind(now)
+    .bind(req.title.is_some())
+    .bind(&req.title)
+    .bind(description.is_some())
+    .bind(description.flatten())
+    .bind(req.pre_run.is_some())
+    .bind(crate::hooks::prompt_text(req.pre_run.flatten().as_deref()))
+    .bind(req.post_run.is_some())
+    .bind(crate::hooks::prompt_text(req.post_run.flatten().as_deref()))
+    .bind(&cron)
+    .bind(&timezone)
+    .bind(next)
+    .execute(&state.pool)
+    .await?;
+    event(
+        state,
+        EventKind::ScheduleUpdated,
+        id,
+        serde_json::json!({ "schedule_id": id, "fields": fields, "next_run_at": next }),
+    )
+    .await?;
+    require(state, id).await
+}
+
 /// Target agent removed (decision table): pause its schedules and clear
 /// the target (resuming then feeds the general queue).
 pub async fn on_target_removed(state: &AppState, agent: &AgentId, now: i64) -> anyhow::Result<()> {
@@ -475,6 +586,8 @@ fn row_to_schedule(r: &sqlx::sqlite::SqliteRow) -> Schedule {
         enabled: r.get::<i64, _>("enabled") != 0,
         next_run_at: r.get("next_run_at"),
         last_run_at: r.get("last_run_at"),
+        pre_run: r.get("pre_run"),
+        post_run: r.get("post_run"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }
@@ -539,6 +652,14 @@ async fn show_route(State(s): State<AppState>, Path(id): Path<String>) -> Respon
         Ok(v) => Json(v).into_response(),
         Err(e) => error_response(e),
     }
+}
+
+async fn update_route(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(b): Json<UpdateSchedule>,
+) -> Response {
+    schedule_json(update(&s, &ScheduleId::from(id), b, tower_core::now_ms()).await)
 }
 
 async fn pause_route(State(s): State<AppState>, Path(id): Path<String>) -> Response {

@@ -38,6 +38,8 @@ fn daily(title: &str, hhmm: &str, target: Option<&str>) -> CreateSchedule {
         cron: None,
         daily: Some(hhmm.into()),
         timezone: Some("America/Los_Angeles".into()),
+        pre_run: None,
+        post_run: None,
     }
 }
 
@@ -210,6 +212,8 @@ async fn undelivered_occurrence_is_replaced_by_the_next() {
             not_before: None,
             lease_s: Some(10 * 86_400),
             max_attempts: None,
+            pre_run: None,
+            post_run: None,
         },
         la(2026, 9, 28, 7, 0),
     )

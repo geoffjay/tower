@@ -8,6 +8,7 @@ Decisions for the tower project.
 * [Run outcomes and standing brief](outcomes-and-brief.md) - mandatory durable job results, open questions that hold the job and stay answerable in the inbox, a stored standing brief restated per job delivery; hooks and supervisor harness deferred.
 * [Job hold](job-hold.md) - a held flag on queued jobs: dispatch skips them, assign refuses them, resume delivers; held schedule occurrences skip instead of replace; assign gains `--at`.
 * [Scheduled jobs](scheduled-jobs.md) - reserved delivery when an agent is free, `not_before`, cron schedules with skip / replace / coalesce / pause policies.
+* [Job lifecycle prompts and editable jobs](job-lifecycle-hooks.md) - pre-run / post-run prompts typed verbatim around each run, agent busy until they settle, lease paused during pre-run; jobs and schedules edited in place (PATCH, CLI, MCP, TUI panel saving per field).
 * [Operator skills](operator-skills.md) - five repo-local skills drive the CLI so an agent can operate tower; a stack is a naming convention; MCP gains stop, cancel, inbox, schedule show.
 * [Job queue dispatch](job-queue.md) - assignment-only dispatch, no self-serve claims; lease+heartbeat liveness; orchestrator role + jev/laya router deferred.
 * [Web UI](web-ui.md) - Topcoat bridged into the axum app under `/ui`, live regions over Topcoat's WebSocket, server-side layout, derived read-only UI token.

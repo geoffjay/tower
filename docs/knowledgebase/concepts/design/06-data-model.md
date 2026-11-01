@@ -14,7 +14,7 @@ sources:
     title: tower design document §6 (original, removed from repo root after ingest)
 generated:
   by: omp/claude-opus-5-5
-  at: "2026-09-26T22:59:25Z"
+  at: "2026-10-31T12:00:00Z"
 ---
 
 # 6. Data model (DDL)
@@ -66,6 +66,9 @@ CREATE TABLE tasks (
   not_before        INTEGER,                       -- dispatcher holds the job until this time (0003)
   schedule_id       TEXT,                          -- schedule that materialized it; no FK: history survives schedule removal (0003)
   occurrence_at     INTEGER,                       -- the schedule time this job is for (0003)
+  pre_run           TEXT,                          -- lifecycle prompt typed before the job prompt, every delivery (0006)
+  post_run          TEXT,                          -- lifecycle prompt typed after the owner closes the job (0006)
+  hook              TEXT,                          -- lifecycle prompt in flight: 'pre' | 'post' | NULL (0006, D§5.2.3)
   result            TEXT,                          -- JSON summary
   created_at        INTEGER NOT NULL,
   updated_at        INTEGER NOT NULL
@@ -90,6 +93,8 @@ CREATE TABLE schedules (                          -- migration 0003
   enabled          INTEGER NOT NULL DEFAULT 1,
   next_run_at      INTEGER,                         -- CAS-advanced on each firing
   last_run_at      INTEGER,
+  pre_run          TEXT,                            -- copied into every job it fires (0006)
+  post_run         TEXT,                            -- (0006)
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
 );
