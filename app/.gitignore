@@ -1,0 +1,4 @@
+# herdr-app check drops these into each folder it checks
+mods/**/gpui-kit.d.ts
+mods/**/herdr.d.ts
+mods/**/jsconfig.json
