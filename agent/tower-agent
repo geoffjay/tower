@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Launch omp as the tower operator agent: the tower-tools and tower-console
+# extensions, the bundled tower skills, and the agent's settings overlay.
+# Every argument passes through to omp (--continue, --model, a first prompt, …).
+set -euo pipefail
+
+# Resolve this directory through symlinks, so a link in ~/.local/bin works.
+source="${BASH_SOURCE[0]}"
+while [ -L "$source" ]; do
+	dir="$(cd -P "$(dirname "$source")" && pwd)"
+	source="$(readlink "$source")"
+	[[ $source != /* ]] && source="$dir/$source"
+done
+agent_dir="$(cd -P "$(dirname "$source")" && pwd)"
+
+omp_bin="${OMP_BIN:-omp}"
+if ! command -v "$omp_bin" >/dev/null 2>&1; then
+	echo "tower-agent: '$omp_bin' not found; install oh-my-pi (https://omp.sh) or set OMP_BIN" >&2
+	exit 127
+fi
+
+# Operator conversations live in one place whatever directory you start in,
+# so `tower-agent --continue` resumes the last one.
+session_dir="${TOWER_AGENT_SESSION_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/tower-agent/sessions}"
+mkdir -p "$session_dir"
+
+exec "$omp_bin" \
+	--extension "$agent_dir" \
+	--config "$agent_dir/config.yml" \
+	--session-dir "$session_dir" \
+	"$@"

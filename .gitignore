@@ -31,3 +31,6 @@ docs/notes
 
 # environment
 .env
+
+# agent
+agent/node_modules

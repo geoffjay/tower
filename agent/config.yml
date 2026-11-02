@@ -1,0 +1,5 @@
+# omp settings overlay for the tower agent, passed by ./tower-agent with --config.
+# It layers over your own omp config for this run only.
+startup:
+  # The tower welcome card replaces omp's startup banner.
+  quiet: true
