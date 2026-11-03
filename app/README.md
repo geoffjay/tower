@@ -38,9 +38,11 @@ Or ask your agent: "add the tower layout from this repo's `app/` folder"
 — it follows [`RECIPE.md`](RECIPE.md).
 
 The panels need the `tower` CLI on PATH. They find the server exactly as
-the CLI does (`TOWER_URL`/`TOWER_TOKEN` env or the tower home's
-`config.toml`/`token`); the events panel additionally reads the default
-token file directly.
+the CLI does. The events panel reads the token file directly from the
+tower home for its platform — `~/.local/share/tower` (Linux),
+`~/Library/Application Support/tower` (macOS) — or a path set as shared
+state `tower.token_file`; its server address honors `tower.server_url`
+the same way (mods cannot read the environment).
 
 ## What it does
 
@@ -69,9 +71,11 @@ follow. See [`RECIPE.md`](RECIPE.md) "Done when" for the re-check steps.
 
 ## Limits
 
-- The events panel polls `127.0.0.1:8266` (the tower default): the mod
-  runtime cannot read `TOWER_URL` overrides. The other panels go through
-  the CLI and honor them.
+- The events panel talks to the default bind `127.0.0.1:8266`; set the
+  shared state `tower.server_url` for a non-default server, and
+  `tower.token_file` for a non-default token path (mods cannot read
+  `TOWER_URL`/`TOWER_TOKEN`). The other panels go through the CLI and
+  honor the environment.
 - No `task edit`/`schedule edit` (needs a tower 0.5 server); the verbs
   the panels do use exist on 0.4.
 - `herdr-app shot` is not implemented on Linux in herdr-app 0.1.12, so
