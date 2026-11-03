@@ -59,7 +59,7 @@ export default class TowerJobs extends View {
 			.text_size(11)
 			.bg(opts.solid ? t.solid : t.raised)
 			.text_color(
-				opts.solid ? t.solid_foreground : opts.danger ? t.ansi1 : opts.muted,
+				opts.solid ? t.solid_foreground : opts.danger ? t.ansi1 : t.muted,
 			)
 			.border_1()
 			.border_color(opts.solid ? t.solid : t.border)
