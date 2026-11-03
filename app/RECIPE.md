@@ -30,10 +30,10 @@ the full width) and tower panels in place of the Files/Changes panel:
     `tower spawn <name> --continue` on a dead row, `Following` /
     `↓ Follow`), the agent's facts (job, reserved jobs waiting for it,
     workdir, kind, permissions, worktree, machine, pane, desired state,
-    adopted, created/updated, id), then its terminal screen (the last 200
-    lines of `tower read`, re-read every 2s while open). The screen follows
-    the newest line; scrolling up pauses that (the button turns solid
-    `↓ Follow`) until the button is pressed.
+    adopted, created/updated, id), then its terminal screen in the agent's
+    own colors (the last 200 lines of `tower read --ansi`, re-read every 2s
+    while open). The screen follows the newest line; scrolling up pauses
+    that (the button turns solid `↓ Follow`) until the button is pressed.
     Click the row again or `×` to close. The header's `＋ Spawn…` opens a
     form: name, harness pills (installed kinds, via `knownAgents()`),
     workdir, first prompt → `tower spawn`.
@@ -107,7 +107,8 @@ the full width) and tower panels in place of the Files/Changes panel:
   the layout is the only placement), and a shared `tower.js` (identical
   in every folder):
   - `tower-agents`: `tower ps`, `tower task list` (owned and reserved
-    jobs), `tower read` (the screen), `tower prompt`, `tower interrupt`,
+    jobs), `tower read --ansi` (the screen, colors parsed by `ansi.js`),
+    `tower prompt`, `tower interrupt`,
     `tower stop [--remove]`, `tower spawn [--continue]`; `knownAgents()`
     for the spawn form.
   - `tower-inbox`: `tower inbox`, `tower approve [--answer|--deny]`,
@@ -145,8 +146,9 @@ the full width) and tower panels in place of the Files/Changes panel:
 - The `tower-tabs` clone already uses `this.pending` (its panel-restore
   guard); don't reuse that name for mod state.
 - `tower read --json` prints plain text on tower 0.5.0 (the flag is
-  ignored), so `tower.js` has `towerRead(name)`, which runs plain
-  `tower read` — the text is the API's `output` field either way.
+  ignored), so `tower.js` has `towerRead(name, { ansi })`, which runs
+  plain `tower read` (with `--ansi` for colors) — the text is the API's
+  `output` field either way.
 - The shipped `tabs` mod must not be reused for this layout: its
   `syncPanel` closes any panel whose active child is not in
   `shared("workspace.panels")` on every space switch. That is why the

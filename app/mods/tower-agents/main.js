@@ -18,6 +18,7 @@ import {
 } from "gpui-base";
 import { div, View } from "gpui-kit";
 import { knownAgents, settings, theme } from "herdr";
+import { parseAnsi } from "./ansi.js";
 import { stateColor, tower, towerRead } from "./tower.js";
 
 const REFRESH_MS = 10000;
@@ -36,8 +37,9 @@ export default class TowerAgents extends View {
 		this.spawn = null; // the spawn form's fields
 		this.selected = null; // the name of the agent in the detail section
 		this.prompt = null; // its prompt bar's InputState
-		this.lines = null; // its screen, one string per line
-		this.screenText = null;
+		this.lines = null; // its screen: lines of styled runs (ansi.js)
+		this.cols = 0; // its widest line, in characters
+		this.screenText = null; // the raw read, to skip unchanged ones
 		this.follow = true; // keep the screen pinned to its newest line
 		this.reading = false; // a `tower read` in flight
 		this.scroll = VirtualListScrollHandle.new();
@@ -81,6 +83,7 @@ export default class TowerAgents extends View {
 		this.prompt?.release();
 		this.prompt = null;
 		this.lines = null;
+		this.cols = 0;
 		this.screenText = null;
 		this.follow = true;
 		this.confirm = null;
@@ -92,16 +95,16 @@ export default class TowerAgents extends View {
 		const state = InputState.new({ placeholder: `Prompt ${name}…` });
 		state.on("submit", (_e, cx2) => this.sendPrompt(cx2));
 		this.prompt = state;
-		this.lines = ["…"];
+		this.lines = parseAnsi("…");
 		cx?.spawn(async (cx) => {
 			await this.readScreen();
 			cx.notify();
 		});
 	}
 
-	/** The selected agent's recent terminal output, onto the screen. True
-	 * when the screen changed. While following, the screen scrolls to the
-	 * newest line. */
+	/** The selected agent's recent terminal output, colors kept, onto the
+	 * screen. True when the screen changed. While following, the screen
+	 * scrolls to the newest line. */
 	async readScreen() {
 		const name = this.selected;
 		const a = this.find(name);
@@ -112,8 +115,7 @@ export default class TowerAgents extends View {
 				text = "(not running - Resume relaunches it)";
 			} else {
 				try {
-					text = (await towerRead(name)).replace(/\s+$/, "");
-					text = text.split("\n").slice(-SCREEN_LINES).join("\n") || "(no output)";
+					text = await towerRead(name, { ansi: true });
 				} catch (e) {
 					text = `cannot read ${name}: ${e.message}`;
 				}
@@ -124,7 +126,9 @@ export default class TowerAgents extends View {
 		// A late answer for an agent no longer selected is dropped.
 		if (this.selected !== name || text === this.screenText) return false;
 		this.screenText = text;
-		this.lines = text.split("\n");
+		const lines = parseAnsi(text).slice(-SCREEN_LINES);
+		this.lines = lines.length > 0 ? lines : parseAnsi("(no output)");
+		this.cols = this.lines.reduce((m, l) => Math.max(m, l.len), 0);
 		if (this.follow) this.scroll.scroll_to_bottom();
 		return true;
 	}
@@ -499,12 +503,12 @@ export default class TowerAgents extends View {
 			.child(this.screenView(t));
 	}
 
-	/** The agent's screen: one row per line in a virtual list. While
-	 * following, each new read scrolls it to the newest line; scrolling up
-	 * stops that until Follow is pressed. */
+	/** The agent's screen: one row per line in a virtual list, each line its
+	 * styled runs. While following, each new read scrolls it to the newest
+	 * line; scrolling up stops that until Follow is pressed. */
 	screenView(t) {
 		const lines = this.lines ?? [];
-		const cols = lines.reduce((m, l) => Math.max(m, l.length), 0);
+		const cols = this.cols;
 		return div()
 			.flex_1()
 			.min_h(0)
@@ -540,12 +544,16 @@ export default class TowerAgents extends View {
 										lines
 											.slice(range.start, range.end)
 											.map((l) =>
-												div()
+												h_flex()
 													.h(LINE_H)
 													.px(10)
 													.whitespace_nowrap()
 													.text_color(t.foreground)
-													.child(l || " "),
+													.children(
+														l.runs.length > 0
+															? l.runs.map((r) => this.run(r, t))
+															: [div().child(" ")],
+													),
 											),
 								)
 									.track_scroll(this.scroll)
@@ -559,6 +567,24 @@ export default class TowerAgents extends View {
 					.absolute()
 					.inset_0(),
 			);
+	}
+
+	/** One styled run of a screen line. Basic colors are theme names
+	 * (ansi0..ansi15); the rest are hex. */
+	run(r, t) {
+		const s = r.s;
+		let fg = s.fg ? (t[s.fg] ?? s.fg) : null;
+		let bg = s.bg ? (t[s.bg] ?? s.bg) : null;
+		if (s.inv) [fg, bg] = [bg ?? t.background, fg ?? t.foreground];
+		let el = div().flex_none().h(LINE_H).child(r.t);
+		if (fg) el = el.text_color(fg);
+		if (bg) el = el.bg(bg);
+		if (s.b) el = el.font_bold();
+		if (s.i) el = el.italic();
+		if (s.u) el = el.underline();
+		if (s.x) el = el.line_through();
+		if (s.d) el = el.opacity(0.6);
+		return el;
 	}
 
 	spawnForm(t) {

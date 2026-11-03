@@ -34,7 +34,8 @@ this doc records the facts and decisions behind it.
   `tower()`). The CLI resolves the server and token like every client, so
   these panels honor `TOWER_URL` / `TOWER_TOKEN`. Agent screens (the
   Agents detail section, the Inbox peek) use `towerRead()`, plain `tower
-  read`: tower 0.5.0's `read` ignored `--json`.
+  read`: tower 0.5.0's `read` ignored `--json`. The Agents screen adds
+  `--ansi`.
 - **Agents detail.** Clicking an agent opens a section below the list,
   the same shape as the events detail: prompt input, actions (interrupt,
   stop/remove with a second press, resume = `spawn --continue` on a dead
@@ -44,6 +45,14 @@ this doc records the facts and decisions behind it.
   scroll API, and the list's `VirtualListScrollHandle.scroll_to_bottom()`
   keeps it on the newest line. A wheel-up (`delta.y > 0`) stops following
   until the `↓ Follow` button; the trade-off is no text selection or copy.
+- **Agent screen colors.** `tower read --ansi` keeps herdr's SGR escapes
+  (truecolor, 256-color, bold/italic/inverse; no cursor moves).
+  `tower-agents/ansi.js` parses each line into runs of one style, and each
+  run is its own element. The 16 basic colors map to the theme's
+  `ansi0`–`ansi15`, so they follow the theme; the rest are hex. Parsing
+  costs about 0.5 ms per changed read, and the list only draws visible
+  rows. herdr's `--ansi` window can start a few lines lower than the plain
+  read; the content is the same.
 - **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
   colors the Inbox button `blocked` while anything is pending. The Inbox
   panel is usually closed, so the always-shown tab bar carries the signal.

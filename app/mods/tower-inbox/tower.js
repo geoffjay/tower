@@ -77,11 +77,12 @@ export async function tower(...args) {
 
 /** An agent's recent terminal output as text. Plain `tower read` (no
  * --json): tower 0.5.0's `read` ignores --json, and the text is the API's
- * `output` field either way. Rejects TowerError. */
-export async function towerRead(name) {
+ * `output` field either way. `ansi`: keep the colors (SGR escapes) in the
+ * text. Rejects TowerError. */
+export async function towerRead(name, { ansi = false } = {}) {
 	const bin = await towerBin();
 	if (!bin) throw new TowerError("tower CLI not found on this machine", "cli");
-	const r = await exec(bin, ["read", name]);
+	const r = await exec(bin, ansi ? ["read", name, "--ansi"] : ["read", name]);
 	if (r.code !== 0) throw new TowerError((r.stderr || r.stdout || "").trim(), "cli");
 	return r.stdout ?? "";
 }
