@@ -44,10 +44,19 @@ spaces/agents sidebar and the Files/Changes panel:
     (two-press). Footer `＋ Queue a job…`: title, description, priority
     pills, owner pills (queue or an agent, with a "deliver when free"
     reserve checkbox).
-  - **Events**: the `/v1/events` feed, newest first: time, event kind
-    (colored: failures red), one-line summary. Filter pills: all / agents /
-    jobs / schedules / messages. Live dot `● live` (dim) or `◌ connecting`
-    (red).
+  - **Events**: the `/v1/events` feed, newest first, two lines per event:
+    time (date when not today), event kind (colored by the state it moved
+    to: failures red), subject (agent name, job or schedule title,
+    `from → to` for messages), then the detail in operator words
+    ("assigned to s1-manage · by schedule …", "working → done", a job's
+    result summary). Filter pills: all / agents / jobs / schedules /
+    messages / screens. `agent.output` events (whole screen snapshots,
+    most of the log) show only under screens, as the TUI hides them by
+    default. Click a row: a detail section opens below the list with
+    every payload field (ids resolved to names, timestamps local) and,
+    when there is one, the long body in a read-only editor — an agent's
+    screen, a job's result, a message's from/to. Click the row again or
+    `×` to close. Live dot `● live` (dim) or `◌ connecting` (red).
 - **Center**: the shipped pane cards, unchanged.
 - **Tab bar**: a clone of the shipped `tabs` mod (same tabs, drag, `+`,
   window buttons) with Jobs / Events panel buttons in place of Files /
@@ -67,9 +76,14 @@ spaces/agents sidebar and the Files/Changes panel:
 - Errors from the server (conflict, not found, unauthorized) show in a
   red strip inside the panel that acted; they clear on the next success.
 - The events feed replays the whole log from cursor 0 on load and after a
-  filter change, then follows live. Nothing is lost between polls: the
-  cursor holds the place, so each bounded poll resumes exactly where the
-  last ended.
+  filter change, then follows live. Nothing is lost between polls: each
+  SSE batch's `id:` is the seq it scanned to, so each bounded poll resumes
+  exactly where the last complete batch ended (a batch cut by
+  `--max-time` is replayed).
+- Names come from `tower ps`, `tower task list` and `tower schedule list`
+  (every 60s, sooner after an unknown id) and from the events themselves
+  (`agent.created`/`removed` names, `task.created` titles — a removed
+  schedule's title survives as its jobs' title).
 
 ## Built from
 
@@ -78,7 +92,8 @@ spaces/agents sidebar and the Files/Changes panel:
   `workspace-chrome`, `workspace-status` mods reused as-is; the tab bar
   is the `tower-tabs` clone below).
 - Five mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
-  the layout is the only placement), and a shared `tower.js`:
+  the layout is the only placement), and a shared `tower.js` (identical
+  in every folder):
   - `tower-agents`: `tower ps`, `tower prompt`, `tower interrupt`,
     `tower stop`, `tower spawn`; `knownAgents()` for the spawn form.
   - `tower-inbox`: `tower inbox`, `tower approve [--answer|--deny]`,
@@ -91,14 +106,16 @@ spaces/agents sidebar and the Files/Changes panel:
     Linux, `~/Library/Application Support/tower` macOS,
     `~/AppData/Roaming/tower` Windows), or the shared-state override
     `tower.token_file`; the address from `tower.server_url` or the
-    default bind.
+    default bind. `events.js` formats rows and the detail section and
+    resolves names (`tower ps`, `tower task list`, `tower schedule list`).
   - `tower-tabs`: a clone of the shipped `tabs` mod, `enabled` hardcoded
     to `["tower-jobs", "tower-events"]`, panel buttons switched to those
     two (icons `mods/tower-tabs/jobs.svg`, `events.svg`). Everything else
     is the shipped tab bar: tab pills, drag-to-reorder, `+` menu, window
     buttons.
 - `herdr`: `exec`, `theme`, `readTextFile`, `knownAgents`, `layout`, `run`,
-  `shared`, `window`. `gpui-base`: `v_flex`, `h_flex`, `InputState`, `Input`.
+  `settings`, `shared`, `window`. `gpui-base`: `v_flex`, `h_flex`,
+  `InputState`, `Input`, `Editor`, `EditorState`.
   `gpui-kit`: `View`, `div`.
 - The mods run programs (`tower`, `curl`) and read one file outside their
   folders (the tower token file). They reach no network except the local
@@ -123,6 +140,10 @@ spaces/agents sidebar and the Files/Changes panel:
 - The events endpoint is SSE-only in tower 0.4; there is no `tower events`
   CLI verb yet. The bounded-poll approach assumes the server keeps the
   default `127.0.0.1:8266` bind (mods cannot read the tower config).
+- The events panel re-reads the token file on every poll until it finds
+  one. A one-shot read at startup can miss: a restored layout can mount
+  the panel before `window()` reports the platform, and a token written
+  after the app opened would never be picked up.
 - `InputState.new` belongs in handlers, never in `render`.
 - Two-press confirms reset on the next refresh cycle if the row changed.
 

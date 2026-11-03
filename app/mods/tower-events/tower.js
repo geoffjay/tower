@@ -112,11 +112,6 @@ export function until(ts) {
 	return s < 7 * DAY ? `${day} ${hm}` : d.toDateString();
 }
 
-/** HH:MM for a ms-epoch timestamp. */
-export function clock(ts) {
-	return new Date(ts).toTimeString().slice(0, 5);
-}
-
 // State colors shared by every tower mod: herdr theme names, so the
 // whole board follows the person's theme.
 export const STATE_COLOR = {
@@ -139,67 +134,4 @@ export const STATE_COLOR = {
 /** A state's theme color name, unknown states included. */
 export function stateColor(state) {
 	return STATE_COLOR[state] ?? "unknown";
-}
-
-/** One-line summary of an event for the events feed. */
-export function eventLine(e) {
-	const p = e.payload ?? {};
-	switch (e.kind) {
-		case "server.started":
-			return `server ${p.version ?? ""} started`;
-		case "agent.created":
-			return `agent ${p.name ?? short(e.subject_id)} spawned`;
-		case "agent.removed":
-			return "agent removed";
-		case "agent.state":
-			return `agent → ${p.state ?? "?"}`;
-		case "agent.output":
-			return "agent output";
-		case "task.created":
-			return `job created: ${p.title ?? ""}`;
-		case "task.status":
-			return `job → ${p.state ?? "?"}`;
-		case "task.assigned":
-			return "job assigned";
-		case "task.leased_out":
-			return "job leased";
-		case "task.completed":
-			return "job completed";
-		case "task.failed":
-			return `job failed${p.error ? `: ${p.error}` : ""}`;
-		case "task.reserved":
-			return "job reserved";
-		case "schedule.created":
-			return `schedule ${p.title ?? ""}`;
-		case "schedule.fired":
-			return `schedule fired → ${p.title ?? ""}`;
-		case "schedule.skipped":
-			return `schedule skipped: ${p.reason ?? ""}`;
-		case "schedule.paused":
-			return "schedule paused";
-		case "schedule.resumed":
-			return "schedule resumed";
-		case "schedule.removed":
-			return "schedule removed";
-		case "message.created":
-			return `message: ${String(p.text ?? p.kind ?? "").slice(0, 60)}`;
-		case "message.status":
-			return `message ${p.status ?? ""}`;
-		case "approval.expired":
-			return "approval expired";
-		case "machine.state":
-			return `machine ${p.state ?? ""}`;
-		case "node.registered":
-			return `node ${p.name ?? ""} registered`;
-		case "node.disconnected":
-			return "node disconnected";
-		default:
-			return e.kind;
-	}
-}
-
-function short(id) {
-	return typeof id === "string" && id.length > 10
-		? `${id.slice(0, 6)}…`
-		: String(id ?? "");
 }

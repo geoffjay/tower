@@ -56,7 +56,10 @@ the same way (mods cannot read the environment).
   below, schedules with next runs. Queue a job, assign to an agent
   (pills), release or cancel owned jobs, pause/resume/run schedules.
 - **Events** (right panel): the tower event log followed live, filtered
-  by type. Cursor replay makes the bounded polls lossless.
+  by type, in names rather than ids. Click an event for every field and
+  its full body (an agent's screen, a job's result). Agent screen
+  snapshots stay under their own filter. Cursor replay makes the bounded
+  polls lossless.
 
 Center and tab bar are the shipped Herdr mods unchanged — the deck sits
 around the terminals you already work in.
