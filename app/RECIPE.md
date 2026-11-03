@@ -1,7 +1,7 @@
 # tower
 
-A tower control deck for the Herdr app: the fleet in the sidebar, the job
-queue and the live event log beside the terminals. Everything the `tower`
+A tower control deck for the Herdr app: the fleet, the job queue, the
+inbox and the live event log in a panel beside the terminals. Everything the `tower`
 CLI can show, as panels that act — prompt an agent, answer an inbox item,
 queue a job, pause a schedule — while the terminals you're already in stay
 in the middle.
@@ -15,27 +15,26 @@ token file. No tower, and every panel says so.
 
 ## What you see
 
-A clone of the shipped `main` layout with tower panels in place of the
-spaces/agents sidebar and the Files/Changes panel:
+A clone of the shipped `main` layout with no sidebar (the terminals get
+the full width) and tower panels in place of the Files/Changes panel:
 
-- **Sidebar** (300px, chrome): the brand block, then **Agents** (top,
-  weighted 3) and **Inbox** (bottom, weighted 2).
+- **Right panel** (380px), opened from the tab bar's Agents / Jobs /
+  Events / Inbox buttons and remembered per space: a stack of:
   - **Agents**: every agent seat grouped by stack (agents named
     `<stack>-<role>`), each row a state dot (theme colors: `working`,
     `blocked`, `done`, `idle`; dead red `ansi1`), the name, the state word,
-    and the workdir; hover shows Prompt / Interrupt / Stop buttons per
-    agent. Prompt opens an inline input on the row; Enter or Send runs
-    `tower prompt <name> <text>`. Stop needs a second press. The footer's
-    `＋ Spawn…` opens a form: name, harness pills (installed kinds, via
-    `knownAgents()`), workdir, first prompt → `tower spawn`.
-  - **Inbox**: pending questions/approvals addressed to you. Each item:
-    kind dot (approvals `blocked` color, questions `accent`), sender, kind,
-    deadline ("4m left", red when passed), text, then buttons: `Peek agent`
-    (the sender's recent screen via `tower read`), `Approve?`/`Deny`
-    (two-press confirm — an approval lets an agent act), `Answer…` (inline
-    input, Enter sends `tower approve <id> --answer`), `Dismiss`.
-- **Right panel** (380px), opened from the tab bar's Jobs / Events
-  buttons and remembered per space: a stack of:
+    and the job it owns (else its workdir). Click a row: a detail section
+    opens below the list (the list keeps the top third) with a prompt
+    input (Enter or Send runs `tower prompt <name> <text>`), the actions
+    (`Interrupt`, `Stop` and `Remove` with a second press, `Resume` =
+    `tower spawn <name> --continue` on a dead row, `Refresh screen`), the
+    agent's facts (job, reserved jobs waiting for it, workdir, kind,
+    permissions, worktree, machine, pane, desired state, adopted,
+    created/updated, id), then its terminal screen (the last 200 lines of
+    `tower read`, re-read on every 10s refresh) in a read-only editor.
+    Click the row again or `×` to close. The header's `＋ Spawn…` opens a
+    form: name, harness pills (installed kinds, via `knownAgents()`),
+    workdir, first prompt → `tower spawn`.
   - **Jobs**: QUEUE section (open jobs: state dot, title, `P<n>` priority,
     state, owner/hold/tags/age), RECENT (last 10 closed), SCHEDULES
     (title, cron, next run, target). Per-job buttons: `Assign…` (pills of
@@ -57,14 +56,24 @@ spaces/agents sidebar and the Files/Changes panel:
     when there is one, the long body in a read-only editor — an agent's
     screen, a job's result, a message's from/to. Click the row again or
     `×` to close. Live dot `● live` (dim) or `◌ connecting` (red).
+  - **Inbox**: pending questions/approvals addressed to you. Each item:
+    kind dot (approvals `blocked` color, questions `accent`), sender, kind,
+    deadline ("4m left", red when passed), text, then buttons: `Peek agent`
+    (the sender's recent screen via `tower read`), `Approve?`/`Deny`
+    (two-press confirm — an approval lets an agent act), `Answer…` (inline
+    input, Enter sends `tower approve <id> --answer`), `Dismiss`.
 - **Center**: the shipped pane cards, unchanged.
 - **Tab bar**: a clone of the shipped `tabs` mod (same tabs, drag, `+`,
-  window buttons) with Jobs / Events panel buttons in place of Files /
-  Changes. The clone is required: the shipped `tabs` polices the panel
-  against `shared("workspace.panels")` (files/changes) and would close a
-  tower panel on every space switch. The clone's `enabled` list is
-  `["tower-jobs", "tower-events"]`, so its per-space memory restores a
-  space's last tower panel instead.
+  window buttons) with Agents / Jobs / Events / Inbox panel buttons in
+  place of Files / Changes. The clone is required: the shipped `tabs`
+  polices the panel against `shared("workspace.panels")` (files/changes)
+  and would close a tower panel on every space switch. The clone's
+  `enabled` list is `["tower-agents", "tower-jobs", "tower-events",
+  "tower-inbox"]`, so its per-space memory restores a
+  space's last tower panel instead. The Inbox button turns the theme's
+  `blocked` color (label and icon) while anything is pending; the tab
+  bar runs its own `tower inbox` poll every 10s, so this works with the
+  panel closed.
 
 ## How it behaves
 
@@ -88,14 +97,17 @@ spaces/agents sidebar and the Files/Changes panel:
 ## Built from
 
 - One layout: `layouts/tower.json`, cloning the shipped `main` structure
-  (brand / work / status blocks, shipped `pane` header,
-  `workspace-chrome`, `workspace-status` mods reused as-is; the tab bar
-  is the `tower-tabs` clone below).
+  minus its sidebar (work / status blocks, shipped `pane` header,
+  `workspace-status` mod reused as-is; the tab bar is the `tower-tabs`
+  clone below, which pads for the macOS window buttons itself when there
+  is no sidebar).
 - Five mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
   the layout is the only placement), and a shared `tower.js` (identical
   in every folder):
-  - `tower-agents`: `tower ps`, `tower prompt`, `tower interrupt`,
-    `tower stop`, `tower spawn`; `knownAgents()` for the spawn form.
+  - `tower-agents`: `tower ps`, `tower task list` (owned and reserved
+    jobs), `tower read` (the screen), `tower prompt`, `tower interrupt`,
+    `tower stop [--remove]`, `tower spawn [--continue]`; `knownAgents()`
+    for the spawn form.
   - `tower-inbox`: `tower inbox`, `tower approve [--answer|--deny]`,
     `tower dismiss`, `tower read` for the peek.
   - `tower-jobs`: `tower task list`, `tower task create/assign/release/
@@ -109,10 +121,12 @@ spaces/agents sidebar and the Files/Changes panel:
     default bind. `events.js` formats rows and the detail section and
     resolves names (`tower ps`, `tower task list`, `tower schedule list`).
   - `tower-tabs`: a clone of the shipped `tabs` mod, `enabled` hardcoded
-    to `["tower-jobs", "tower-events"]`, panel buttons switched to those
-    two (icons `mods/tower-tabs/jobs.svg`, `events.svg`). Everything else
-    is the shipped tab bar: tab pills, drag-to-reorder, `+` menu, window
-    buttons.
+    to `["tower-agents", "tower-jobs", "tower-events", "tower-inbox"]`,
+    panel buttons switched to those four (icons `mods/tower-tabs/agents.svg`,
+    `jobs.svg`, `events.svg`, `inbox.svg`), plus a `tower inbox` poll for
+    the Inbox button's color.
+    Everything else is the shipped tab bar: tab pills, drag-to-reorder,
+    `+` menu, window buttons.
 - `herdr`: `exec`, `theme`, `readTextFile`, `knownAgents`, `layout`, `run`,
   `settings`, `shared`, `window`. `gpui-base`: `v_flex`, `h_flex`,
   `InputState`, `Input`, `Editor`, `EditorState`.
@@ -126,6 +140,11 @@ spaces/agents sidebar and the Files/Changes panel:
 - Mods cannot import across folders ("resolves outside the application
   directory"): each mod carries its own copy of `tower.js` (identical
   md5 across the set).
+- The `tower-tabs` clone already uses `this.pending` (its panel-restore
+  guard); don't reuse that name for mod state.
+- `tower read --json` prints plain text on tower 0.5.0 (the flag is
+  ignored), so `tower.js` has `towerRead(name)`, which runs plain
+  `tower read` — the text is the API's `output` field either way.
 - The shipped `tabs` mod must not be reused for this layout: its
   `syncPanel` closes any panel whose active child is not in
   `shared("workspace.panels")` on every space switch. That is why the
@@ -149,8 +168,8 @@ spaces/agents sidebar and the Files/Changes panel:
 
 ## Done when
 
-- `herdr-app check` passes for each mod folder. The tab bar shows Jobs /
-  Events buttons; clicking Jobs opens the panel on the Jobs stack, and
+- `herdr-app check` passes for each mod folder. The tab bar shows Agents /
+  Jobs / Events / Inbox buttons; clicking Jobs opens the panel on the Jobs stack, and
   after switching to another space and back, that space's panel is as it
   was left (the shipped `tabs` would have closed it).
 - With a tower server running: the Agents panel lists every agent
@@ -158,7 +177,8 @@ spaces/agents sidebar and the Files/Changes panel:
   QUEUE matches `tower task list`, and SCHEDULES matches
   `tower schedule list`; the Events panel shows the same log the TUI's
   events view does, following live within ~6s.
-- Prompt an idle agent from its row → the agent's terminal shows the turn;
+- Prompt an idle agent from its detail section → the agent's terminal
+  shows the turn, and the section's screen shows it on the next refresh;
   `tower prompt <name>` shows the same delivered message.
 - A pending question appears in the Inbox within ~10s; Answer it in
   place → `tower inbox` no longer lists it, and `tower inbox --json`'s

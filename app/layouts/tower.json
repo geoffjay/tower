@@ -8,38 +8,6 @@
 	"divider": { "width": 1, "color": "border" },
 	"children": [
 		{
-			"id": "sidebar",
-			"type": "column",
-			"size": { "px": 300 },
-			"min": 44,
-			"max": 480,
-			"background": "chrome",
-			"resizable": false,
-			"children": [
-				{
-					"id": "brand",
-					"type": "block",
-					"size": { "px": 46 },
-					"window_drag": true,
-					"content": { "mod": "workspace-chrome" }
-				},
-				{
-					"id": "tower-agents",
-					"type": "block",
-					"size": { "weight": 3 },
-					"min": 120,
-					"content": { "mod": "tower-agents" }
-				},
-				{
-					"id": "tower-inbox",
-					"type": "block",
-					"size": { "weight": 2 },
-					"min": 90,
-					"content": { "mod": "tower-inbox" }
-				}
-			]
-		},
-		{
 			"id": "work",
 			"type": "column",
 			"resizable": false,
@@ -88,8 +56,13 @@
 								{
 									"id": "panel-body",
 									"type": "stack",
-									"active": "tower-jobs",
+									"active": "tower-agents",
 									"children": [
+										{
+											"id": "tower-agents",
+											"type": "block",
+											"content": { "mod": "tower-agents" }
+										},
 										{
 											"id": "tower-jobs",
 											"type": "block",
@@ -99,6 +72,11 @@
 											"id": "tower-events",
 											"type": "block",
 											"content": { "mod": "tower-events" }
+										},
+										{
+											"id": "tower-inbox",
+											"type": "block",
+											"content": { "mod": "tower-inbox" }
 										}
 									]
 								}

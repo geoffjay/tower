@@ -1,34 +1,140 @@
-// The tower fleet: every agent seat, its live state, and the queue it works.
+// The tower fleet: every agent seat, its live state, and the job it works.
 // One section per stack (agents named <stack>-<role>), unstacked agents last.
-// Reads: `tower ps --json`. Acts: prompt (an inline bar per row), interrupt,
-// stop (two presses), spawn (a form of installed harnesses).
+// Clicking a row opens the detail section below the list (the same shape as
+// the events panel): the agent's facts, a prompt bar, its actions, and its
+// terminal screen in a read-only editor.
+// Reads: `tower ps`, `tower task list`, `tower read <name>`. Acts: prompt,
+// interrupt, stop / remove (two presses), resume (`spawn --continue`, dead
+// rows), spawn (a form of installed harnesses).
 
-import { h_flex, Input, InputState, v_flex } from "gpui-base";
+import {
+	Editor,
+	EditorState,
+	h_flex,
+	Input,
+	InputState,
+	v_flex,
+} from "gpui-base";
 import { div, View } from "gpui-kit";
-import { knownAgents, theme } from "herdr";
-import { stateColor, tower } from "./tower.js";
+import { knownAgents, settings, theme } from "herdr";
+import { stateColor, tower, towerRead } from "./tower.js";
+
+const REFRESH_MS = 10000;
+const SCREEN_LINES = 200; // the tail of `tower read` kept in the editor
 
 export default class TowerAgents extends View {
 	init(_props, cx) {
 		this.agents = null;
+		this.jobs = []; // open jobs (queued / working / input-required)
 		this.error = null;
 		this.busy = null; // agent name with an action in flight
-		this.confirm = null; // agent name awaiting a second press
-		this.promptFor = null; // agent name with the prompt bar open
+		this.confirm = null; // "stop:<name>" / "remove:<name>" awaiting a second press
 		this.spawn = null; // the spawn form's fields
-		cx.timer.every(10000, (cx) => this.refresh(cx));
+		this.selected = null; // the name of the agent in the detail section
+		this.prompt = null; // its prompt bar's InputState
+		this.screen = null; // its screen's EditorState
+		this.screenText = null;
+		cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
 		this.refresh(cx);
 	}
 
 	async refresh(cx) {
 		try {
-			const v = await tower("ps");
-			this.agents = v.agents ?? [];
+			const [ps, tasks] = await Promise.all([
+				tower("ps"),
+				tower("task", "list").catch(() => null),
+			]);
+			this.agents = ps.agents ?? [];
+			this.jobs = (tasks?.tasks ?? []).filter(
+				(j) => !["completed", "failed", "canceled", "rejected"].includes(j.state),
+			);
 			this.error = null;
 		} catch (e) {
 			this.error = String(e.message ?? e);
 		}
+		if (this.selected && this.agents && !this.find(this.selected)) {
+			this.select(null); // removed elsewhere
+		}
+		if (this.selected) await this.readScreen();
 		cx.notify();
+	}
+
+	find(name) {
+		return (this.agents ?? []).find((a) => a.name === name) ?? null;
+	}
+
+	/** Open one agent in the detail section; the same agent again closes it. */
+	select(name, cx) {
+		this.screen?.release();
+		this.prompt?.release();
+		this.screen = null;
+		this.prompt = null;
+		this.screenText = null;
+		this.confirm = null;
+		if (!name || this.selected === name) {
+			this.selected = null;
+			return;
+		}
+		this.selected = name;
+		const state = InputState.new({ placeholder: `Prompt ${name}…` });
+		state.on("submit", (_e, cx2) => this.sendPrompt(cx2));
+		this.prompt = state;
+		this.screen = EditorState.new({
+			language: "text",
+			value: "…",
+			readonly: true,
+			line_numbers: false,
+			folding: false,
+			soft_wrap: false,
+			font_family: settings().font_family,
+			font_size: 12,
+		});
+		cx?.spawn(async (cx) => {
+			await this.readScreen();
+			cx.notify();
+		});
+	}
+
+	/** The selected agent's recent terminal output, into the editor. */
+	async readScreen() {
+		const name = this.selected;
+		const a = this.find(name);
+		let text;
+		if (a?.state === "dead") {
+			text = "(not running - Resume relaunches it)";
+		} else {
+			try {
+				text = (await towerRead(name)).replace(/\s+$/, "");
+				text = text.split("\n").slice(-SCREEN_LINES).join("\n") || "(no output)";
+			} catch (e) {
+				text = `cannot read ${name}: ${e.message}`;
+			}
+		}
+		// A late answer for an agent no longer selected is dropped.
+		if (this.selected !== name || !this.screen) return;
+		if (text !== this.screenText) {
+			this.screenText = text;
+			this.screen.set_value(text);
+		}
+	}
+
+	sendPrompt(cx) {
+		const name = this.selected;
+		const text = this.prompt?.value().trim();
+		if (!name || !text) return;
+		this.prompt.set_value("");
+		this.busy = name;
+		cx.notify();
+		cx.spawn(async (cx) => {
+			try {
+				await tower("prompt", name, text);
+				this.error = null;
+			} catch (e) {
+				this.error = `${name}: ${e.message}`;
+			}
+			this.busy = null;
+			await this.refresh(cx);
+		});
 	}
 
 	button(id, label, t, onClick, opts = {}) {
@@ -54,9 +160,10 @@ export default class TowerAgents extends View {
 			.child(label);
 	}
 
-	act(cx, name, args, confirmFirst) {
-		if (confirmFirst && this.confirm !== name) {
-			this.confirm = name;
+	/** Run a tower verb for an agent; `confirmKey` asks for a second press. */
+	act(cx, name, args, confirmKey) {
+		if (confirmKey && this.confirm !== confirmKey) {
+			this.confirm = confirmKey;
 			cx.notify();
 			return;
 		}
@@ -75,42 +182,14 @@ export default class TowerAgents extends View {
 		});
 	}
 
-	/** Open the inline prompt bar for an agent (InputState lives in handlers). */
-	openPrompt(a, cx) {
-		if (this.promptFor === a.name) return;
-		const state = InputState.new({ placeholder: `Prompt ${a.name}…` });
-		state.on("submit", (_e, cx2) => {
-			const text = state.value().trim();
-			if (!text) return;
-			this.promptFor = null;
-			cx2.spawn(async (cx2) => {
-				try {
-					await tower("prompt", a.name, text);
-					this.error = null;
-				} catch (e) {
-					this.error = `${a.name}: ${e.message}`;
-				}
-				await this.refresh(cx2);
-			});
-		});
-		this.promptState = state;
-		this.promptFor = a.name;
-		state.focus();
-		cx.notify();
-	}
-
 	/** The spawn form: name, harness pills, workdir, first prompt. */
 	openSpawn(cx) {
-		const field = (placeholder, value) => {
-			const s = InputState.new({ placeholder, value: value ?? "" });
-			return s;
-		};
 		this.spawn = {
-			name: field("reviewer"),
+			name: InputState.new({ placeholder: "reviewer" }),
 			kind: null,
 			installed: null,
 			def: false,
-			workdir: field("/home/you/project"),
+			workdir: InputState.new({ placeholder: "/home/you/project" }),
 			prompt: InputState.new({
 				placeholder: "First prompt (sent when it settles)",
 			}),
@@ -156,68 +235,29 @@ export default class TowerAgents extends View {
 		});
 	}
 
-	promptBar(a, t) {
-		return h_flex()
-			.id(`prompt-bar-${a.name}`)
-			.pl(15)
-			.pt(2)
-			.gap(6)
-			.items_center()
-			.child(
-				div()
-					.flex_1()
-					.h(26)
-					.px(8)
-					.flex()
-					.items_center()
-					.rounded(6)
-					.border_1()
-					.border_color(t.input)
-					.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-					.child(Input.new(this.promptState).w_full().h_full().text_size(12)),
-			)
-			.child(
-				this.button(
-					`psend-${a.name}`,
-					"Send",
-					t,
-					(cx) => {
-						const text = this.promptState.value().trim();
-						if (!text) return;
-						this.promptFor = null;
-						cx.spawn(async (cx) => {
-							try {
-								await tower("prompt", a.name, text);
-								this.error = null;
-							} catch (e) {
-								this.error = `${a.name}: ${e.message}`;
-							}
-							await this.refresh(cx);
-						});
-					},
-					{ solid: true },
-				),
-			)
-			.child(
-				this.button(`pclose-${a.name}`, "✕", t, (cx) => {
-					this.promptFor = null;
-					cx.notify();
-				}),
-			);
+	/** The open job an agent owns, if any. */
+	jobOf(a) {
+		return this.jobs.find((j) => j.owner_id === a.id) ?? null;
 	}
 
 	row(a, t) {
 		const c = stateColor(a.state);
-		const busy = this.busy === a.name;
+		const picked = this.selected === a.name;
+		const job = this.jobOf(a);
 		return v_flex()
 			.id(`agent-${a.name}`)
 			.mx(8)
 			.px(8)
-			.py(6)
-			.gap(4)
+			.py(5)
+			.gap(2)
 			.rounded(7)
 			.cursor_pointer()
+			.when(picked, (el) => el.bg(t.selected))
 			.hover((s) => s.bg(t.hover))
+			.on_click((_e, cx) => {
+				this.select(a.name, cx);
+				cx.notify();
+			})
 			.child(
 				h_flex()
 					.gap(7)
@@ -228,73 +268,227 @@ export default class TowerAgents extends View {
 					)
 					.child(
 						div()
+							.flex_none()
 							.text_size(11)
 							.text_color(t[c])
-							.child(busy ? "…" : a.state),
+							.child(this.busy === a.name ? "…" : a.state),
 					),
 			)
 			.child(
-				h_flex()
+				div()
 					.pl(15)
-					.gap(6)
+					.min_w(0)
+					.truncate()
+					.text_size(11)
+					.text_color(t.muted)
+					.child(job ? `job: ${job.title}` : (a.workdir ?? a.worktree ?? a.kind)),
+			);
+	}
+
+	/** Label / value rows for the detail section. */
+	facts(a) {
+		const job = this.jobOf(a);
+		const reserved = this.jobs.filter(
+			(j) => j.state === "queued" && !j.owner_id && j.target_agent_id === a.id,
+		).length;
+		const when = (ts) => {
+			if (!ts) return "-";
+			const d = new Date(ts);
+			return `${d.toDateString().slice(4, 10)} ${d.toTimeString().slice(0, 5)}`;
+		};
+		// [label, value, wide]: wide facts take a full row, the rest pair up
+		// two per row so the screen below keeps the room.
+		return [
+			["job", job ? `${job.title} (${job.state})` : "-", true],
+			["workdir", a.workdir ?? "-", true],
+			["kind", a.kind],
+			["reserved", reserved ? `${reserved} queued` : "-"],
+			["permissions", a.permissions],
+			["worktree", a.worktree ?? "-"],
+			["machine", a.machine_id ?? "local"],
+			["pane", a.pane_id ?? "-"],
+			["desired", a.desired_state],
+			["adopted", a.adopted ? "yes" : "no"],
+			["created", when(a.created_at)],
+			["updated", when(a.updated_at)],
+			["id", a.id, true],
+		];
+	}
+
+	/** The detail section: header, prompt bar, actions, facts, then screen. */
+	details(t) {
+		const a = this.find(this.selected);
+		if (!a) return div();
+		const c = stateColor(a.state);
+		const dead = a.state === "dead";
+		const stopKey = `stop:${a.name}`;
+		const removeKey = `remove:${a.name}`;
+		return v_flex()
+			.id("ag-detail")
+			.flex_1()
+			.min_h(0)
+			.border_t(1)
+			.border_color(t.border)
+			.child(
+				h_flex()
+					.h(30)
+					.flex_none()
+					.px(14)
+					.gap(8)
 					.items_center()
+					.child(div().size(8).rounded(4).flex_none().bg(t[c]))
+					.child(
+						div().flex_1().min_w(0).truncate().font_semibold().child(a.name),
+					)
+					.child(div().text_size(11).text_color(t[c]).child(a.state))
 					.child(
 						div()
-							.flex_1()
-							.min_w(0)
-							.truncate()
-							.text_size(11)
-							.text_color(t.muted)
-							.child(a.workdir ?? a.worktree ?? a.kind),
-					)
-					.child(
-						this.button(`p-${a.name}`, "Prompt", t, (cx) =>
-							this.openPrompt(a, cx),
+							.id("ag-detail-close")
+							.px(6)
+							.rounded(4)
+							.cursor_pointer()
+							.text_color(t.dim)
+							.hover((s) => s.bg(t.hover))
+							.on_click((_e, cx) => {
+								this.select(null);
+								cx.notify();
+							})
+							.child("×"),
+					),
+			)
+			.when(!dead, (el) =>
+				el.child(
+					h_flex()
+						.flex_none()
+						.px(14)
+						.pb(6)
+						.gap(6)
+						.items_center()
+						.child(
+							div()
+								.flex_1()
+								.h(26)
+								.px(8)
+								.flex()
+								.items_center()
+								.rounded(6)
+								.border_1()
+								.border_color(t.input)
+								.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+								.child(Input.new(this.prompt).w_full().h_full().text_size(12)),
+						)
+						.child(
+							this.button("ag-send", "Send", t, (cx) => this.sendPrompt(cx), {
+								solid: true,
+							}),
 						),
+				),
+			)
+			.child(
+				h_flex()
+					.flex_none()
+					.flex_wrap()
+					.px(14)
+					.pb(8)
+					.gap(6)
+					.when(!dead, (el) =>
+						el
+							.child(
+								this.button("ag-int", "Interrupt", t, (cx) =>
+									this.act(cx, a.name, ["interrupt", a.name]),
+								),
+							)
+							.child(
+								this.button(
+									"ag-stop",
+									this.confirm === stopKey ? "Stop?" : "Stop",
+									t,
+									(cx) => this.act(cx, a.name, ["stop", a.name], stopKey),
+									{ danger: true },
+								),
+							),
 					)
-					.child(
-						this.button(`i-${a.name}`, "Interrupt", t, (cx) =>
-							this.act(cx, a.name, ["interrupt", a.name]),
+					.when(dead, (el) =>
+						el.child(
+							this.button(
+								"ag-resume",
+								"Resume",
+								t,
+								(cx) => this.act(cx, a.name, ["spawn", a.name, "--continue"]),
+								{ solid: true },
+							),
 						),
 					)
 					.child(
 						this.button(
-							`s-${a.name}`,
-							this.confirm === a.name ? "Stop?" : "Stop",
+							"ag-remove",
+							this.confirm === removeKey ? "Remove?" : "Remove",
 							t,
-							(cx) => this.act(cx, a.name, ["stop", a.name], true),
+							(cx) =>
+								this.act(cx, a.name, ["stop", a.name, "--remove"], removeKey),
 							{ danger: true },
+						),
+					)
+					.child(div().flex_1())
+					.child(
+						this.button("ag-read", "Refresh screen", t, (cx) =>
+							cx.spawn(async (cx) => {
+								await this.readScreen();
+								cx.notify();
+							}),
 						),
 					),
 			)
-			.when(this.promptFor === a.name, (el) => el.child(this.promptBar(a, t)));
+			.child(
+				h_flex()
+					.flex_none()
+					.flex_wrap()
+					.px(14)
+					.pb(8)
+					.text_size(12)
+					.children(
+						this.facts(a).map(([label, value, wide], i) =>
+							h_flex()
+								.id(`ag-fact-${i}`)
+								.w(wide ? "100%" : "50%")
+								.min_w(0)
+								.py(1)
+								.pr(8)
+								.gap(8)
+								.child(
+									div()
+										.w(84)
+										.flex_none()
+										.text_size(11)
+										.text_color(t.dim)
+										.child(label),
+								)
+								.child(
+									div()
+										.flex_1()
+										.min_w(0)
+										.truncate()
+										.text_color(t.foreground)
+										.child(String(value ?? "-")),
+								),
+						),
+					),
+			)
+			.child(
+				div()
+					.flex_1()
+					.min_h(0)
+					.border_t(1)
+					.border_color(t.border)
+					.child(Editor.new(this.screen).size_full()),
+			);
 	}
 
 	spawnForm(t) {
 		const f = this.spawn;
-		const pills = (options, value, pick) =>
-			h_flex()
-				.flex_wrap()
-				.gap(5)
-				.children(
-					options.map(([v, _label]) =>
-						h_flex()
-							.id(`k-${v}`)
-							.h(24)
-							.px(8)
-							.items_center()
-							.rounded(6)
-							.text_size(12)
-							.cursor_pointer()
-							.bg(v === value ? t.selected : t.raised)
-							.text_color(v === value ? t.foreground : t.muted)
-							.border_1()
-							.border_color(v === value ? t.accent : t.border)
-							.hover((s) => s.bg(t.hover))
-							.on_click((_e, cx) => pick(v, cx)),
-					),
-				);
-		const fieldBox = (id, state, extra = []) =>
+		const label = (text) =>
+			div().pt(4).text_size(11).font_semibold().text_color(t.dim).child(text);
+		const fieldBox = (id, state) =>
 			div()
 				.id(id)
 				.h(30)
@@ -305,54 +499,46 @@ export default class TowerAgents extends View {
 				.border_1()
 				.border_color(t.input)
 				.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-				.child(Input.new(state).h_full().w_full().text_size(12))
-				.children(extra);
+				.child(Input.new(state).h_full().w_full().text_size(12));
+		const pills = h_flex()
+			.flex_wrap()
+			.gap(5)
+			.children(
+				(f.installed ?? []).map((v) =>
+					h_flex()
+						.id(`k-${v}`)
+						.h(24)
+						.px(8)
+						.items_center()
+						.rounded(6)
+						.text_size(12)
+						.cursor_pointer()
+						.bg(v === f.kind ? t.selected : t.raised)
+						.text_color(v === f.kind ? t.foreground : t.muted)
+						.border_1()
+						.border_color(v === f.kind ? t.accent : t.border)
+						.hover((s) => s.bg(t.hover))
+						.on_click((_e, cx) => {
+							f.kind = v;
+							cx.notify();
+						})
+						.child(v),
+				),
+			)
+			.when(!f.installed, (el) =>
+				el.child(div().text_size(12).text_color(t.dim).child("loading…")),
+			);
 		return v_flex()
 			.p(14)
 			.gap(6)
 			.child(div().text_size(15).font_semibold().child("Spawn a tower agent"))
-			.child(
-				div()
-					.pt(4)
-					.text_size(11)
-					.font_semibold()
-					.text_color(t.dim)
-					.child("NAME"),
-			)
+			.child(label("NAME"))
 			.child(fieldBox("sf-name", f.name))
-			.child(
-				div()
-					.pt(4)
-					.text_size(11)
-					.font_semibold()
-					.text_color(t.dim)
-					.child("HARNESS"),
-			)
-			.child(
-				pills(f.installed?.map((k) => [k, k]) ?? [], f.kind, (v, cx) => {
-					f.kind = v;
-					cx.notify();
-				}).when(!f.installed, (el) =>
-					el.child(div().text_size(12).text_color(t.dim).child("loading…")),
-				),
-			)
-			.child(
-				div()
-					.pt(4)
-					.text_size(11)
-					.font_semibold()
-					.text_color(t.dim)
-					.child("WORKDIR"),
-			)
+			.child(label("HARNESS"))
+			.child(pills)
+			.child(label("WORKDIR"))
 			.child(fieldBox("sf-dir", f.workdir))
-			.child(
-				div()
-					.pt(4)
-					.text_size(11)
-					.font_semibold()
-					.text_color(t.dim)
-					.child("FIRST PROMPT"),
-			)
+			.child(label("FIRST PROMPT"))
 			.child(fieldBox("sf-task", f.prompt))
 			.child(
 				h_flex()
@@ -378,27 +564,22 @@ export default class TowerAgents extends View {
 		const agents = this.agents ?? [];
 		const stacks = new Map();
 		for (const a of agents) {
-			const stack = a.name.includes("-") ? a.name.split("-")[0] : null;
-			const key = stack ?? "";
+			const key = a.name.includes("-") ? a.name.split("-")[0] : "";
 			if (!stacks.has(key)) stacks.set(key, []);
 			stacks.get(key).push(a);
 		}
-		const rows = [...stacks.entries()].flatMap(([stack, list]) => {
-			const label = stack ? stack.toUpperCase() : "AGENTS";
-			return [
-				h_flex()
-					.px(14)
-					.pt(12)
-					.pb(4)
-					.gap(6)
-					.items_center()
-					.text_size(11)
-					.font_semibold()
-					.text_color(t.dim)
-					.child(label),
-				...list.map((a) => this.row(a, t)),
-			];
-		});
+		const rows = [...stacks.entries()].flatMap(([stack, list]) => [
+			h_flex()
+				.px(14)
+				.pt(10)
+				.pb(3)
+				.text_size(11)
+				.font_semibold()
+				.text_color(t.dim)
+				.child(stack ? stack.toUpperCase() : "AGENTS"),
+			...list.map((a) => this.row(a, t)),
+		]);
+		const detail = Boolean(this.selected) && !this.spawn;
 		return v_flex()
 			.id("tower-agents")
 			.size_full()
@@ -407,18 +588,16 @@ export default class TowerAgents extends View {
 			.child(this.header(t))
 			.when(Boolean(this.error), (el) =>
 				el.child(
-					div()
-						.px(14)
-						.py(6)
-						.text_size(12)
-						.text_color(t.ansi1)
-						.child(this.error),
+					div().px(14).py(6).text_size(12).text_color(t.ansi1).child(this.error),
 				),
 			)
 			.child(
 				div()
 					.id("tower-agents-body")
-					.flex_1()
+					// With the detail open, the list keeps a third and the
+					// detail (and its screen) takes the rest.
+					.when(detail, (el) => el.h("34%").flex_none())
+					.when(!detail, (el) => el.flex_1())
 					.min_h(0)
 					.overflow_y_scrollbar()
 					.child(
@@ -428,12 +607,7 @@ export default class TowerAgents extends View {
 									.pb(10)
 									.when(this.agents === null, (el) =>
 										el.child(
-											div()
-												.px(14)
-												.py(8)
-												.text_size(12)
-												.text_color(t.dim)
-												.child("Loading…"),
+											div().px(14).py(8).text_size(12).text_color(t.dim).child("Loading…"),
 										),
 									)
 									.when(this.agents !== null && agents.length === 0, (el) =>
@@ -443,18 +617,18 @@ export default class TowerAgents extends View {
 												.py(8)
 												.text_size(12)
 												.text_color(t.dim)
-												.child("No agents yet. Spawn one below."),
+												.child("No agents yet. Spawn one."),
 										),
 									)
 									.children(rows),
 					),
 			)
-			.when(!this.spawn, (el) => el.child(this.footer(t)));
+			.when(detail, (el) => el.child(this.details(t)));
 	}
 
 	header(t) {
 		return h_flex()
-			.h(40)
+			.h(36)
 			.flex_none()
 			.px(14)
 			.gap(8)
@@ -462,28 +636,15 @@ export default class TowerAgents extends View {
 			.border_b(1)
 			.border_color(t.border)
 			.child(div().font_semibold().child("Agents"))
-			.child(div().flex_1())
 			.child(
 				div()
 					.text_size(11)
 					.text_color(t.dim)
-					.child(`${this.agents?.length ?? 0} live`),
-			);
-	}
-
-	footer(t) {
-		return h_flex()
-			.h(38)
-			.flex_none()
-			.px(14)
-			.gap(8)
-			.items_center()
-			.border_t(1)
-			.border_color(t.border)
-			.child(
-				this.button("spawn", "＋ Spawn…", t, (cx) => this.openSpawn(cx), {
-					solid: true,
-				}),
+					.child(`${this.agents?.length ?? 0}`),
+			)
+			.child(div().flex_1())
+			.when(!this.spawn, (el) =>
+				el.child(this.button("spawn", "＋ Spawn…", t, (cx) => this.openSpawn(cx))),
 			);
 	}
 }

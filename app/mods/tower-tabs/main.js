@@ -10,6 +10,9 @@ import {
 	theme,
 	window,
 } from "herdr";
+import { tower } from "./tower.js";
+
+const INBOX_MS = 10000; // the Inbox panel's own refresh period
 
 function find(node, id) {
 	if (node?.id === id) return node;
@@ -21,9 +24,24 @@ function find(node, id) {
 }
 
 export default class Tabs extends View {
-	init() {
+	init(_props, cx) {
 		this.pressed = null;
 		this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
+		// Pending inbox items, polled here so the Inbox button shows them
+		// while the panel is closed. A failed call keeps the last count.
+		this.inboxCount = 0;
+		const poll = (cx) =>
+			cx.spawn(async (cx) => {
+				try {
+					const v = await tower("inbox");
+					this.inboxCount = (v.messages ?? []).length;
+				} catch {
+					// no tower: the Inbox panel itself says so
+				}
+				cx.notify();
+			});
+		cx.timer.every(INBOX_MS, poll);
+		poll(cx);
 	}
 
 	// The side panel is remembered per space: switching shows that space's choice
@@ -182,9 +200,9 @@ export default class Tabs extends View {
 		// per-space restore below keeps a space's last open tower panel
 		// (or closed) instead of closing what shared("workspace.panels")
 		// doesn't name.
-		const enabled = ["tower-jobs", "tower-events"];
+		const enabled = ["tower-agents", "tower-jobs", "tower-events", "tower-inbox"];
 		this.syncPanel(space, panel, body, enabled);
-		const panelButton = (id, label, icon) => {
+		const panelButton = (id, label, icon, attention = false) => {
 			const on = panel && !panel.hidden && body?.active === id;
 			return h_flex()
 				.id(`panel-${id}`)
@@ -196,7 +214,7 @@ export default class Tabs extends View {
 				.rounded(6)
 				.text_size(12)
 				.bg(on ? t.selected : t.chrome)
-				.text_color(on ? t.foreground : t.muted)
+				.text_color(attention ? t.blocked : on ? t.foreground : t.muted)
 				.hover((s) => s.bg(t.hover))
 				.on_mouse_down("left", stop)
 				.on_click(() => {
@@ -247,9 +265,20 @@ export default class Tabs extends View {
 					}),
 				),
 			)
+			.child(
+				panelButton("tower-agents", "Agents", "mods/tower-tabs/agents.svg"),
+			)
 			.child(panelButton("tower-jobs", "Jobs", "mods/tower-tabs/jobs.svg"))
 			.child(
 				panelButton("tower-events", "Events", "mods/tower-tabs/events.svg"),
+			)
+			.child(
+				panelButton(
+					"tower-inbox",
+					"Inbox",
+					"mods/tower-tabs/inbox.svg",
+					this.inboxCount > 0,
+				),
 			)
 			.when(w?.buttons, (el) =>
 				el

@@ -10,7 +10,7 @@
 import { h_flex, Input, InputState, v_flex } from "gpui-base";
 import { div, View } from "gpui-kit";
 import { theme } from "herdr";
-import { ago, messageText, tower } from "./tower.js";
+import { ago, messageText, tower, towerRead } from "./tower.js";
 
 const PENDING = new Set(["pending"]);
 
@@ -132,8 +132,7 @@ export default class TowerInbox extends View {
 		cx.spawn(async (cx) => {
 			let text = null;
 			try {
-				const v = await tower("read", m.from_id);
-				text = (v.output ?? "").trim().split("\n").slice(-24).join("\n");
+				text = (await towerRead(m.from_id)).trim().split("\n").slice(-24).join("\n");
 			} catch (e) {
 				text = `cannot read ${m.from_id}: ${e.message}`;
 			}

@@ -22,8 +22,9 @@ sources:
 
 `app/` holds a layout (`layouts/tower.json`) and five mods for the Herdr
 desktop app (`herdr-app`, the GUI over herdr-core). Installed under
-`~/.config/herdr-app/`, they put tower's fleet beside the terminals: Agents
-and Inbox in the sidebar, Jobs and Events in the right panel, and a
+`~/.config/herdr-app/`, they put tower's fleet beside the terminals:
+Agents, Jobs, Events and Inbox as tabs of the right panel (one shown at a
+time, so none takes room until opened; the layout has no sidebar); and a
 `tower-tabs` tab bar. `app/RECIPE.md` is the install and behavior contract;
 this doc records the facts and decisions behind it.
 
@@ -31,14 +32,24 @@ this doc records the facts and decisions behind it.
 
 - **Agents, Inbox, Jobs** call the `tower` CLI with `--json` (`tower.js`
   `tower()`). The CLI resolves the server and token like every client, so
-  these panels honor `TOWER_URL` / `TOWER_TOKEN`.
+  these panels honor `TOWER_URL` / `TOWER_TOKEN`. Agent screens (the
+  Agents detail section, the Inbox peek) use `towerRead()`, plain `tower
+  read`: tower 0.5.0's `read` ignored `--json`.
+- **Agents detail.** Clicking an agent opens a section below the list,
+  the same shape as the events detail: prompt input, actions (interrupt,
+  stop/remove with a second press, resume = `spawn --continue` on a dead
+  row), facts (owned job and reserved jobs from `tower task list`), and
+  its screen in a read-only editor, re-read on each 10 s refresh.
+- **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
+  colors the Inbox button `blocked` while anything is pending. The Inbox
+  panel is usually closed, so the always-shown tab bar carries the signal.
 - **Events** reads `/v1/events` (SSE, [D§7](design/07-server-api.md))
   directly with bounded `curl --max-time 5` polls every 6 s. Mods cannot
   read the environment, so it reads the token file from the tower home for
   `window().platform` (or shared state `tower.token_file`) and uses the
   default bind (or `tower.server_url`).
 - Every mod folder carries an identical copy of `tower.js`: mods cannot
-  import across folders. Change one, copy it to all four.
+  import across folders. Change one, copy it to all five.
 
 ## Events panel rules
 

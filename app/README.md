@@ -10,13 +10,13 @@ it):
 
 ```text
 app/
-├── layouts/tower.json     the window: tower sidebar + panel stack + center
+├── layouts/tower.json     the window: center terminals + tower panel stack
 └── mods/
-    ├── tower-agents/      fleet: rows per agent, prompt/interrupt/stop, spawn
+    ├── tower-agents/      fleet: rows per agent, detail with prompt/actions/screen, spawn
     ├── tower-inbox/       pending questions/approvals, answer/approve/deny
     ├── tower-jobs/        queue, schedules, create/assign/cancel/release
     ├── tower-events/      /v1/events followed live (bounded SSE polls)
-    └── tower-tabs/        the tab bar, with Jobs/Events panel buttons
+    └── tower-tabs/        the tab bar, with Agents/Jobs/Events/Inbox panel buttons
 ```
 
 Each mod folder carries an identical `tower.js` — the Herdr mod runtime
@@ -46,10 +46,12 @@ the same way (mods cannot read the environment).
 
 ## What it does
 
-- **Agents** (sidebar, top): every seat grouped by stack with live state
-  dots. Inline prompt bar per agent, interrupt, stop (two presses), and a
-  spawn form with the harnesses installed on the machine.
-- **Inbox** (sidebar, bottom): questions and approvals addressed to you.
+- **Agents** (right panel): every seat grouped by stack with live state
+  dots and the job each owns. Click an agent for a detail section: prompt
+  input, interrupt / stop / remove (two presses) / resume, its facts, and
+  its terminal screen. Spawn form with the harnesses installed on the
+  machine.
+- **Inbox** (right panel): questions and approvals addressed to you.
   Answer in place, approve/deny with a confirm press (an approval lets an
   agent act), dismiss stale ones, peek at the asking agent's screen.
 - **Jobs** (right panel): open jobs with owner/priority/age, closed ones

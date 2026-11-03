@@ -75,6 +75,17 @@ export async function tower(...args) {
 	}
 }
 
+/** An agent's recent terminal output as text. Plain `tower read` (no
+ * --json): tower 0.5.0's `read` ignores --json, and the text is the API's
+ * `output` field either way. Rejects TowerError. */
+export async function towerRead(name) {
+	const bin = await towerBin();
+	if (!bin) throw new TowerError("tower CLI not found on this machine", "cli");
+	const r = await exec(bin, ["read", name]);
+	if (r.code !== 0) throw new TowerError((r.stderr || r.stdout || "").trim(), "cli");
+	return r.stdout ?? "";
+}
+
 /** The text of a message's parts, joined. */
 export function messageText(m) {
 	return (m.parts ?? [])
