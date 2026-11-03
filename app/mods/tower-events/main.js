@@ -14,8 +14,33 @@
 
 import { h_flex, v_flex } from "gpui-base";
 import { div, View } from "gpui-kit";
-import { exec, home, readTextFile, theme } from "herdr";
+import { exec, home, readTextFile, shared, theme, window } from "herdr";
 import { clock, eventLine, stateColor } from "./tower.js";
+
+/** The tower token file to read: a shared-state override if set (mods
+ * cannot read TOWER_HOME/TOWER_TOKEN), else the same default tower home
+ * the CLI uses per platform (dirs-rs): the OS data dir + "tower/token". */
+function tokenCandidates() {
+	const override = shared("tower.token_file");
+	if (typeof override === "string" && override.trim()) return [override];
+	const platform = window()?.platform;
+	if (platform === "macos") {
+		return [`${home()}/Library/Application Support/tower/token`];
+	}
+	if (platform === "windows") {
+		return [`${home()}/AppData/Roaming/tower/token`];
+	}
+	return [`${home()}/.local/share/tower/token`];
+}
+
+/** The tower server's base URL: the CLI's default bind, or a shared-state
+ * override for non-default setups (mods cannot read TOWER_URL). */
+function serverUrl() {
+	return String(shared("tower.server_url") ?? "http://127.0.0.1:8266").replace(
+		/\/+$/,
+		"",
+	);
+}
 
 const POLL_MS = 6000;
 const WINDOW = 5; // seconds per bounded poll
@@ -38,13 +63,17 @@ export default class TowerEvents extends View {
 		this.polling = false;
 		this.token = null;
 		cx.spawn(async (cx) => {
-			// The default tower home, as the CLI resolves it when nothing
-			// overrides (mods cannot read the environment).
-			this.token =
-				(await readTextFile(`${home()}/.local/share/tower/token`))?.trim() ??
-				"";
+			// tokenCandidates() holds the paths and their order.
+			for (const file of tokenCandidates()) {
+				const text = await readTextFile(file);
+				if (text?.trim()) {
+					this.token = text.trim();
+					break;
+				}
+			}
 			if (!this.token) {
-				this.error = "no tower token found (~/.local/share/tower/token)";
+				this.token = "";
+				this.error = `no tower token found (tried ${tokenCandidates().join(", ")})`;
 				cx.notify();
 			}
 		});
@@ -63,7 +92,7 @@ export default class TowerEvents extends View {
 	async poll() {
 		if (!this.token) return;
 		const filter = this.type ? `&filter=type:${this.type}` : "";
-		const url = `http://127.0.0.1:8266/v1/events?cursor=${this.cursor}${filter}`;
+		const url = `${serverUrl()}/v1/events?cursor=${this.cursor}${filter}`;
 		let r;
 		try {
 			r = await exec("curl", [

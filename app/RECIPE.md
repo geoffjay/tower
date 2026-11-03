@@ -86,17 +86,20 @@ spaces/agents sidebar and the Files/Changes panel:
   - `tower-jobs`: `tower task list`, `tower task create/assign/release/
     cancel`, `tower schedule list/run/pause/resume/rm`.
   - `tower-events`: the tower REST `/v1/events` SSE endpoint via bounded
-    `curl --max-time 5` polls (cursor replay); the token from
-    `~/.local/share/tower/token` (`readTextFile`), matching the CLI's
-    default resolution.
+    `curl --max-time 5` polls (cursor replay); the token from the tower
+    home for the platform (`window().platform`: `~/.local/share/tower`
+    Linux, `~/Library/Application Support/tower` macOS,
+    `~/AppData/Roaming/tower` Windows), or the shared-state override
+    `tower.token_file`; the address from `tower.server_url` or the
+    default bind.
   - `tower-tabs`: a clone of the shipped `tabs` mod, `enabled` hardcoded
     to `["tower-jobs", "tower-events"]`, panel buttons switched to those
     two (icons `mods/tower-tabs/jobs.svg`, `events.svg`). Everything else
     is the shipped tab bar: tab pills, drag-to-reorder, `+` menu, window
     buttons.
-- `herdr`: `exec`, `theme`, `readTextFile`, `knownAgents`, `layout`, `run`.
-  `gpui-base`: `v_flex`, `h_flex`, `InputState`, `Input`. `gpui-kit`:
-  `View`, `div`.
+- `herdr`: `exec`, `theme`, `readTextFile`, `knownAgents`, `layout`, `run`,
+  `shared`, `window`. `gpui-base`: `v_flex`, `h_flex`, `InputState`, `Input`.
+  `gpui-kit`: `View`, `div`.
 - The mods run programs (`tower`, `curl`) and read one file outside their
   folders (the tower token file). They reach no network except the local
   tower server.
