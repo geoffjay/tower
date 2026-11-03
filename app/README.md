@@ -16,7 +16,7 @@ app/
     ├── tower-inbox/       pending questions/approvals, answer/approve/deny
     ├── tower-jobs/        queue, schedules, create/assign/cancel/release
     ├── tower-events/      /v1/events followed live (bounded SSE polls)
-    └── tower-head/        the Jobs/Events panel tabs
+    └── tower-tabs/        the tab bar, with Jobs/Events panel buttons
 ```
 
 Each mod folder carries an identical `tower.js` — the Herdr mod runtime
@@ -30,7 +30,7 @@ With the Herdr app installed and a tower server running (`tower serve` or
 
 ```sh
 cp app/layouts/tower.json ~/.config/herdr-app/layouts/
-cp -R app/mods/tower-{agents,inbox,jobs,events,head} ~/.config/herdr-app/mods/
+cp -R app/mods/tower-{agents,inbox,jobs,events,tabs} ~/.config/herdr-app/mods/
 herdr-app do layout.switch --name tower
 ```
 

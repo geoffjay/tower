@@ -34,8 +34,8 @@ spaces/agents sidebar and the Files/Changes panel:
     (the sender's recent screen via `tower read`), `Approve?`/`Deny`
     (two-press confirm — an approval lets an agent act), `Answer…` (inline
     input, Enter sends `tower approve <id> --answer`), `Dismiss`.
-- **Right panel** (380px): a 32px `tower-head` block (Jobs / Events tabs,
-  driving `layout.select` on the panel stack) over a stack of:
+- **Right panel** (380px), opened from the tab bar's Jobs / Events
+  buttons and remembered per space: a stack of:
   - **Jobs**: QUEUE section (open jobs: state dot, title, `P<n>` priority,
     state, owner/hold/tags/age), RECENT (last 10 closed), SCHEDULES
     (title, cron, next run, target). Per-job buttons: `Assign…` (pills of
@@ -48,7 +48,14 @@ spaces/agents sidebar and the Files/Changes panel:
     (colored: failures red), one-line summary. Filter pills: all / agents /
     jobs / schedules / messages. Live dot `● live` (dim) or `◌ connecting`
     (red).
-- **Center**: the shipped tab bar and pane cards, unchanged.
+- **Center**: the shipped pane cards, unchanged.
+- **Tab bar**: a clone of the shipped `tabs` mod (same tabs, drag, `+`,
+  window buttons) with Jobs / Events panel buttons in place of Files /
+  Changes. The clone is required: the shipped `tabs` polices the panel
+  against `shared("workspace.panels")` (files/changes) and would close a
+  tower panel on every space switch. The clone's `enabled` list is
+  `["tower-jobs", "tower-events"]`, so its per-space memory restores a
+  space's last tower panel instead.
 
 ## How it behaves
 
@@ -67,8 +74,9 @@ spaces/agents sidebar and the Files/Changes panel:
 ## Built from
 
 - One layout: `layouts/tower.json`, cloning the shipped `main` structure
-  (brand / work / status blocks, shipped `tabs`, `pane` header,
-  `workspace-chrome`, `workspace-status` mods reused as-is).
+  (brand / work / status blocks, shipped `pane` header,
+  `workspace-chrome`, `workspace-status` mods reused as-is; the tab bar
+  is the `tower-tabs` clone below).
 - Five mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
   the layout is the only placement), and a shared `tower.js`:
   - `tower-agents`: `tower ps`, `tower prompt`, `tower interrupt`,
@@ -81,8 +89,11 @@ spaces/agents sidebar and the Files/Changes panel:
     `curl --max-time 5` polls (cursor replay); the token from
     `~/.local/share/tower/token` (`readTextFile`), matching the CLI's
     default resolution.
-  - `tower-head`: `layout()` + `run("layout.select", …)` on the
-    `panel-body` stack.
+  - `tower-tabs`: a clone of the shipped `tabs` mod, `enabled` hardcoded
+    to `["tower-jobs", "tower-events"]`, panel buttons switched to those
+    two (icons `mods/tower-tabs/jobs.svg`, `events.svg`). Everything else
+    is the shipped tab bar: tab pills, drag-to-reorder, `+` menu, window
+    buttons.
 - `herdr`: `exec`, `theme`, `readTextFile`, `knownAgents`, `layout`, `run`.
   `gpui-base`: `v_flex`, `h_flex`, `InputState`, `Input`. `gpui-kit`:
   `View`, `div`.
@@ -94,7 +105,12 @@ spaces/agents sidebar and the Files/Changes panel:
 
 - Mods cannot import across folders ("resolves outside the application
   directory"): each mod carries its own copy of `tower.js` (identical
-  md5 across the five).
+  md5 across the set).
+- The shipped `tabs` mod must not be reused for this layout: its
+  `syncPanel` closes any panel whose active child is not in
+  `shared("workspace.panels")` on every space switch. That is why the
+  tab bar here is the `tower-tabs` clone. Never point the layout's
+  tab bar back at the shipped `tabs`.
 - `herdr-app check` drops `gpui-kit.d.ts` and `jsconfig.json` into the
   folder it checks — don't commit those; delete them after checking.
 - The mod runtime has no `setTimeout`/`process`/env access: timing is
@@ -109,7 +125,10 @@ spaces/agents sidebar and the Files/Changes panel:
 
 ## Done when
 
-- `herdr-app check` passes for each of the five mod folders.
+- `herdr-app check` passes for each mod folder. The tab bar shows Jobs /
+  Events buttons; clicking Jobs opens the panel on the Jobs stack, and
+  after switching to another space and back, that space's panel is as it
+  was left (the shipped `tabs` would have closed it).
 - With a tower server running: the Agents panel lists every agent
   `tower ps` shows, grouped by stack, with live states; the Jobs panel's
   QUEUE matches `tower task list`, and SCHEDULES matches
