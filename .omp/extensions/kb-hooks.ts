@@ -34,8 +34,15 @@ const KB_PREFIX = "docs/knowledgebase/";
 // Repo-relative path patterns that map to KB topics worth keeping in sync.
 // (compiled regex, human-readable hint shown in the reminder)
 const TRIGGERS: ReadonlyArray<{ pattern: RegExp; hint: string }> = [
-  // Add project-specific triggers here, e.g.:
-  // { pattern: /^src\//, hint: "source changes → concepts/architecture.md" },
+  { pattern: /^crates\/tower-core\/src\//, hint: "core objects/events → concepts/design (D§5, D§6)" },
+  { pattern: /^crates\/tower-server\/src\//, hint: "server behavior → concepts/design (D§7, D§9), decisions/" },
+  { pattern: /^crates\/tower-driver\/src\//, hint: "herdr driver → concepts/design (D§8), references/herdr.md" },
+  { pattern: /^crates\/tower-client\/src\//, hint: "client/CLI → concepts/design (D§10), docs/getting-started.md" },
+  { pattern: /^crates\/tower-tui\/src\//, hint: "TUI → concepts/design (D§11), plans/phase-3-tui.md" },
+  { pattern: /^crates\/tower-web\/src\//, hint: "web UI → concepts/design (D§12), decisions/web-ui.md" },
+  { pattern: /^app\//, hint: "Herdr app package → concepts/herdr-app.md" },
+  { pattern: /^(packaging|scripts|\.github\/workflows)\//, hint: "releases → concepts/releases.md" },
+  { pattern: /^\.(omp|claude|opencode)\//, hint: "agent wiring → index.md 'Wired agents'" },
 ];
 
 const KB_INJECT_PREAMBLE =

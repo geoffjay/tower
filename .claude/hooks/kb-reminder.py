@@ -32,8 +32,15 @@ import tempfile
 # Repo-relative path patterns that map to KB topics worth keeping in sync.
 # (compiled regex, human-readable hint shown in the reminder)
 TRIGGERS: list[tuple[re.Pattern, str]] = [
-    # Add project-specific triggers here, e.g.:
-    # (re.compile(r"^src/"), "source changes → concepts/architecture.md"),
+    (re.compile(r"^crates/tower-core/src/"), "core objects/events → concepts/design (D§5, D§6)"),
+    (re.compile(r"^crates/tower-server/src/"), "server behavior → concepts/design (D§7, D§9), decisions/"),
+    (re.compile(r"^crates/tower-driver/src/"), "herdr driver → concepts/design (D§8), references/herdr.md"),
+    (re.compile(r"^crates/tower-client/src/"), "client/CLI → concepts/design (D§10), docs/getting-started.md"),
+    (re.compile(r"^crates/tower-tui/src/"), "TUI → concepts/design (D§11), plans/phase-3-tui.md"),
+    (re.compile(r"^crates/tower-web/src/"), "web UI → concepts/design (D§12), decisions/web-ui.md"),
+    (re.compile(r"^app/"), "Herdr app package → concepts/herdr-app.md"),
+    (re.compile(r"^(packaging|scripts|\.github/workflows)/"), "releases → concepts/releases.md"),
+    (re.compile(r"^\.(omp|claude|opencode)/"), "agent wiring → index.md 'Wired agents'"),
 ]
 
 KB_PREFIX = "docs/knowledgebase/"

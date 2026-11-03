@@ -43,6 +43,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 ## Concepts
 
 * [Design](concepts/design/) - tower design document (draft v0.1), one concept per section; cited as `D§N`.
+* [Herdr app package](concepts/herdr-app.md) - `app/` layout and mods for the Herdr desktop app; how each mod reaches tower, events panel rules.
 
 ## Decisions
 
