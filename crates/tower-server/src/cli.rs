@@ -525,6 +525,10 @@ async fn read(cli: Cli) -> anyhow::Result<()> {
     };
     let _ = source; // v1: server picks recent/visible; per-source arrives with agent detail views
     let v = c.get(&path).await?;
+    if cli.json {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
     print!("{}", v["output"].as_str().unwrap_or(""));
     Ok(())
 }
