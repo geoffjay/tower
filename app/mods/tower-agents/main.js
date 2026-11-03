@@ -2,25 +2,29 @@
 // One section per stack (agents named <stack>-<role>), unstacked agents last.
 // Clicking a row opens the detail section below the list (the same shape as
 // the events panel): the agent's facts, a prompt bar, its actions, and its
-// terminal screen in a read-only editor.
+// terminal screen, following its newest output.
 // Reads: `tower ps`, `tower task list`, `tower read <name>`. Acts: prompt,
 // interrupt, stop / remove (two presses), resume (`spawn --continue`, dead
 // rows), spawn (a form of installed harnesses).
 
 import {
-	Editor,
-	EditorState,
 	h_flex,
 	Input,
 	InputState,
+	Scrollbar,
 	v_flex,
+	v_virtual_list,
+	VirtualListScrollHandle,
 } from "gpui-base";
 import { div, View } from "gpui-kit";
 import { knownAgents, settings, theme } from "herdr";
 import { stateColor, tower, towerRead } from "./tower.js";
 
 const REFRESH_MS = 10000;
-const SCREEN_LINES = 200; // the tail of `tower read` kept in the editor
+const SCREEN_MS = 2000; // the open agent's screen re-reads this often
+const SCREEN_LINES = 200; // the tail of `tower read` kept on screen
+const LINE_H = 17; // px per screen line (12px mono)
+const CHAR_W = 7.3; // px per column, for the screen's scroll width
 
 export default class TowerAgents extends View {
 	init(_props, cx) {
@@ -32,9 +36,18 @@ export default class TowerAgents extends View {
 		this.spawn = null; // the spawn form's fields
 		this.selected = null; // the name of the agent in the detail section
 		this.prompt = null; // its prompt bar's InputState
-		this.screen = null; // its screen's EditorState
+		this.lines = null; // its screen, one string per line
 		this.screenText = null;
+		this.follow = true; // keep the screen pinned to its newest line
+		this.reading = false; // a `tower read` in flight
+		this.scroll = VirtualListScrollHandle.new();
 		cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
+		cx.timer.every(SCREEN_MS, (cx) => {
+			if (!this.selected || this.reading) return;
+			cx.spawn(async (cx) => {
+				if (await this.readScreen()) cx.notify();
+			});
+		});
 		this.refresh(cx);
 	}
 
@@ -65,11 +78,11 @@ export default class TowerAgents extends View {
 
 	/** Open one agent in the detail section; the same agent again closes it. */
 	select(name, cx) {
-		this.screen?.release();
 		this.prompt?.release();
-		this.screen = null;
 		this.prompt = null;
+		this.lines = null;
 		this.screenText = null;
+		this.follow = true;
 		this.confirm = null;
 		if (!name || this.selected === name) {
 			this.selected = null;
@@ -79,43 +92,47 @@ export default class TowerAgents extends View {
 		const state = InputState.new({ placeholder: `Prompt ${name}…` });
 		state.on("submit", (_e, cx2) => this.sendPrompt(cx2));
 		this.prompt = state;
-		this.screen = EditorState.new({
-			language: "text",
-			value: "…",
-			readonly: true,
-			line_numbers: false,
-			folding: false,
-			soft_wrap: false,
-			font_family: settings().font_family,
-			font_size: 12,
-		});
+		this.lines = ["…"];
 		cx?.spawn(async (cx) => {
 			await this.readScreen();
 			cx.notify();
 		});
 	}
 
-	/** The selected agent's recent terminal output, into the editor. */
+	/** The selected agent's recent terminal output, onto the screen. True
+	 * when the screen changed. While following, the screen scrolls to the
+	 * newest line. */
 	async readScreen() {
 		const name = this.selected;
 		const a = this.find(name);
 		let text;
-		if (a?.state === "dead") {
-			text = "(not running - Resume relaunches it)";
-		} else {
-			try {
-				text = (await towerRead(name)).replace(/\s+$/, "");
-				text = text.split("\n").slice(-SCREEN_LINES).join("\n") || "(no output)";
-			} catch (e) {
-				text = `cannot read ${name}: ${e.message}`;
+		this.reading = true;
+		try {
+			if (a?.state === "dead") {
+				text = "(not running - Resume relaunches it)";
+			} else {
+				try {
+					text = (await towerRead(name)).replace(/\s+$/, "");
+					text = text.split("\n").slice(-SCREEN_LINES).join("\n") || "(no output)";
+				} catch (e) {
+					text = `cannot read ${name}: ${e.message}`;
+				}
 			}
+		} finally {
+			this.reading = false;
 		}
 		// A late answer for an agent no longer selected is dropped.
-		if (this.selected !== name || !this.screen) return;
-		if (text !== this.screenText) {
-			this.screenText = text;
-			this.screen.set_value(text);
-		}
+		if (this.selected !== name || text === this.screenText) return false;
+		this.screenText = text;
+		this.lines = text.split("\n");
+		if (this.follow) this.scroll.scroll_to_bottom();
+		return true;
+	}
+
+	/** Back to the newest line, and stay there as output arrives. */
+	followScreen() {
+		this.follow = true;
+		this.scroll.scroll_to_bottom();
 	}
 
 	sendPrompt(cx) {
@@ -431,11 +448,16 @@ export default class TowerAgents extends View {
 					)
 					.child(div().flex_1())
 					.child(
-						this.button("ag-read", "Refresh screen", t, (cx) =>
-							cx.spawn(async (cx) => {
-								await this.readScreen();
+						this.button(
+							"ag-follow",
+							this.follow ? "Following" : "↓ Follow",
+							t,
+							(cx) => {
+								if (this.follow) this.follow = false;
+								else this.followScreen();
 								cx.notify();
-							}),
+							},
+							{ solid: !this.follow },
 						),
 					),
 			)
@@ -474,13 +496,68 @@ export default class TowerAgents extends View {
 						),
 					),
 			)
+			.child(this.screenView(t));
+	}
+
+	/** The agent's screen: one row per line in a virtual list. While
+	 * following, each new read scrolls it to the newest line; scrolling up
+	 * stops that until Follow is pressed. */
+	screenView(t) {
+		const lines = this.lines ?? [];
+		const cols = lines.reduce((m, l) => Math.max(m, l.length), 0);
+		return div()
+			.flex_1()
+			.min_h(0)
+			.relative()
+			.border_t(1)
+			.border_color(t.border)
+			.font_family(settings().font_family ?? "JetBrains Mono")
+			.text_size(12)
+			.on_scroll_wheel((e, cx) => {
+				// GPUI: a positive y delta moves toward the top.
+				if (this.follow && e.delta.y > 0) {
+					this.follow = false;
+					cx.notify();
+				}
+			})
 			.child(
 				div()
-					.flex_1()
-					.min_h(0)
-					.border_t(1)
-					.border_color(t.border)
-					.child(Editor.new(this.screen).size_full()),
+					.id("ag-screen-x")
+					.size_full()
+					.overflow_x_scrollbar()
+					.child(
+						div()
+							.w_full()
+							.min_w(Math.ceil(cols * CHAR_W) + 20)
+							.h_full()
+							.child(
+								v_virtual_list(
+									"ag-screen",
+									lines.length,
+									LINE_H,
+									(i) => String(i),
+									(range) =>
+										lines
+											.slice(range.start, range.end)
+											.map((l) =>
+												div()
+													.h(LINE_H)
+													.px(10)
+													.whitespace_nowrap()
+													.text_color(t.foreground)
+													.child(l || " "),
+											),
+								)
+									.track_scroll(this.scroll)
+									.size_full(),
+							),
+					),
+			)
+			.child(
+				Scrollbar.vertical("ag-screen")
+					.viewport_from_layout()
+					.absolute()
+					.inset_0(),
 			);
 	}
 

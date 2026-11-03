@@ -27,11 +27,13 @@ the full width) and tower panels in place of the Files/Changes panel:
     opens below the list (the list keeps the top third) with a prompt
     input (Enter or Send runs `tower prompt <name> <text>`), the actions
     (`Interrupt`, `Stop` and `Remove` with a second press, `Resume` =
-    `tower spawn <name> --continue` on a dead row, `Refresh screen`), the
-    agent's facts (job, reserved jobs waiting for it, workdir, kind,
-    permissions, worktree, machine, pane, desired state, adopted,
-    created/updated, id), then its terminal screen (the last 200 lines of
-    `tower read`, re-read on every 10s refresh) in a read-only editor.
+    `tower spawn <name> --continue` on a dead row, `Following` /
+    `↓ Follow`), the agent's facts (job, reserved jobs waiting for it,
+    workdir, kind, permissions, worktree, machine, pane, desired state,
+    adopted, created/updated, id), then its terminal screen (the last 200
+    lines of `tower read`, re-read every 2s while open). The screen follows
+    the newest line; scrolling up pauses that (the button turns solid
+    `↓ Follow`) until the button is pressed.
     Click the row again or `×` to close. The header's `＋ Spawn…` opens a
     form: name, harness pills (installed kinds, via `knownAgents()`),
     workdir, first prompt → `tower spawn`.
@@ -178,7 +180,7 @@ the full width) and tower panels in place of the Files/Changes panel:
   `tower schedule list`; the Events panel shows the same log the TUI's
   events view does, following live within ~6s.
 - Prompt an idle agent from its detail section → the agent's terminal
-  shows the turn, and the section's screen shows it on the next refresh;
+  shows the turn, and the section's screen shows it within ~2s;
   `tower prompt <name>` shows the same delivered message.
 - A pending question appears in the Inbox within ~10s; Answer it in
   place → `tower inbox` no longer lists it, and `tower inbox --json`'s
