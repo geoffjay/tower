@@ -56,8 +56,8 @@ copy), so an upgrade takes effect on the next restart:
 $ brew upgrade tower                                      # or your package manager
 $ launchctl kickstart -k gui/$(id -u)/dev.tower.serve    # macOS: restart
 $ systemctl --user restart dev.tower.serve.service       # Linux: restart
-$ tower service status                                   # unit, state, healthz
-$ tower --version
+$ tower service status                                   # unit, state, healthz, version
+$ tower --version                                        # the CLI; status flags a server still on the old one
 ```
 
 ## 2. Check your machine
