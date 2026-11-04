@@ -150,21 +150,47 @@ impl EventLog {
         .bind(limit)
         .fetch_all(&mut *conn)
         .await?;
+        rows.iter().map(row_event).collect()
+    }
 
-        rows.into_iter()
-            .map(|r| {
-                let kind_str: String = r.get("type");
-                let kind: EventKind = serde_json::from_value(serde_json::Value::String(kind_str))?;
-                Ok(Event {
-                    seq: r.get("seq"),
-                    ts: r.get("ts"),
-                    kind,
-                    subject_type: r.try_get("subject_type").ok(),
-                    subject_id: r.try_get("subject_id").ok(),
-                    payload: serde_json::from_str(&r.get::<String, _>("payload"))?,
-                })
-            })
-            .collect()
+    /// One page of the log, newest first (D§7 `/v1/events/history`): at
+    /// most `limit` events matching `f` with `seq < before` (`None`: from
+    /// the head). `head` is read under the same lock as the page, so a
+    /// stream from `cursor = head` continues it without a gap or overlap.
+    pub async fn history(
+        &self,
+        before: Option<i64>,
+        limit: i64,
+        f: &EventFilter,
+    ) -> anyhow::Result<EventPage> {
+        let mut conn = self.write.lock().await;
+        let head = *self.head.borrow();
+        let before = before.map_or(head + 1, |b| b.min(head + 1));
+        // One extra row tells whether an older match exists.
+        let rows = sqlx::query(
+            "SELECT seq, ts, type, subject_type, subject_id, payload
+             FROM events
+             WHERE seq < ?1
+               AND (?2 IS NULL OR instr(type, ?2) > 0)
+               AND (?3 IS NULL OR instr(type, ?3) = 0)
+               AND (?4 IS NULL OR lower(subject_type || ':' || subject_id) = lower(?4))
+             ORDER BY seq DESC LIMIT ?5",
+        )
+        .bind(before)
+        .bind(f.filter())
+        .bind(f.exclude())
+        .bind(f.subject())
+        .bind(limit + 1)
+        .fetch_all(&mut *conn)
+        .await?;
+        drop(conn);
+        let more = rows.len() as i64 > limit;
+        let events = rows
+            .iter()
+            .take(limit as usize)
+            .map(row_event)
+            .collect::<anyhow::Result<_>>()?;
+        Ok(EventPage { events, head, more })
     }
 
     pub async fn latest_seq(&self) -> anyhow::Result<i64> {
@@ -173,6 +199,79 @@ impl EventLog {
             .fetch_one(&mut *conn)
             .await?;
         Ok(row.unwrap_or(0))
+    }
+}
+
+fn row_event(r: &sqlx::sqlite::SqliteRow) -> anyhow::Result<Event> {
+    let kind_str: String = r.get("type");
+    let kind: EventKind = serde_json::from_value(serde_json::Value::String(kind_str))?;
+    Ok(Event {
+        seq: r.get("seq"),
+        ts: r.get("ts"),
+        kind,
+        subject_type: r.try_get("subject_type").ok(),
+        subject_id: r.try_get("subject_id").ok(),
+        payload: serde_json::from_str(&r.get::<String, _>("payload"))?,
+    })
+}
+
+/// A page of [`EventLog::history`]: newest first.
+#[derive(Debug, serde::Serialize)]
+pub struct EventPage {
+    pub events: Vec<Event>,
+    /// The log's latest seq when the page was read: the live cursor.
+    pub head: i64,
+    /// Older matching events exist (page on with `before`).
+    pub more: bool,
+}
+
+/// Which events a reader wants (D§7), the same for the stream and the
+/// history: `filter` keeps event types containing its text, `exclude`
+/// drops them (a `type:` prefix is optional), `subject` is an exact
+/// `type:id`, ASCII case-insensitive. Empty values are no filter.
+#[derive(Debug, Clone, Default)]
+pub struct EventFilter {
+    pub filter: Option<String>,
+    pub exclude: Option<String>,
+    pub subject: Option<String>,
+}
+
+impl EventFilter {
+    fn type_needle(v: &Option<String>) -> Option<&str> {
+        let v = v.as_deref()?;
+        Some(v.strip_prefix("type:").unwrap_or(v)).filter(|s| !s.is_empty())
+    }
+
+    pub fn filter(&self) -> Option<&str> {
+        Self::type_needle(&self.filter)
+    }
+
+    pub fn exclude(&self) -> Option<&str> {
+        Self::type_needle(&self.exclude)
+    }
+
+    pub fn subject(&self) -> Option<&str> {
+        self.subject.as_deref().filter(|s| !s.is_empty())
+    }
+
+    pub fn matches(&self, e: &Event) -> bool {
+        let kind = e.kind.as_str();
+        if self.filter().is_some_and(|f| !kind.contains(f)) {
+            return false;
+        }
+        if self.exclude().is_some_and(|x| kind.contains(x)) {
+            return false;
+        }
+        if let Some(want) = self.subject() {
+            let got = match (e.subject_type.as_deref(), e.subject_id.as_deref()) {
+                (Some(t), Some(id)) => format!("{t}:{id}"),
+                _ => return false,
+            };
+            if !got.eq_ignore_ascii_case(want) {
+                return false;
+            }
+        }
+        true
     }
 }
 

@@ -1,28 +1,35 @@
-//! SSE event stream: /v1/events (D§7 streaming).
+//! The event log over HTTP (D§7): `/v1/events`, the SSE stream, and
+//! `/v1/events/history`, the log newest first one page at a time.
 //!
-//! Cursor semantics: client passes `?cursor=<seq>` or `Last-Event-ID`; the
-//! server replays everything after the cursor from the event log, then
-//! follows live appends with a short poll tick. Heartbeats via SSE
-//! keep-alive (15s). Filters: `?filter=type:task` substring on event type,
-//! `?subject=agent:a_1` exact subject match.
+//! Stream cursor semantics: client passes `?cursor=<seq>` or
+//! `Last-Event-ID`; the server replays everything after the cursor from the
+//! event log, then follows live appends with a short poll tick. Heartbeats
+//! via SSE keep-alive (15s). Filters (both routes, [`EventFilter`]):
+//! `?filter=type:task` keeps types containing the text, `?exclude=type:…`
+//! drops them, `?subject=agent:a_1` exact subject match.
 
 use std::convert::Infallible;
 use std::time::Duration;
 
+use axum::extract::rejection::QueryRejection;
 use axum::extract::{FromRequestParts, Query, State};
 use axum::http::request::Parts;
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use futures::stream::Stream;
 use serde::Deserialize;
 
 use crate::state::AppState;
+use crate::storage::EventFilter;
 
 #[derive(Debug, Deserialize)]
 pub struct EventsQuery {
     pub cursor: Option<i64>,
     /// `?filter=type:task` — substring match on event type
     pub filter: Option<String>,
+    /// `?exclude=type:agent.output` — drop types containing the text
+    pub exclude: Option<String>,
     /// `?subject=agent:a_1` — exact `type:id`
     pub subject: Option<String>,
 }
@@ -30,8 +37,7 @@ pub struct EventsQuery {
 /// Extractor combining query params with the SSE `Last-Event-ID` header.
 pub struct EventsRequest {
     pub cursor: Option<i64>,
-    pub filter: Option<String>,
-    pub subject: Option<String>,
+    pub filter: EventFilter,
 }
 
 impl<S> FromRequestParts<S> for EventsRequest
@@ -58,31 +64,13 @@ where
             .and_then(|v| v.parse::<i64>().ok());
         Ok(Self {
             cursor: q.cursor.or(last_event_id),
-            filter: q.filter,
-            subject: q.subject,
+            filter: EventFilter {
+                filter: q.filter,
+                exclude: q.exclude,
+                subject: q.subject,
+            },
         })
     }
-}
-
-fn matches(e: &tower_core::Event, filter: &Option<String>, subject: &Option<String>) -> bool {
-    if let Some(f) = filter {
-        let needle = f.strip_prefix("type:").unwrap_or(f);
-        if !e.kind.as_str().contains(needle) {
-            return false;
-        }
-    }
-    if let Some(want) = subject {
-        let got = e
-            .subject_type
-            .as_deref()
-            .zip(e.subject_id.as_deref())
-            .map(|(t, id)| format!("{t}:{id}"))
-            .unwrap_or_default();
-        if !got.eq_ignore_ascii_case(want) {
-            return false;
-        }
-    }
-    true
 }
 
 pub async fn events(
@@ -98,8 +86,8 @@ pub async fn events(
     // retention pruning never deletes what this stream has yet to send
     let tracked = state.events.track_cursor(start_cursor);
     let stream = futures::stream::unfold(
-        (state, start_cursor, req.filter, req.subject, tracked),
-        |(state, cursor, filter, subject, tracked)| async move {
+        (state, start_cursor, req.filter, tracked),
+        |(state, cursor, filter, tracked)| async move {
             loop {
                 let batch = state.events.since(cursor, 64).await.unwrap_or_default();
                 if batch.is_empty() {
@@ -109,7 +97,7 @@ pub async fn events(
                 let mut new_cursor = cursor;
                 let mut payload = String::new();
                 for e in &batch {
-                    if matches(e, &filter, &subject) {
+                    if filter.matches(e) {
                         payload.push_str(&serde_json::to_string(e).unwrap_or_default());
                         payload.push('\n');
                     }
@@ -120,7 +108,7 @@ pub async fn events(
                     .id(new_cursor.to_string())
                     .event("tower-batch")
                     .data(payload.trim_end());
-                return Some((Ok(item), (state, new_cursor, filter, subject, tracked)));
+                return Some((Ok(item), (state, new_cursor, filter, tracked)));
             }
         },
     );
@@ -130,4 +118,44 @@ pub async fn events(
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
+}
+
+/// Default and bounds of a history page's `limit`.
+const HISTORY_LIMIT: i64 = 50;
+const HISTORY_MAX: i64 = 500;
+
+#[derive(Debug, Deserialize)]
+pub struct HistoryQuery {
+    pub before: Option<i64>,
+    pub limit: Option<i64>,
+    pub filter: Option<String>,
+    pub exclude: Option<String>,
+    pub subject: Option<String>,
+}
+
+/// `GET /v1/events/history`: one page of the log, newest first, with the
+/// head to follow live from (D§7).
+pub async fn history(
+    State(state): State<AppState>,
+    q: Result<Query<HistoryQuery>, QueryRejection>,
+) -> Response {
+    let invalid =
+        |m: String| crate::http::error_response(tower_core::TowerError::invalid(m).into());
+    let Query(q) = match q {
+        Ok(q) => q,
+        Err(e) => return invalid(e.body_text()),
+    };
+    let limit = q.limit.unwrap_or(HISTORY_LIMIT);
+    if !(1..=HISTORY_MAX).contains(&limit) {
+        return invalid(format!("limit must be 1-{HISTORY_MAX}, got {limit}"));
+    }
+    let filter = EventFilter {
+        filter: q.filter,
+        exclude: q.exclude,
+        subject: q.subject,
+    };
+    match state.events.history(q.before, limit, &filter).await {
+        Ok(page) => Json(page).into_response(),
+        Err(e) => crate::http::error_response(e),
+    }
 }
