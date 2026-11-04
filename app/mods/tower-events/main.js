@@ -4,22 +4,25 @@
 // clicking a row opens the detail section below the list (every payload
 // field, resolved; an agent's screen or a job's result in full).
 //
-// tower's /v1/events is an SSE stream with cursor replay: every batch
-// carries the seq it reached, and a reconnect from there gets exactly what
-// it missed. The mod runtime has no long-lived connection, so this mod
-// rides bounded polls: one `curl --max-time 5` every 6s, cursor in hand.
-// Nothing is lost between polls (the cursor holds the place); a slow cycle
-// merges into the next.
+// Loading: the newest page first (GET /v1/events/history, 50 events,
+// newest first), then live from the page's `head` over the /v1/events SSE
+// stream, so nothing between the two is lost or shown twice. "Load older"
+// at the end of the list pages back with `before` = the oldest seq held.
+// The mod runtime has no long-lived connection, so the live part rides
+// bounded polls: one `curl --max-time 5` every 6s, cursor in hand. Every
+// SSE batch carries the seq it reached, so nothing is lost between polls;
+// a slow cycle merges into the next.
 //
-// agent.output events (an agent's whole screen, ~98% of the log) stay out
-// of every view but "screens", as the TUI hides them by default.
+// agent.output events (an agent's whole screen, ~99% of the log) stay out
+// of every view but "screens" (?exclude=type:agent.output), as the TUI
+// hides them by default. Filters ride the server too (?filter=), for both
+// the page and the stream.
 //
 // The token is the tower token file's content, read directly — the same
 // file every tower client reads — and re-read on every poll until one is
 // found, so a read that missed (a layout restored before window() reports
 // the platform, a token written after the app opened) never sticks the
-// panel. Filters ride the server (?filter=), so a filtered view replays
-// only its own events.
+// panel.
 
 import { Editor, EditorState, h_flex, v_flex } from "gpui-base";
 import { div, View } from "gpui-kit";
@@ -55,7 +58,8 @@ function serverUrl() {
 
 const POLL_MS = 6000;
 const WINDOW = 5; // seconds per bounded poll
-const KEEP = 300; // rows kept
+const PAGE = 50; // events per history page
+const KEEP = 2000; // rows kept; trimming the oldest leaves "Load older"
 const OUTPUT = "agent.output";
 const TYPES = [
 	["", "all"],
@@ -68,8 +72,11 @@ const TYPES = [
 
 export default class TowerEvents extends View {
 	init(_props, cx) {
-		this.rows = [];
-		this.cursor = 0; // 0: replay the whole log on the first poll
+		this.rows = []; // oldest first
+		this.cursor = null; // null: load the newest page, then follow from its head
+		this.more = false; // older matching events exist
+		this.older = false; // a "Load older" page in flight
+		this.gen = 0; // bumped by a filter change: older answers are dropped
 		this.error = null;
 		this.type = "";
 		this.alive = false; // one poll answered
@@ -78,17 +85,24 @@ export default class TowerEvents extends View {
 		this.names = new Names();
 		this.selected = null; // the event the detail section shows
 		this.editor = null; // its body, read-only
-		const tick = (cx) => {
+		this.tick = (cx) => {
 			if (this.polling) return;
 			this.polling = true;
 			cx.spawn(async (cx) => {
+				let gen = this.gen;
 				await Promise.all([this.poll(), this.names.refresh()]);
+				// a filter change during the poll: load its page now, not
+				// a cycle later
+				while (gen !== this.gen) {
+					gen = this.gen;
+					await this.poll();
+				}
 				this.polling = false;
 				cx.notify();
 			});
 		};
-		tick(cx);
-		cx.timer.every(POLL_MS, tick);
+		this.tick(cx);
+		cx.timer.every(POLL_MS, this.tick);
 	}
 
 	/** Reads the first non-empty token file; the error names exactly the
@@ -106,13 +120,102 @@ export default class TowerEvents extends View {
 		this.error = `no tower token found (tried ${tried.join(", ")})`;
 	}
 
-	/** One bounded SSE poll: every event after the cursor, then end. */
+	/** The type filters both routes take, for the current view. */
+	query() {
+		if (this.type === OUTPUT) return `&filter=type:${OUTPUT}`;
+		const filter = this.type ? `&filter=type:${this.type}` : "";
+		return `${filter}&exclude=type:${OUTPUT}`;
+	}
+
+	/** One history page (newest first) before `before` (null: from the
+	 * head), or null when it failed or the filter changed meanwhile. */
+	async history(before) {
+		const gen = this.gen;
+		const from = before === null ? "" : `&before=${before}`;
+		const url = `${serverUrl()}/v1/events/history?limit=${PAGE}${from}${this.query()}`;
+		let r;
+		try {
+			r = await exec("curl", [
+				"-sS",
+				"--max-time",
+				"10",
+				"-w",
+				"\n%{http_code}",
+				"-H",
+				`Authorization: Bearer ${this.token}`,
+				url,
+			]);
+		} catch {
+			this.error = "curl not found";
+			return null;
+		}
+		if (gen !== this.gen) return null;
+		const out = r.stdout ?? "";
+		const cut = out.lastIndexOf("\n");
+		const status = Number(out.slice(cut + 1));
+		if (r.code !== 0 || !status) {
+			this.error = "cannot reach the tower server";
+			this.alive = false;
+			return null;
+		}
+		if (status === 404) {
+			this.error = "this panel needs tower 0.6.0 or later (GET /v1/events/history)";
+			return null;
+		}
+		let page;
+		try {
+			page = JSON.parse(out.slice(0, cut));
+		} catch {
+			this.error = `unreadable events page (HTTP ${status})`;
+			return null;
+		}
+		if (status !== 200) {
+			this.error = page?.error?.message ?? `events page failed (HTTP ${status})`;
+			return null;
+		}
+		for (const e of page.events) this.names.learn(e);
+		this.error = null;
+		return page;
+	}
+
+	/** The newest page, then the live cursor at its head. */
+	async loadHead() {
+		const page = await this.history(null);
+		if (!page) return;
+		this.rows = page.events.slice().reverse();
+		this.more = page.more;
+		this.cursor = page.head;
+		this.alive = true;
+	}
+
+	/** "Load older": the page before the oldest row held. */
+	loadOlder(cx) {
+		if (this.older || !this.more || this.cursor === null || !this.rows.length) return;
+		this.older = true;
+		const gen = this.gen;
+		cx.spawn(async (cx) => {
+			const page = await this.history(this.rows[0].seq);
+			if (gen === this.gen) {
+				this.older = false;
+				if (page) {
+					const seen = new Set(this.rows.map((x) => x.seq));
+					const add = page.events.filter((e) => !seen.has(e.seq)).reverse();
+					this.rows = add.concat(this.rows);
+					this.more = page.more;
+				}
+			}
+			cx.notify();
+		});
+	}
+
+	/** The newest page on first load, then one bounded SSE poll: every
+	 * event after the cursor, then end. */
 	async poll() {
 		if (!this.token) await this.loadToken();
 		if (!this.token) return;
-		const type = this.type;
-		const filter = type ? `&filter=type:${type}` : "";
-		const url = `${serverUrl()}/v1/events?cursor=${this.cursor}${filter}`;
+		if (this.cursor === null) return this.loadHead();
+		const gen = this.gen;
+		const url = `${serverUrl()}/v1/events?cursor=${this.cursor}${this.query()}`;
 		let r;
 		try {
 			r = await exec("curl", [
@@ -128,8 +231,10 @@ export default class TowerEvents extends View {
 			this.error = "curl not found";
 			return;
 		}
-		if (type !== this.type) return; // the filter changed mid-poll
-		if (r.code !== 0 && !r.stdout) {
+		if (gen !== this.gen) return; // the filter changed mid-poll
+		// 28: --max-time ended the poll — the normal end of a bounded read,
+		// with nothing new when the stream is caught up
+		if (r.code !== 0 && r.code !== 28 && !r.stdout) {
 			this.error = "cannot reach the tower server";
 			this.alive = false;
 			return;
@@ -153,7 +258,6 @@ export default class TowerEvents extends View {
 				}
 				if (e.seq <= this.cursor || seen.has(e.seq)) continue;
 				this.names.learn(e);
-				if (e.kind === OUTPUT && type !== OUTPUT) continue;
 				this.rows.push(e);
 				seen.add(e.seq);
 			}
@@ -161,8 +265,11 @@ export default class TowerEvents extends View {
 			// never rescans them.
 			if (Number.isFinite(reached)) this.cursor = Math.max(this.cursor, reached);
 		}
-		if (this.rows.length > KEEP) this.rows = this.rows.slice(-KEEP);
-		if (blocks.length > 0) this.error = null;
+		if (this.rows.length > KEEP) {
+			this.rows = this.rows.slice(-KEEP);
+			this.more = true;
+		}
+		this.error = null;
 		this.alive = true;
 	}
 
@@ -220,7 +327,8 @@ export default class TowerEvents extends View {
 										.child(this.alive ? "No events." : "Connecting…"),
 								),
 							)
-							.children(rows.map((e) => this.row(e, t))),
+							.children(rows.map((e) => this.row(e, t)))
+							.when(rows.length > 0, (el) => el.child(this.listEnd(t))),
 					),
 			)
 			.when(Boolean(this.selected), (el) => el.child(this.details(t)));
@@ -255,11 +363,16 @@ export default class TowerEvents extends View {
 								.border_color(this.type === v ? t.accent : t.border)
 								.hover((s) => s.bg(t.hover))
 								.on_click((_e, cx2) => {
+									if (this.type === v) return;
+									this.gen++;
 									this.type = v;
-									this.cursor = 0;
+									this.cursor = null;
 									this.rows = [];
+									this.more = false;
+									this.older = false;
 									this.alive = false;
 									this.select(null);
+									this.tick(cx2);
 									cx2.notify();
 								})
 								.child(label),
@@ -273,6 +386,36 @@ export default class TowerEvents extends View {
 					.text_size(11)
 					.text_color(this.alive ? t.dim : t.ansi1)
 					.child(this.alive ? "● live" : "◌ connecting"),
+			);
+	}
+
+	/** The end of the list (its oldest end): "Load older" while older
+	 * matching events exist, else the start of the log. */
+	listEnd(t) {
+		if (!this.more) {
+			return div().px(14).py(8).text_size(11).text_color(t.dim).child("Start of the log.");
+		}
+		return h_flex()
+			.px(14)
+			.py(8)
+			.child(
+				div()
+					.id("ev-older")
+					.px(10)
+					.py(3)
+					.rounded(6)
+					.text_size(11)
+					.border_1()
+					.border_color(t.border)
+					.bg(t.raised)
+					.text_color(this.older ? t.dim : t.foreground)
+					.cursor_pointer()
+					.hover((s) => s.bg(t.hover))
+					.on_click((_e, cx2) => {
+						this.loadOlder(cx2);
+						cx2.notify();
+					})
+					.child(this.older ? "Loading…" : `Load older (${PAGE})`),
 			);
 	}
 

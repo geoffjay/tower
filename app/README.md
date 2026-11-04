@@ -15,7 +15,7 @@ app/
     ├── tower-agents/      fleet: rows per agent, detail with prompt/actions/screen, spawn
     ├── tower-inbox/       pending questions/approvals, answer/approve/deny
     ├── tower-jobs/        queue, schedules, create/assign/cancel/release
-    ├── tower-events/      /v1/events followed live (bounded SSE polls)
+    ├── tower-events/      newest events first, then /v1/events live (bounded SSE polls)
     └── tower-tabs/        the tab bar, with Agents/Jobs/Events/Inbox panel buttons
 ```
 
@@ -57,11 +57,11 @@ the same way (mods cannot read the environment).
 - **Jobs** (right panel): open jobs with owner/priority/age, closed ones
   below, schedules with next runs. Queue a job, assign to an agent
   (pills), release or cancel owned jobs, pause/resume/run schedules.
-- **Events** (right panel): the tower event log followed live, filtered
-  by type, in names rather than ids. Click an event for every field and
-  its full body (an agent's screen, a job's result). Agent screen
-  snapshots stay under their own filter. Cursor replay makes the bounded
-  polls lossless.
+- **Events** (right panel): the tower event log, newest 50 first, then
+  followed live, filtered by type, in names rather than ids; "Load older"
+  pages back. Click an event for every field and its full body (an
+  agent's screen, a job's result). Agent screen snapshots stay under
+  their own filter. Needs a tower 0.6.0 server.
 
 Center and tab bar are the shipped Herdr mods unchanged — the deck sits
 around the terminals you already work in.

@@ -45,7 +45,8 @@ the full width) and tower panels in place of the Files/Changes panel:
     (two-press). Footer `＋ Queue a job…`: title, description, priority
     pills, owner pills (queue or an agent, with a "deliver when free"
     reserve checkbox).
-  - **Events**: the `/v1/events` feed, newest first, two lines per event:
+  - **Events**: the newest 50 events (`/v1/events/history`), then the
+    `/v1/events` feed live from there, newest first, two lines per event:
     time (date when not today), event kind (colored by the state it moved
     to: failures red), subject (agent name, job or schedule title,
     `from → to` for messages), then the detail in operator words
@@ -57,7 +58,9 @@ the full width) and tower panels in place of the Files/Changes panel:
     every payload field (ids resolved to names, timestamps local) and,
     when there is one, the long body in a read-only editor — an agent's
     screen, a job's result, a message's from/to. Click the row again or
-    `×` to close. Live dot `● live` (dim) or `◌ connecting` (red).
+    `×` to close. Live dot `● live` (dim) or `◌ connecting` (red). The
+    list ends in `Load older (50)` (the next page back) while older
+    matching events exist, else "Start of the log."
   - **Inbox**: pending questions/approvals addressed to you. Each item:
     kind dot (approvals `blocked` color, questions `accent`), sender, kind,
     deadline ("4m left", red when passed), text, then buttons: `Peek agent`
@@ -86,11 +89,13 @@ the full width) and tower panels in place of the Files/Changes panel:
   Deny, Remove) ask once with a second press.
 - Errors from the server (conflict, not found, unauthorized) show in a
   red strip inside the panel that acted; they clear on the next success.
-- The events feed replays the whole log from cursor 0 on load and after a
-  filter change, then follows live. Nothing is lost between polls: each
-  SSE batch's `id:` is the seq it scanned to, so each bounded poll resumes
-  exactly where the last complete batch ended (a batch cut by
-  `--max-time` is replayed).
+- The events feed loads the newest 50 matching events on load and after
+  a filter change, then follows live from the page's `head`, so nothing
+  between the page and the stream is lost or shown twice. Nothing is lost
+  between polls: each SSE batch's `id:` is the seq it scanned to, so each
+  bounded poll resumes exactly where the last complete batch ended (a
+  batch cut by `--max-time` is replayed). A caught-up poll ends in curl
+  exit 28 with no output: that is a quiet poll, not an error.
 - Names come from `tower ps`, `tower task list` and `tower schedule list`
   (every 60s, sooner after an unknown id) and from the events themselves
   (`agent.created`/`removed` names, `task.created` titles — a removed
@@ -115,8 +120,9 @@ the full width) and tower panels in place of the Files/Changes panel:
     `tower dismiss`, `tower read` for the peek.
   - `tower-jobs`: `tower task list`, `tower task create/assign/release/
     cancel`, `tower schedule list/run/pause/resume/rm`.
-  - `tower-events`: the tower REST `/v1/events` SSE endpoint via bounded
-    `curl --max-time 5` polls (cursor replay); the token from the tower
+  - `tower-events`: the tower REST `/v1/events/history` page and the
+    `/v1/events` SSE endpoint via bounded `curl --max-time 5` polls
+    (cursor from the page's `head`); the token from the tower
     home for the platform (`window().platform`: `~/.local/share/tower`
     Linux, `~/Library/Application Support/tower` macOS,
     `~/AppData/Roaming/tower` Windows), or the shared-state override
@@ -160,9 +166,10 @@ the full width) and tower panels in place of the Files/Changes panel:
   `cx.timer.every`, and `TOWER_URL`/`TOWER_TOKEN` overrides are invisible
   to the mods (they go through the CLI, which does see the environment —
   run the app from a shell with them set if you need an override).
-- The events endpoint is SSE-only in tower 0.4; there is no `tower events`
-  CLI verb yet. The bounded-poll approach assumes the server keeps the
-  default `127.0.0.1:8266` bind (mods cannot read the tower config).
+- The events panel needs a tower 0.6.0 server (`/v1/events/history`,
+  `exclude=`); an older one shows "this panel needs tower 0.6.0". The
+  bounded-poll approach assumes the server keeps the default
+  `127.0.0.1:8266` bind (mods cannot read the tower config).
 - The events panel re-reads the token file on every poll until it finds
   one. A one-shot read at startup can miss: a restored layout can mount
   the panel before `window()` reports the platform, and a token written
@@ -179,8 +186,9 @@ the full width) and tower panels in place of the Files/Changes panel:
 - With a tower server running: the Agents panel lists every agent
   `tower ps` shows, grouped by stack, with live states; the Jobs panel's
   QUEUE matches `tower task list`, and SCHEDULES matches
-  `tower schedule list`; the Events panel shows the same log the TUI's
-  events view does, following live within ~6s.
+  `tower schedule list`; the Events panel opens on the newest events at
+  once, follows live within ~6s, and `Load older` adds the page before
+  the oldest row.
 - Prompt an idle agent from its detail section → the agent's terminal
   shows the turn, and the section's screen shows it within ~2s;
   `tower prompt <name>` shows the same delivered message.

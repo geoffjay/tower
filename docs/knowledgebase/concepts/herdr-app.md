@@ -56,8 +56,11 @@ this doc records the facts and decisions behind it.
 - **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
   colors the Inbox button `blocked` while anything is pending. The Inbox
   panel is usually closed, so the always-shown tab bar carries the signal.
-- **Events** reads `/v1/events` (SSE, [D§7](design/07-server-api.md))
-  directly with bounded `curl --max-time 5` polls every 6 s. Mods cannot
+- **Events** reads `/v1/events/history` (one page, newest first) and then
+  `/v1/events` (SSE) from the page's `head`
+  ([D§7](design/07-server-api.md)), directly with `curl`: bounded
+  `--max-time 5` polls every 6 s for the stream. It needs a tower 0.6.0
+  server; an older one gets a "needs tower 0.6.0" error. Mods cannot
   read the environment, so it reads the token file from the tower home for
   `window().platform` (or shared state `tower.token_file`) and uses the
   default bind (or `tower.server_url`).
@@ -71,16 +74,26 @@ this doc records the facts and decisions behind it.
   tower token found": a layout restored at app start can mount the panel
   before `window()` reports the platform, so the read tried the wrong
   path. Before the platform is known, every platform's default is tried.
+- **Newest first, then live.** Load and every filter change fetch the
+  newest 50 matching events, then follow the stream from the page's
+  `head`: nothing between the two is lost or shown twice. "Load older" at
+  the end of the list pages back with `before` = the oldest seq held. The
+  panel keeps 2000 rows; trimming the oldest brings "Load older" back. A
+  generation counter drops pages and polls from a filter that has since
+  changed, and a change mid-poll loads the new page as soon as that poll
+  returns.
 - **Cursor = batch id.** Each SSE batch's `id:` is the seq the server
   scanned to, filtered or not. The panel advances its cursor by the `id:`
   of each complete batch (one ending in a blank line); a batch cut by
   `--max-time` is replayed next poll. Filtered views never rescan skipped
-  events.
+  events. A caught-up stream sends nothing (keep-alives are 15 s apart),
+  so curl's exit 28 (`--max-time`) with no output is a normal quiet poll,
+  not "cannot reach the tower server".
 - **Screens are separate.** `agent.output` events are whole screen
-  snapshots (~16 KB each, ~98% of a working log). They show only under
+  snapshots (~16 KB each, ~99% of a working log). They show only under
   the "screens" filter, as the TUI hides them by default
-  ([D§11](design/11-tui.md)). The server filter is include-only, so other
-  views still receive them and drop them client-side.
+  ([D§11](design/11-tui.md)); every other view sends
+  `exclude=type:agent.output`, so the server never sends them.
 - **Names, not ids.** Events carry ids. `events.js` `Names` resolves them
   from `tower ps`, `tower task list` (all states) and
   `tower schedule list` every 60 s (sooner after a new unknown id; an id a
@@ -97,10 +110,6 @@ this doc records the facts and decisions behind it.
 
 - `message.created` payloads carry no text, so messages show sender,
   recipient, kind and status only.
-- Load and every filter change replay the whole log from cursor 0; with a
-  large log the panel takes a long time to reach the present. A
-  server-side exclusion filter or a tail start would fix it (a design
-  change: amend [D§7](design/07-server-api.md) first).
 - `herdr-app check` validates a mod's load, not its runtime: verify live
   (`herdr-app shot`, `herdr-app do layout.select --stack panel-body
   --child tower-events`).
