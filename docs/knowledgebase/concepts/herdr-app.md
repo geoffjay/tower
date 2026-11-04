@@ -53,6 +53,22 @@ this doc records the facts and decisions behind it.
   costs about 0.5 ms per changed read, and the list only draws visible
   rows. herdr's `--ansi` window can start a few lines lower than the plain
   read; the content is the same.
+- **Jobs detail.** Clicking a job or schedule opens a section below the
+  list, the shape of the Agents detail and the TUI's job / schedule side
+  panel ([D§11](design/11-tui.md)). A job shows facts, prompts, the
+  hook in flight, its result and its trail and messages from `tower task
+  show`. The trail reads like the TUI's `trail_line`, with names in place
+  of ids. A schedule shows its cadence, prompts and recent runs from
+  `tower schedule show`. A run opens as a job, with a `‹ schedule` way
+  back. The actions depend on state: Assign / Edit / Cancel while queued,
+  Release / Edit post-run / Cancel while delivered, and Run now / Pause /
+  Resume / Edit / Remove for a schedule. Edit replaces the body with a
+  form that follows D§5.2.3: a queued job takes every field, a delivered
+  one only post-run, and `at` shows only for a reserved job. Save sends
+  one `edit` with the fields that changed, each as `--flag=value` so a
+  leading `-` stays a value; an emptied field clears it.
+  `tower-jobs/jobs.js` holds these rules and the formatters. RECENT sorts
+  closed jobs by `updated_at`, because `task list` puts the oldest first.
 - **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
   colors the Inbox button `blocked` while anything is pending. The Inbox
   panel is usually closed, so the always-shown tab bar carries the signal.

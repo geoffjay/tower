@@ -38,13 +38,27 @@ the full width) and tower panels in place of the Files/Changes panel:
     form: name, harness pills (installed kinds, via `knownAgents()`),
     workdir, first prompt → `tower spawn`.
   - **Jobs**: QUEUE section (open jobs: state dot, title, `P<n>` priority,
-    state, owner/hold/tags/age), RECENT (last 10 closed), SCHEDULES
+    state, owner/hold/tags/age), RECENT (the last 10 to close), SCHEDULES
     (title, cron, next run, target). Per-job buttons: `Assign…` (pills of
     live agents), `Release` (owned jobs), `Cancel` (two presses; interrupts
     the owner). Per-schedule: `Run now`, `Pause`/`Resume`, `Remove`
-    (two-press). Footer `＋ Queue a job…`: title, description, priority
-    pills, owner pills (queue or an agent, with a "deliver when free"
-    reserve checkbox).
+    (two-press). Click a job or schedule: a detail section opens below the
+    list (the list keeps the top third). For a job it shows the actions
+    for its state (`Assign…`, `Release`, `Edit` / `Edit post-run`,
+    `Cancel`, `Open schedule`), facts (waiting for, owner, lease, attempts,
+    priority, schedule and occurrence, tags, id), the prompt, pre-run and
+    post-run, the hook in flight, the result, the trail ("assigned to
+    s1-manage by schedule ...") and its messages (the first lines; click
+    for all). For a schedule it shows `Run now`, `Pause`/`Resume`, `Edit`,
+    `Remove`, its cadence and next/last run, its prompts and its RUNS
+    (time, state, result gist). Click a run to open it as a job; `‹
+    <schedule>` goes back. `Edit` swaps the body for a form: title,
+    prompt, `at` (reserved jobs), pre-run and post-run for a job, and
+    cadence and timezone for a schedule. A delivered job's fields other
+    than post-run show dim. Save sends the changed fields; an emptied
+    field clears it. Click the row again or `×` to close. Footer
+    `＋ Queue a job…`: title, description, priority pills, owner pills
+    (queue or an agent, with a "deliver when free" reserve checkbox).
   - **Events**: the newest 50 events (`/v1/events/history`), then the
     `/v1/events` feed live from there, newest first, two lines per event:
     time (date when not today), event kind (colored by the state it moved
@@ -118,8 +132,9 @@ the full width) and tower panels in place of the Files/Changes panel:
     for the spawn form.
   - `tower-inbox`: `tower inbox`, `tower approve [--answer|--deny]`,
     `tower dismiss`, `tower read` for the peek.
-  - `tower-jobs`: `tower task list`, `tower task create/assign/release/
-    cancel`, `tower schedule list/run/pause/resume/rm`.
+  - `tower-jobs`: `tower task list/show`, `tower task create/assign/
+    release/cancel/edit`, `tower schedule list/show/run/pause/resume/rm/
+    edit`; `jobs.js` formats the trail and holds the edit rules.
   - `tower-events`: the tower REST `/v1/events/history` page and the
     `/v1/events` SSE endpoint via bounded `curl --max-time 5` polls
     (cursor from the page's `head`); the token from the tower
@@ -186,7 +201,10 @@ the full width) and tower panels in place of the Files/Changes panel:
 - With a tower server running: the Agents panel lists every agent
   `tower ps` shows, grouped by stack, with live states; the Jobs panel's
   QUEUE matches `tower task list`, and SCHEDULES matches
-  `tower schedule list`; the Events panel opens on the newest events at
+  `tower schedule list`; a job's detail trail matches `tower task show`,
+  and a schedule's RUNS match `tower schedule show`; Edit → Save on a
+  queued job → `tower task show` has the new fields and an `edited:` trail
+  line; the Events panel opens on the newest events at
   once, follows live within ~6s, and `Load older` adds the page before
   the oldest row.
 - Prompt an idle agent from its detail section → the agent's terminal

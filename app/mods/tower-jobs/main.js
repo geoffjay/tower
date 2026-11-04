@@ -3,14 +3,37 @@
 // `tower schedule list --json`. Acts: create (a form), assign (a picker of
 // idle agents; cancel interrupts the owner), cancel, release, and the
 // schedule verbs (pause / resume / run now). Destructive acts confirm.
+//
+// Clicking a job or schedule opens the detail section below the list (the
+// shape of the agents panel): its facts and actions, then a job's prompts,
+// result, trail and messages (`tower task show`) or a schedule's prompts
+// and runs (`tower schedule show`; a run opens as a job). Edit replaces
+// the body with a form (`tower task edit` / `tower schedule edit`).
 
-import { h_flex, Input, InputState, v_flex } from "gpui-base";
+import {
+	h_flex,
+	Input,
+	InputState,
+	Textarea,
+	TextareaState,
+	v_flex,
+} from "gpui-base";
 import { div, View } from "gpui-kit";
 import { theme } from "herdr";
-import { ago, stateColor, tower, until } from "./tower.js";
-
-const OPEN = ["queued", "assigned", "working", "input-required"];
-const CLOSED = ["completed", "failed", "canceled", "rejected"];
+import {
+	CLOSED,
+	editArgs,
+	editFields,
+	hookText,
+	OPEN,
+	resultFields,
+	resultSummary,
+	stamp,
+	trailLine,
+	waitingFor,
+	who,
+} from "./jobs.js";
+import { ago, messageText, stateColor, tower, until } from "./tower.js";
 
 export default class TowerJobs extends View {
 	init(_props, cx) {
@@ -23,6 +46,11 @@ export default class TowerJobs extends View {
 		this.create = null; // the create form's fields
 		this.assigning = null; // task id with the assign picker open
 		this.agentMap = null; // id -> name
+		this.sel = null; // { kind: "job" | "schedule", id, from } in the detail
+		this.detail = null; // its `show` answer
+		this.detailError = null;
+		this.edit = null; // the edit form: { kind, id, fields, states }
+		this.expanded = new Set(); // message ids shown in full
 		cx.timer.every(10000, (cx) => this.refresh(cx));
 		this.refresh(cx);
 	}
@@ -44,6 +72,7 @@ export default class TowerJobs extends View {
 		} catch (e) {
 			this.error = String(e.message ?? e);
 		}
+		if (this.sel) await this.loadDetail();
 		cx.notify();
 	}
 
@@ -90,6 +119,127 @@ export default class TowerJobs extends View {
 			this.busy = null;
 			await this.refresh(cx);
 		});
+	}
+
+	/** Is this job / schedule the one in the detail section? */
+	isSel(kind, id) {
+		return this.sel?.kind === kind && this.sel.id === id;
+	}
+
+	/** Open a job or schedule in the detail section; the same one again
+	 * closes it. `from`: the schedule a run was opened from (a way back). */
+	select(kind, id, cx, from = null) {
+		this.closeEdit();
+		this.assigning = null;
+		this.confirm = null;
+		this.expanded = new Set();
+		this.detail = null;
+		this.detailError = null;
+		if (!kind || this.isSel(kind, id)) {
+			this.sel = null;
+			return;
+		}
+		this.sel = { kind, id, from };
+		cx?.spawn(async (cx) => {
+			await this.loadDetail();
+			cx.notify();
+		});
+	}
+
+	/** `tower task show` / `tower schedule show` for the selection. A late
+	 * answer for an earlier selection is dropped. */
+	async loadDetail() {
+		const sel = this.sel;
+		if (!sel) return;
+		try {
+			const d = await tower(
+				sel.kind === "job" ? "task" : "schedule",
+				"show",
+				sel.id,
+			);
+			if (this.sel !== sel) return;
+			this.detail = d;
+			this.detailError = null;
+		} catch (e) {
+			if (this.sel !== sel) return;
+			this.detailError = String(e.message ?? e);
+		}
+	}
+
+	/** The selected job or schedule: the list row, else the detail's copy
+	 * (a run older than the list). */
+	selObj() {
+		const s = this.sel;
+		if (!s) return null;
+		if (s.kind === "job") {
+			return (
+				(this.tasks ?? []).find((x) => x.id === s.id) ??
+				(this.detail?.task?.id === s.id ? this.detail.task : null)
+			);
+		}
+		return (
+			(this.schedules ?? []).find((x) => x.id === s.id) ??
+			(this.detail?.schedule?.id === s.id ? this.detail.schedule : null)
+		);
+	}
+
+	/** Agent and schedule names for the ids jobs, events and messages carry. */
+	names() {
+		return {
+			agents: this.agentMap ?? {},
+			schedules: Object.fromEntries(
+				(this.schedules ?? []).map((s) => [s.id, s.title]),
+			),
+		};
+	}
+
+	/** The edit form over the detail body: one field per editable value,
+	 * prefilled; locked ones (a delivered job's) shown dim. */
+	openEdit(cx) {
+		const obj = this.selObj();
+		const fields = obj ? editFields(this.sel.kind, obj) : null;
+		if (!fields) return;
+		const states = {};
+		for (const f of fields) {
+			if (f.locked) continue;
+			if (f.multi) {
+				const s = TextareaState.new({ value: f.value });
+				s.set_auto_grow(3, 12);
+				states[f.key] = s;
+			} else {
+				states[f.key] = InputState.new({ value: f.value });
+			}
+		}
+		this.edit = { kind: this.sel.kind, id: this.sel.id, fields, states };
+		cx.notify();
+	}
+
+	closeEdit() {
+		for (const s of Object.values(this.edit?.states ?? {})) s.release();
+		this.edit = null;
+	}
+
+	/** Save the fields that changed in one `edit` call; nothing changed
+	 * just closes the form. */
+	saveEdit(cx) {
+		const e = this.edit;
+		const values = Object.fromEntries(
+			Object.entries(e.states).map(([k, s]) => [k, s.value()]),
+		);
+		let args;
+		try {
+			args = editArgs(e.kind, e.id, e.fields, values);
+		} catch (err) {
+			this.error = err.message;
+			cx.notify();
+			return;
+		}
+		if (!args) {
+			this.closeEdit();
+			cx.notify();
+			return;
+		}
+		this.act(cx, e.id, args, false, () => this.closeEdit());
 	}
 
 	openCreate(cx) {
@@ -160,7 +310,12 @@ export default class TowerJobs extends View {
 			.gap(4)
 			.rounded(7)
 			.cursor_pointer()
+			.when(this.isSel("job", task.id), (el) => el.bg(t.selected))
 			.hover((s) => s.bg(t.hover))
+			.on_click((_e, cx) => {
+				this.select("job", task.id, cx);
+				cx.notify();
+			})
 			.child(
 				h_flex()
 					.gap(7)
@@ -251,37 +406,39 @@ export default class TowerJobs extends View {
 							),
 					),
 			)
-			.when(assigning, (el) =>
-				el.child(
+			.when(assigning && !this.isSel("job", task.id), (el) =>
+				el.child(this.assignPicker(task, t).pl(15).pt(2)),
+			);
+	}
+
+	/** The agents to assign a queued job to, as pills. */
+	assignPicker(task, t) {
+		return h_flex()
+			.id(`assign-${task.id}`)
+			.gap(5)
+			.flex_wrap()
+			.children(
+				(this.agents ?? []).map((a) =>
 					h_flex()
-						.id(`assign-${task.id}`)
-						.pl(15)
-						.pt(2)
-						.gap(5)
-						.flex_wrap()
-						.children(
-							this.agents.map((a) =>
-								h_flex()
-									.id(`pick-${a.id}`)
-									.h(24)
-									.px(8)
-									.items_center()
-									.gap(6)
-									.rounded(6)
-									.text_size(12)
-									.cursor_pointer()
-									.bg(t.raised)
-									.border_1()
-									.border_color(t.border)
-									.hover((s) => s.bg(t.hover))
-									.on_click((_e, cx) => {
-										this.assigning = null;
-										this.act(cx, task.id, ["task", "assign", task.id, a.name]);
-									})
-									.child(div().size(6).rounded(3).bg(t[stateColor(a.state)]))
-									.child(a.name),
-							),
-						),
+						.id(`pick-${a.id}`)
+						.h(24)
+						.px(8)
+						.items_center()
+						.gap(6)
+						.rounded(6)
+						.text_size(12)
+						.cursor_pointer()
+						.bg(t.raised)
+						.border_1()
+						.border_color(t.border)
+						.hover((s) => s.bg(t.hover))
+						.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+						.on_click((_e, cx) => {
+							this.assigning = null;
+							this.act(cx, task.id, ["task", "assign", task.id, a.name]);
+						})
+						.child(div().size(6).rounded(3).bg(t[stateColor(a.state)]))
+						.child(a.name),
 				),
 			);
 	}
@@ -297,7 +454,12 @@ export default class TowerJobs extends View {
 			.gap(4)
 			.rounded(7)
 			.cursor_pointer()
+			.when(this.isSel("schedule", s.id), (el) => el.bg(t.selected))
 			.hover((s2) => s2.bg(t.hover))
+			.on_click((_e, cx) => {
+				this.select("schedule", s.id, cx);
+				cx.notify();
+			})
 			.child(
 				h_flex()
 					.gap(7)
@@ -367,7 +529,10 @@ export default class TowerJobs extends View {
 							`rm-${s.id}`,
 							this.confirm === s.id ? "Remove?" : "Remove",
 							t,
-							(cx) => this.act(cx, s.id, ["schedule", "rm", s.id], true),
+							(cx) =>
+								this.act(cx, s.id, ["schedule", "rm", s.id], true, () => {
+									if (this.isSel("schedule", s.id)) this.select(null);
+								}),
 							{ danger: true },
 						),
 					),
@@ -544,7 +709,13 @@ export default class TowerJobs extends View {
 		const t = theme();
 		const tasks = this.tasks ?? [];
 		const open = tasks.filter((x) => OPEN.includes(x.state));
-		const closed = tasks.filter((x) => CLOSED.includes(x.state)).slice(0, 10);
+		// `task list` orders by priority then age (oldest first): recent
+		// means the last ten to close
+		const closed = tasks
+			.filter((x) => CLOSED.includes(x.state))
+			.sort((a, b) => b.updated_at - a.updated_at)
+			.slice(0, 10);
+		const detail = Boolean(this.sel) && !this.create;
 		return v_flex()
 			.id("tower-jobs")
 			.size_full()
@@ -583,7 +754,10 @@ export default class TowerJobs extends View {
 			.child(
 				div()
 					.id("tower-jobs-body")
-					.flex_1()
+					// With the detail open, the list keeps a third and the
+					// detail takes the rest.
+					.when(detail, (el) => el.h("34%").flex_none())
+					.when(!detail, (el) => el.flex_1())
 					.min_h(0)
 					.overflow_y_scrollbar()
 					.child(
@@ -638,6 +812,7 @@ export default class TowerJobs extends View {
 									),
 					),
 			)
+			.when(detail, (el) => el.child(this.details(t)))
 			.when(!this.create, (el) =>
 				el.child(
 					h_flex()
@@ -676,6 +851,621 @@ export default class TowerJobs extends View {
 				el.child(
 					div().px(5).rounded(4).bg(t.raised).text_size(10).child(String(n)),
 				),
+			);
+	}
+
+	// --- the detail section ---------------------------------------------
+
+	/** The detail section: header, actions, facts, then the body (or the
+	 * edit form). */
+	details(t) {
+		const s = this.sel;
+		const obj = this.selObj();
+		const shell = v_flex()
+			.id("jb-detail")
+			.flex_1()
+			.min_h(0)
+			.border_t(1)
+			.border_color(t.border);
+		if (!obj) {
+			return shell.child(
+				h_flex()
+					.px(14)
+					.py(8)
+					.gap(8)
+					.text_size(12)
+					.child(
+						div()
+							.flex_1()
+							.text_color(this.detailError ? t.ansi1 : t.dim)
+							.child(this.detailError ?? "Loading…"),
+					)
+					.child(this.closeButton(t)),
+			);
+		}
+		const job = s.kind === "job";
+		const c = job ? stateColor(obj.state) : obj.enabled ? "working" : "dim";
+		const state = job ? obj.state : obj.enabled ? "active" : "paused";
+		const from = s.from
+			? (this.names().schedules[s.from] ?? "schedule")
+			: null;
+		return shell
+			.child(
+				h_flex()
+					.h(30)
+					.flex_none()
+					.px(14)
+					.gap(8)
+					.items_center()
+					.when(Boolean(from), (el) =>
+						el.child(
+							this.button("jd-back", `‹ ${from}`, t, (cx) => {
+								this.select("schedule", s.from, cx);
+								cx.notify();
+							}),
+						),
+					)
+					.child(div().size(8).rounded(4).flex_none().bg(t[c]))
+					.child(
+						div().flex_1().min_w(0).truncate().font_semibold().child(obj.title),
+					)
+					.child(
+						div()
+							.text_size(11)
+							.text_color(t[c])
+							.child(this.busy === obj.id ? "…" : state),
+					)
+					.child(this.closeButton(t)),
+			)
+			.child(job ? this.jobActions(obj, t) : this.scheduleActions(obj, t))
+			.when(job && this.assigning === obj.id, (el) =>
+				el.child(this.assignPicker(obj, t).flex_none().px(14).pb(8)),
+			)
+			.child(this.factsGrid(job ? this.jobFacts(obj) : this.scheduleFacts(obj), t))
+			.child(
+				div()
+					.id("jb-detail-body")
+					.flex_1()
+					.min_h(0)
+					.border_t(1)
+					.border_color(t.border)
+					.overflow_y_scrollbar()
+					.child(
+						this.edit
+							? this.editForm(obj, t)
+							: job
+								? this.jobBody(obj, t)
+								: this.scheduleBody(obj, t),
+					),
+			);
+	}
+
+	closeButton(t) {
+		return div()
+			.id("jd-close")
+			.px(6)
+			.rounded(4)
+			.cursor_pointer()
+			.text_color(t.dim)
+			.hover((s) => s.bg(t.hover))
+			.on_click((_e, cx) => {
+				this.select(null);
+				cx.notify();
+			})
+			.child("×");
+	}
+
+	actionRow() {
+		return h_flex().flex_none().flex_wrap().px(14).pb(8).gap(6);
+	}
+
+	/** What a job can do in its state: assign / edit / cancel while queued,
+	 * release / edit post-run / cancel while delivered. */
+	jobActions(j, t) {
+		const queued = j.state === "queued";
+		const open = OPEN.includes(j.state);
+		const owned = open && !queued && Boolean(j.owner_id);
+		const schedule =
+			j.schedule_id && !this.sel.from && this.names().schedules[j.schedule_id];
+		return this.actionRow()
+			.when(queued, (el) =>
+				el.child(
+					this.button(
+						"jd-assign",
+						this.assigning === j.id ? "Assign ×" : "Assign…",
+						t,
+						(cx) => {
+							this.assigning = this.assigning === j.id ? null : j.id;
+							cx.notify();
+						},
+					),
+				),
+			)
+			.when(owned, (el) =>
+				el.child(
+					this.button("jd-release", "Release", t, (cx) =>
+						this.act(cx, j.id, ["task", "release", j.id]),
+					),
+				),
+			)
+			.when(open && !this.edit, (el) =>
+				el.child(
+					this.button("jd-edit", queued ? "Edit" : "Edit post-run", t, (cx) =>
+						this.openEdit(cx),
+					),
+				),
+			)
+			.when(open, (el) =>
+				el.child(
+					this.button(
+						"jd-cancel",
+						this.confirm === j.id ? "Cancel?" : "Cancel",
+						t,
+						(cx) => this.act(cx, j.id, ["task", "cancel", j.id], true),
+						{ danger: true },
+					),
+				),
+			)
+			.when(Boolean(schedule), (el) =>
+				el.child(
+					this.button("jd-sched", "Open schedule", t, (cx) => {
+						this.select("schedule", j.schedule_id, cx);
+						cx.notify();
+					}),
+				),
+			)
+			.when(!open, (el) =>
+				el.child(
+					div().text_size(11).text_color(t.dim).child(`closed ${ago(j.updated_at)}`),
+				),
+			);
+	}
+
+	scheduleActions(s, t) {
+		const paused = !s.enabled;
+		return this.actionRow()
+			.when(!paused, (el) =>
+				el.child(
+					this.button("sd-run", "Run now", t, (cx) =>
+						this.act(cx, s.id, ["schedule", "run", s.id]),
+					),
+				),
+			)
+			.child(
+				this.button("sd-pause", paused ? "Resume" : "Pause", t, (cx) =>
+					this.act(cx, s.id, [
+						"schedule",
+						paused ? "resume" : "pause",
+						s.id,
+					]),
+				),
+			)
+			.when(!this.edit, (el) =>
+				el.child(this.button("sd-edit", "Edit", t, (cx) => this.openEdit(cx))),
+			)
+			.child(
+				this.button(
+					"sd-rm",
+					this.confirm === s.id ? "Remove?" : "Remove",
+					t,
+					(cx) =>
+						this.act(cx, s.id, ["schedule", "rm", s.id], true, () =>
+							this.select(null),
+						),
+					{ danger: true },
+				),
+			);
+	}
+
+	/** [label, value, wide] rows: wide ones take a full row, the rest pair
+	 * up two per row. */
+	jobFacts(j) {
+		const n = this.names();
+		const open = OPEN.includes(j.state);
+		const tags = (j.tags ?? []).filter((x) => x !== "");
+		const rows = [];
+		if (j.state === "queued") rows.push(["waiting", waitingFor(j, n), true]);
+		rows.push(
+			["owner", j.owner_id ? who(j.owner_id, n) : "-"],
+			[
+				"lease",
+				open && j.lease_expires_at ? `ends ${until(j.lease_expires_at)}` : "-",
+			],
+			["attempts", `${j.attempt_count}/${j.max_attempts}`],
+			["priority", String(j.priority)],
+			["lease time", `${j.lease_s}s`],
+			["origin", j.origin],
+		);
+		if (j.schedule_id) {
+			rows.push(
+				["schedule", n.schedules[j.schedule_id] ?? j.schedule_id],
+				["occurrence", stamp(j.occurrence_at)],
+			);
+		}
+		rows.push(
+			["created", stamp(j.created_at)],
+			["updated", stamp(j.updated_at)],
+			["tags", tags.length ? tags.join(" ") : "-", true],
+			["id", j.id, true],
+		);
+		return rows;
+	}
+
+	scheduleFacts(s) {
+		const n = this.names();
+		const tags = (s.tags ?? []).filter((x) => x !== "");
+		return [
+			["cadence", `${s.cron} · ${s.timezone}`, true],
+			["target", s.target_agent_id ? who(s.target_agent_id, n) : "general queue"],
+			[
+				"next",
+				s.enabled && s.next_run_at
+					? `${stamp(s.next_run_at)} (${until(s.next_run_at)})`
+					: "-",
+			],
+			["last", stamp(s.last_run_at)],
+			["priority", String(s.priority)],
+			["lease time", `${s.lease_s}s`],
+			["attempts", String(s.max_attempts)],
+			["created", stamp(s.created_at)],
+			["updated", stamp(s.updated_at)],
+			["tags", tags.length ? tags.join(" ") : "-", true],
+			["id", s.id, true],
+		];
+	}
+
+	factsGrid(rows, t) {
+		return h_flex()
+			.flex_none()
+			.flex_wrap()
+			.px(14)
+			.pb(8)
+			.text_size(12)
+			.children(
+				rows.map(([label, value, wide], i) =>
+					h_flex()
+						.id(`jd-fact-${i}`)
+						.w(wide ? "100%" : "50%")
+						.min_w(0)
+						.py(1)
+						.pr(8)
+						.gap(8)
+						.child(
+							div()
+								.w(76)
+								.flex_none()
+								.text_size(11)
+								.text_color(t.dim)
+								.child(label),
+						)
+						.child(
+							div()
+								.flex_1()
+								.min_w(0)
+								.truncate()
+								.text_color(t.foreground)
+								.child(String(value ?? "-")),
+						),
+				),
+			);
+	}
+
+	/** A section label inside the detail body. */
+	label(text, t, n) {
+		return h_flex()
+			.pt(10)
+			.pb(3)
+			.gap(6)
+			.items_center()
+			.text_size(11)
+			.font_semibold()
+			.text_color(t.dim)
+			.child(text)
+			.when(n > 0, (el) =>
+				el.child(
+					div().px(5).rounded(4).bg(t.raised).text_size(10).child(String(n)),
+				),
+			);
+	}
+
+	/** Wrapped text, one element per line so line breaks hold. */
+	para(text, t, color) {
+		return v_flex()
+			.min_w(0)
+			.text_size(12)
+			.text_color(color ?? t.foreground)
+			.children(
+				String(text)
+					.split("\n")
+					.map((l) => div().min_w(0).child(l || " ")),
+			);
+	}
+
+	/** A labeled prompt (job prompt, pre-run, post-run); none says so. */
+	textSection(label, text, t) {
+		return v_flex()
+			.child(this.label(label, t))
+			.child(text ? this.para(text, t) : this.para("(none)", t, t.dim));
+	}
+
+	/** A timestamped line: time column, then the text. */
+	timeRow(ts, text, color, t) {
+		return h_flex()
+			.py(1)
+			.gap(8)
+			.items_start()
+			.child(
+				div()
+					.w(84)
+					.flex_none()
+					.text_size(11)
+					.text_color(t.dim)
+					.child(stamp(ts)),
+			)
+			.child(
+				div()
+					.flex_1()
+					.min_w(0)
+					.text_size(12)
+					.text_color(color)
+					.child(text),
+			);
+	}
+
+	/** A job's prompts, the hook in flight, its result, the trail of what
+	 * happened to it, and the messages about it. */
+	jobBody(j, t) {
+		const d = this.detail?.task?.id === j.id ? this.detail : null;
+		const n = this.names();
+		const hook = hookText(j.hook);
+		const gist = resultSummary(j.result);
+		const trail = d?.trail ?? [];
+		const messages = d?.messages ?? [];
+		const kindColor = (k) =>
+			k === "task.failed" || k === "task.leased_out"
+				? t.ansi1
+				: k === "task.completed"
+					? t.done
+					: t.foreground;
+		return v_flex()
+			.px(14)
+			.pb(12)
+			.child(this.textSection("PROMPT", j.description, t))
+			.when(Boolean(j.pre_run), (el) =>
+				el.child(this.textSection("PRE-RUN", j.pre_run, t)),
+			)
+			.when(Boolean(j.post_run), (el) =>
+				el.child(this.textSection("POST-RUN", j.post_run, t)),
+			)
+			.when(Boolean(hook), (el) =>
+				el.child(div().pt(8).text_size(12).text_color(t.blocked).child(hook)),
+			)
+			.when(j.result != null, (el) =>
+				el
+					.child(this.label("RESULT", t))
+					.when(Boolean(gist), (el2) =>
+						el2.child(
+							this.para(gist, t, j.state === "failed" ? t.ansi1 : t.foreground),
+						),
+					)
+					.children(
+						resultFields(j.result).map(([k, v]) =>
+							h_flex()
+								.pt(3)
+								.gap(8)
+								.items_start()
+								.child(
+									div()
+										.w(84)
+										.flex_none()
+										.text_size(11)
+										.text_color(t.dim)
+										.child(k),
+								)
+								.child(div().flex_1().min_w(0).child(this.para(v, t))),
+						),
+					),
+			)
+			.child(this.label("TRAIL", t, trail.length))
+			.when(!d, (el) =>
+				el.child(div().text_size(12).text_color(t.dim).child("Loading…")),
+			)
+			.when(Boolean(d) && trail.length === 0, (el) =>
+				el.child(
+					div()
+						.text_size(12)
+						.text_color(t.dim)
+						.child("No events (older than the event log keeps)."),
+				),
+			)
+			.children(
+				trail.map((e) =>
+					this.timeRow(e.ts, trailLine(e, n), kindColor(e.kind), t),
+				),
+			)
+			.when(messages.length > 0, (el) =>
+				el
+					.child(this.label("MESSAGES", t, messages.length))
+					.children(messages.map((m) => this.messageRow(m, n, t))),
+			);
+	}
+
+	/** One message: when, who to whom, kind and status, then its first
+	 * lines (at most 3, about 240 characters); a click shows it whole. */
+	messageRow(m, n, t) {
+		const text = messageText(m) || "(no text)";
+		const short = text.split("\n").slice(0, 3).join("\n").slice(0, 240);
+		const long = short.length < text.length;
+		const full = this.expanded.has(m.id);
+		return v_flex()
+			.id(`msg-${m.id}`)
+			.py(3)
+			.gap(1)
+			.when(long, (el) =>
+				el.cursor_pointer().on_click((_e, cx) => {
+					if (full) this.expanded.delete(m.id);
+					else this.expanded.add(m.id);
+					cx.notify();
+				}),
+			)
+			.child(
+				this.timeRow(
+					m.created_at,
+					`${who(m.from_id, n)} -> ${who(m.to_id, n)} · ${m.kind} · ${m.status}`,
+					t.muted,
+					t,
+				),
+			)
+			.child(
+				div()
+					.pl(92)
+					.child(this.para(full ? text : `${short}${long ? "…" : ""}`, t)),
+			)
+			.when(long, (el) =>
+				el.child(
+					div()
+						.pl(92)
+						.text_size(11)
+						.text_color(t.accent)
+						.child(full ? "show less" : "show all"),
+				),
+			);
+	}
+
+	/** A schedule's prompts and its runs, newest first; a run opens as a
+	 * job with a way back here. */
+	scheduleBody(s, t) {
+		const d = this.detail?.schedule?.id === s.id ? this.detail : null;
+		const runs = d?.jobs ?? [];
+		return v_flex()
+			.px(14)
+			.pb(12)
+			.child(this.textSection("PROMPT", s.description, t))
+			.when(Boolean(s.pre_run), (el) =>
+				el.child(this.textSection("PRE-RUN", s.pre_run, t)),
+			)
+			.when(Boolean(s.post_run), (el) =>
+				el.child(this.textSection("POST-RUN", s.post_run, t)),
+			)
+			.child(this.label("RUNS", t, runs.length))
+			.when(!d, (el) =>
+				el.child(div().text_size(12).text_color(t.dim).child("Loading…")),
+			)
+			.when(Boolean(d) && runs.length === 0, (el) =>
+				el.child(div().text_size(12).text_color(t.dim).child("Not fired yet.")),
+			)
+			.children(
+				runs.map((j) => {
+					const c = stateColor(j.state);
+					const gist = resultSummary(j.result).split("\n")[0];
+					return h_flex()
+						.id(`run-${j.id}`)
+						.mx(-6)
+						.px(6)
+						.py(3)
+						.gap(8)
+						.rounded(6)
+						.items_center()
+						.cursor_pointer()
+						.hover((s2) => s2.bg(t.hover))
+						.on_click((_e, cx) => {
+							this.select("job", j.id, cx, s.id);
+							cx.notify();
+						})
+						.child(div().size(7).rounded(4).flex_none().bg(t[c]))
+						.child(
+							div()
+								.w(84)
+								.flex_none()
+								.text_size(11)
+								.text_color(t.dim)
+								.child(stamp(j.occurrence_at ?? j.created_at)),
+						)
+						.child(
+							div()
+								.w(96)
+								.flex_none()
+								.text_size(11)
+								.text_color(t[c])
+								.child(j.state),
+						)
+						.child(
+							div()
+								.flex_1()
+								.min_w(0)
+								.truncate()
+								.text_size(12)
+								.text_color(t.muted)
+								.child(gist || (CLOSED.includes(j.state) ? "" : "in progress")),
+						);
+				}),
+			);
+	}
+
+	/** The edit form: each field prefilled, locked ones dim; Save sends the
+	 * changed ones, an emptied field clears it. */
+	editForm(obj, t) {
+		const e = this.edit;
+		const note =
+			e.kind === "schedule"
+				? "Edits apply to the jobs it fires next."
+				: obj.state === "queued"
+					? "An edit reaches the agent with the job."
+					: "Delivered: only post-run can change.";
+		const box = (f) =>
+			div()
+				.id(`ef-${f.key}`)
+				.px(9)
+				.py(f.multi ? 5 : 0)
+				.when(!f.multi, (el) => el.h(30).flex().items_center())
+				.rounded(7)
+				.border_1()
+				.border_color(t.input)
+				.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+				.child(
+					f.multi
+						? Textarea.new(e.states[f.key]).w_full().text_size(12)
+						: Input.new(e.states[f.key]).h_full().w_full().text_size(12),
+				);
+		return v_flex()
+			.px(14)
+			.pt(8)
+			.pb(12)
+			.gap(2)
+			.child(div().text_size(11).text_color(t.dim).child(note))
+			.children(
+				e.fields.flatMap((f) => [
+					this.label(f.label, t),
+					f.locked
+						? div()
+								.min_w(0)
+								.truncate()
+								.text_size(12)
+								.text_color(t.dim)
+								.child(f.value.split("\n")[0] || "(none)")
+						: box(f),
+				]),
+			)
+			.child(
+				h_flex()
+					.pt(10)
+					.gap(8)
+					.justify_end()
+					.child(
+						this.button("ef-cancel", "Cancel", t, (cx) => {
+							this.closeEdit();
+							cx.notify();
+						}),
+					)
+					.child(
+						this.button(
+							"ef-save",
+							this.busy === e.id ? "Saving…" : "Save",
+							t,
+							(cx) => this.saveEdit(cx),
+							{ solid: true },
+						),
+					),
 			);
 	}
 }

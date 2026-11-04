@@ -14,7 +14,7 @@ app/
 └── mods/
     ├── tower-agents/      fleet: rows per agent, detail with prompt/actions/screen, spawn
     ├── tower-inbox/       pending questions/approvals, answer/approve/deny
-    ├── tower-jobs/        queue, schedules, create/assign/cancel/release
+    ├── tower-jobs/        queue, schedules, job/schedule detail and edit, create/assign/cancel/release
     ├── tower-events/      newest events first, then /v1/events live (bounded SSE polls)
     └── tower-tabs/        the tab bar, with Agents/Jobs/Events/Inbox panel buttons
 ```
@@ -54,9 +54,12 @@ the same way (mods cannot read the environment).
 - **Inbox** (right panel): questions and approvals addressed to you.
   Answer in place, approve/deny with a confirm press (an approval lets an
   agent act), dismiss stale ones, peek at the asking agent's screen.
-- **Jobs** (right panel): open jobs with owner/priority/age, closed ones
-  below, schedules with next runs. Queue a job, assign to an agent
-  (pills), release or cancel owned jobs, pause/resume/run schedules.
+- **Jobs** (right panel): open jobs with owner/priority/age, the last ten
+  to close, schedules with next runs. Queue a job, assign it to an agent
+  (pills), release or cancel owned jobs, pause/resume/run schedules. Click
+  a job for its facts, prompts, result, trail and messages, or a schedule
+  for its cadence, prompts and runs (a run opens as a job). Edit either
+  in place.
 - **Events** (right panel): the tower event log, newest 50 first, then
   followed live, filtered by type, in names rather than ids; "Load older"
   pages back. Click an event for every field and its full body (an
@@ -81,7 +84,7 @@ follow. See [`RECIPE.md`](RECIPE.md) "Done when" for the re-check steps.
   `tower.token_file` for a non-default token path (mods cannot read
   `TOWER_URL`/`TOWER_TOKEN`). The other panels go through the CLI and
   honor the environment.
-- No `task edit`/`schedule edit` (needs a tower 0.5 server); the verbs
-  the panels do use exist on 0.4.
+- Editing jobs and schedules needs a tower 0.5 server (`task edit`,
+  `schedule edit`); the other verbs the panels use exist on 0.4.
 - `herdr-app shot` is not implemented on Linux in herdr-app 0.1.12, so
   pixel verification is manual there.

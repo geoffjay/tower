@@ -1,0 +1,204 @@
+// Job and schedule detail formatting for the jobs panel: the trail in
+// operator words (the TUI's `trail_line`, `tower task show`), names for
+// the ids events and messages carry, and the edit form's field rules and
+// CLI arguments (D§5.2.3: a queued job takes every field, a delivered one
+// only post-run).
+
+export const OPEN = ["queued", "assigned", "working", "input-required"];
+export const CLOSED = ["completed", "failed", "canceled", "rejected"];
+
+const MONTHS = [
+	"Jan",
+	"Feb",
+	"Mar",
+	"Apr",
+	"May",
+	"Jun",
+	"Jul",
+	"Aug",
+	"Sep",
+	"Oct",
+	"Nov",
+	"Dec",
+];
+
+function pad(x) {
+	return String(x).padStart(2, "0");
+}
+
+/** Local time: "HH:MM" today, "Mon DD HH:MM" otherwise; "-" when unset. */
+export function stamp(ts) {
+	if (!ts) return "-";
+	const d = new Date(ts);
+	const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+	if (d.toDateString() === new Date().toDateString()) return hm;
+	return `${MONTHS[d.getMonth()]} ${d.getDate()} ${hm}`;
+}
+
+/** "YYYY-MM-DD HH:MM" local: the form `tower task edit --at` reads back. */
+export function atValue(ts) {
+	if (!ts) return "";
+	const d = new Date(ts);
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** A name for an id a job, event or message carries: agents by name,
+ * `schedule:<id>` by the schedule's title, `me` as you. */
+export function who(id, names) {
+	if (typeof id !== "string" || id === "") return "?";
+	if (id === "me") return "you";
+	if (id.startsWith("schedule:")) {
+		const title = names.schedules[id.slice(9)];
+		return title ? `schedule "${title}"` : "a schedule";
+	}
+	return names.agents[id] ?? id;
+}
+
+/** One trail event, in operator words. */
+export function trailLine(e, names) {
+	const p = e.payload ?? {};
+	const n = (id) => who(id, names);
+	switch (e.kind) {
+		case "task.created":
+			return p.schedule_id ? `created by ${n(`schedule:${p.schedule_id}`)}` : "created";
+		case "task.assigned":
+			return `assigned to ${n(p.owner_id)} by ${n(p.by)}`;
+		case "task.reserved":
+			if (!p.target) return "reservation dropped (target removed)";
+			return `reserved for ${n(p.target)}${p.not_before ? ` from ${stamp(p.not_before)}` : ""}`;
+		case "task.status":
+			if (p.released_by) {
+				return `released by ${n(p.released_by)}${p.reason ? ` - "${p.reason}"` : ""}`;
+			}
+			if (p.state === "working") return `working (${n(p.owner_id)})`;
+			return `status: ${p.state ?? "?"}`;
+		case "task.leased_out":
+			return `lease expired (${n(p.prior_owner)}) -> ${p.state ?? "?"}, attempt ${p.attempt_count}/${p.max_attempts}`;
+		case "task.completed":
+			return `completed by ${n(p.owner_id)}`;
+		case "task.failed":
+			return `failed: ${resultSummary(p.result) || "no reason given"}`;
+		case "task.updated":
+			return `edited: ${(p.fields ?? []).map(fieldLabel).join(", ")}`;
+		case "task.hook": {
+			const phase = p.phase === "post" ? "post-run" : "pre-run";
+			if (p.status === "running") return `${phase} prompt sent`;
+			if (p.status && p.error) return `${phase} prompt ${p.status}: ${p.error}`;
+			return `${phase} prompt ${p.status ?? ""}`.trim();
+		}
+		default:
+			return e.kind;
+	}
+}
+
+function fieldLabel(f) {
+	return (
+		{
+			description: "prompt",
+			pre_run: "pre-run",
+			post_run: "post-run",
+			not_before: "at",
+		}[f] ?? f
+	);
+}
+
+/** A job result's one-line gist: its summary, message or error, else its
+ * first string; a bare string as is. */
+export function resultSummary(result) {
+	if (result == null) return "";
+	if (typeof result !== "object") return String(result);
+	const s = result.summary ?? result.message ?? result.error;
+	if (typeof s === "string") return s;
+	const first = Object.values(result).find((v) => typeof v === "string");
+	return first ?? "";
+}
+
+/** The result's other fields, as [key, text] pairs (the gist excluded). */
+export function resultFields(result) {
+	if (result == null || typeof result !== "object") return [];
+	const gist = resultSummary(result);
+	return Object.entries(result)
+		.filter(([, v]) => v !== gist)
+		.map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]);
+}
+
+/** What holds a queued job back, in words. */
+export function waitingFor(task, names) {
+	if (task.state !== "queued") return null;
+	const parts = [];
+	if (task.target_agent_id) parts.push(`for ${who(task.target_agent_id, names)}`);
+	if (task.not_before && task.not_before > Date.now()) {
+		parts.push(`from ${stamp(task.not_before)}`);
+	}
+	return parts.length ? parts.join(" · ") : "the general queue";
+}
+
+/** The lifecycle prompt in flight, in words. */
+export function hookText(hook) {
+	if (hook === "pre") return "pre-run prompt running (lease paused)";
+	if (hook === "post") return "post-run prompt running (owner busy)";
+	return null;
+}
+
+// The edit form. [key, label, multi-line, CLI flag]; `at` is the job's
+// reservation hold, cadence the schedule's.
+const JOB_FIELDS = [
+	["title", "TITLE", false, "--title"],
+	["description", "PROMPT", true, "--description"],
+	["at", "AT (HH:MM, YYYY-MM-DD HH:MM)", false, "--at"],
+	["pre_run", "PRE-RUN", true, "--pre-run"],
+	["post_run", "POST-RUN", true, "--post-run"],
+];
+const SCHEDULE_FIELDS = [
+	["title", "TITLE", false, "--title"],
+	["description", "PROMPT", true, "--description"],
+	["cron", "CRON", false, "--cron"],
+	["timezone", "TIMEZONE (IANA)", false, "--tz"],
+	["pre_run", "PRE-RUN", true, "--pre-run"],
+	["post_run", "POST-RUN", true, "--post-run"],
+];
+
+/** The fields an edit form shows for a job or schedule, each with its
+ * current value and whether it can change now. Null when nothing can (a
+ * closed job). */
+export function editFields(kind, obj) {
+	if (kind === "schedule") {
+		return SCHEDULE_FIELDS.map(([key, label, multi, flag]) => ({
+			key,
+			label,
+			multi,
+			flag,
+			value: String(obj[key] ?? ""),
+			locked: null,
+		}));
+	}
+	if (CLOSED.includes(obj.state)) return null;
+	const queued = obj.state === "queued";
+	return JOB_FIELDS.filter(
+		([key]) => key !== "at" || (queued && obj.target_agent_id),
+	).map(([key, label, multi, flag]) => ({
+		key,
+		label,
+		multi,
+		flag,
+		value: key === "at" ? atValue(obj.not_before) : String(obj[key] ?? ""),
+		locked: queued || key === "post_run" ? null : "delivered: only post-run can change",
+	}));
+}
+
+/** `tower task edit` / `tower schedule edit` arguments for the fields that
+ * changed (an emptied field clears it); null when nothing changed. */
+export function editArgs(kind, id, fields, values) {
+	const args = [kind === "schedule" ? "schedule" : "task", "edit", id];
+	for (const f of fields) {
+		if (f.locked) continue;
+		const v = (values[f.key] ?? "").trim();
+		if (v === f.value.trim()) continue;
+		if (v === "" && ["title", "cron", "timezone"].includes(f.key)) {
+			throw new Error(`${f.label.split(" ")[0].toLowerCase()} cannot be empty`);
+		}
+		// --flag=value: a value starting with "-" stays a value
+		args.push(`${f.flag}=${v}`);
+	}
+	return args.length > 3 ? args : null;
+}
