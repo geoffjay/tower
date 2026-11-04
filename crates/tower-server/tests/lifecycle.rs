@@ -292,8 +292,10 @@ async fn post_run_holds_the_next_reserved_job_until_it_settles() {
     assert_eq!(task(&ctx, &j2.id).await.state, TaskState::Queued);
 
     settle_after_running(&ctx, &j1.id, "post", "a").await;
+    // the assignment is stored before its delegation prompt goes out: wait
+    // for both
     wait_for("the next job", || async {
-        task(&ctx, &j2.id).await.state == TaskState::Assigned
+        task(&ctx, &j2.id).await.state == TaskState::Assigned && texts(&ctx).len() == 3
     })
     .await;
     let prompts = texts(&ctx);
