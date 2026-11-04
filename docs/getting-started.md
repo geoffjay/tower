@@ -28,8 +28,8 @@ $ cargo install tower            # or: pacman -S tower, or download binary
 $ tower --version
 tower 0.1.0
 
-$ tower serve                    # foreground, or:
-$ systemctl --user enable --now tower
+$ tower serve                    # foreground, or as a user service:
+$ tower service install          # launchd (macOS) / systemd (Linux), started now
 ```
 
 First start creates everything it needs and prints the important paths:
@@ -45,6 +45,20 @@ First start creates everything it needs and prints the important paths:
 
 No configuration file is required to start. The CLI finds the server via the
 unix socket automatically.
+
+### Restarting and upgrading the service
+
+The service runs `tower serve` under the label `dev.tower.serve`; its unit
+points at the installed `tower` path (the Homebrew symlink, not a versioned
+copy), so an upgrade takes effect on the next restart:
+
+```console
+$ brew upgrade tower                                      # or your package manager
+$ launchctl kickstart -k gui/$(id -u)/dev.tower.serve    # macOS: restart
+$ systemctl --user restart dev.tower.serve.service       # Linux: restart
+$ tower service status                                   # unit, state, healthz
+$ tower --version
+```
 
 ## 2. Check your machine
 
