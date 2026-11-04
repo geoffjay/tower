@@ -20,7 +20,11 @@ pub fn router(state: AppState) -> axum::Router {
         .merge(crate::tasks::router())
         .merge(crate::schedules::router())
         .merge(crate::mcp::router())
-        .merge(axum::Router::new().route("/v1/events", axum::routing::get(sse::events)))
+        .merge(
+            axum::Router::new()
+                .route("/v1/events", axum::routing::get(sse::events))
+                .route("/v1/events/history", axum::routing::get(sse::history)),
+        )
         .with_state(state.clone())
         .merge(crate::ui::router(state))
 }

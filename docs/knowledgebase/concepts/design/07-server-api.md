@@ -69,6 +69,7 @@ Conventions:
 | `GET /v1/messages` | `?to=&status=&since=` inbox queries; `?agent=<name\|id>` — messages sent by or addressed to that agent (history, [D§11.1](11-tui.md)) |
 | `GET /v1/machines` | inventory |
 | `GET /v1/schedules` · `GET /v1/schedules/{id}` | schedules with next run; detail adds the jobs it created |
+| `GET /v1/events/history` | the event log newest first, one page at a time: `?before=<seq>&limit=<n>&filter=type:...&exclude=type:...&subject=agent:<id>` (same filters as the stream). Returns `{events, head, more}`: at most `limit` events (default 50, 1–500) with `seq < before` (no `before`: from the head), `more` when older matches exist, and `head`, the log's latest seq when the page was read. A client shows the page, pages back with `before` = the oldest seq it holds, and follows live with `GET /v1/events?cursor=<head>`: nothing between the two is lost or repeated |
 | `GET /healthz`, `GET /v1/schema` | health, contract |
 | `GET /v1/ui/token` | the scoped read-only UI token + login path, for `tower ui` (bearer only, [D§13](13-security.md)) |
 
@@ -76,7 +77,7 @@ Conventions:
 
 | Route | Semantics |
 |---|---|
-| `GET /v1/events` | global event bus. `?cursor=<seq>&filter=type:...&subject=agent:<id>`. `Last-Event-ID` honored; replay from cursor |
+| `GET /v1/events` | global event bus. `?cursor=<seq>&filter=type:...&exclude=type:...&subject=agent:<id>`: `filter` keeps event types containing the text, `exclude` drops them (e.g. `exclude=type:agent.output` hides screens). `Last-Event-ID` honored; replay from cursor |
 | `GET /v1/agents/{id}/stream` | output chunks as `agent.output` events (15s heartbeat comment) |
 | `GET /v1/tasks/{id}/stream` | task-scoped events (A2A `SubscribeToTask` semantics) |
 

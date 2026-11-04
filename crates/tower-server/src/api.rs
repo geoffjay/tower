@@ -80,6 +80,7 @@ async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
         ("POST", "/v1/schedules/{id}/resume"),
         ("POST", "/v1/schedules/{id}/run"),
         ("GET", "/v1/events"),
+        ("GET", "/v1/events/history"),
         ("GET", "/v1/ui/token"),
         ("POST", "/mcp"),
         ("GET", "/"),
