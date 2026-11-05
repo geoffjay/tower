@@ -33,8 +33,8 @@ generated:
    14, `0` keeps everything) once an hour, never past what an open
    `/v1/events` stream has yet to send; `seq` is never reused, so an old
    cursor resumes at the oldest kept event. The TUI bounds its side (last
-   2000 events, 100 closed jobs, [§11.1](11-tui.md)). Artifact retention
-   stays open until artifacts are written (no producer yet).
+   2000 events, 100 closed jobs, [§11.1](11-tui.md)). Artifacts (written
+   since phase 7) live with their job in SQLite and are not pruned.
 7. ~~Cloud metrics semantics~~ — closed by S4.B: formulas and windows in
    the [phase-4 plan](../../plans/phase-4-web-ui.md#s4b--metric-semantics-2026-09-27),
    shown in the UI as tooltips.

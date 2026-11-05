@@ -45,6 +45,12 @@ tower schedule create 'title' (--daily HH:MM | --cron '…') [--tz Zone] [--assi
 tower schedule edit <id> [--title T] [--description D] [--daily HH:MM | --cron '…'] [--tz Zone] [--pre-run P] [--post-run P]
 tower schedule list | show <id> | pause <id> | resume <id> | run <id> | rm <id>
 tower service install | uninstall | status          # run `tower serve` as a user service (launchd / systemd)
+tower workflow apply <file.toml>    # validate + store a new version when changed (operator; D§5.6)
+tower workflow list | show <name> | rm <name> | enable <name> | disable <name>
+tower workflow run <name> [--input k=v]... [--wait]   # start a run; --wait follows it to the end
+tower run list [--workflow <name>] [--state running] | show <run-id> | cancel <run-id>
+tower artifact put <task-id> <name> [--file <path>] [--media-type T] [--as <agent>]   # stdin when no --file
+tower artifact get <artifact-id>    # print the content
                                     # --as defaults to $TOWER_AGENT (set in spawned panes)
 tower machines                      # machine inventory
 tower machines add <name>           # issue a node token (prints once)

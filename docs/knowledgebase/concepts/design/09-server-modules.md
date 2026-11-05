@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: Design §9 — Server modules
-description: Responsibilities of the inventory, sessions, messaging, tasks, machine hub, and event bus modules.
+description: Responsibilities of the inventory, sessions, messaging, tasks, machine hub, event bus, and workflows modules.
 tags:
   - design
   - design-s9
@@ -115,4 +115,39 @@ agents keep running (herdr); node reconnects and resyncs from snapshot.
 ## 9.6 event bus
 
 Fan-out of the events table to SSE subscribers; pruning per retention config;
-owns cursor semantics and heartbeats.
+owns cursor semantics and heartbeats. In-process consumers follow the
+same table: a consumer keeps a durable cursor in `event_consumers`, wakes
+on the log's `watch` head, and registers its position with
+`track_cursor` so pruning never passes it. The workflows engine is the
+first one ([§9.7](#97-workflows)). Events are notifications, not the only
+record: a state write and its event are separate statements, so a
+consumer pairs the cursor with a reconciliation pass over the rows.
+
+## 9.7 workflows
+
+Owns `workflows`, `workflow_versions`, `workflow_runs`, `workflow_steps`
+([§5.6](05-core-objects.md), [decision](../../decisions/workflows.md)).
+`apply` parses and validates the TOML definition, stores a version when
+it changed, and syncs the managed schedules of its schedule triggers.
+The **engine** writes every run/step change under one async mutex
+(`AppState::workflow_lock`), each a CAS on the step's state:
+
+- **start**: write the run, then a step for each node without incoming
+  edges. A job step chooses its job id, writes the row `ready`, inserts
+  the job (origin `workflow`, `context_id` = run id, reserved for the
+  resolved agent; a duplicate id inserts nothing), then marks it
+  `running`.
+- **consumer** (`workflows::spawn`): after each wake, reads events past
+  its cursor: a step's job reaching a terminal state finishes the step
+  and routes its edges; an event matching an enabled event trigger starts
+  a run. Saves the cursor per batch.
+- **reconcile** (boot and every sweeper tick): finishes running steps
+  whose job is terminal, creates missing jobs for `ready` steps, ends
+  quiet runs. A lost event or a crash mid-transition ends in the same
+  state as the event path.
+- **contract check**: `tasks::report` asks the module whether a
+  `completed` report satisfies the step's result contract before it
+  writes anything.
+
+The tasks module stays unaware of graphs: a workflow job is an ordinary
+reserved job with a longer description.

@@ -49,6 +49,7 @@ are recorded as amendments there first, then implemented.
 | [Phase 4 — Web UI (agent cloud)](phase-4-web-ui.md) | Web UI | phase 2 (independent of 3) | **complete** (2026-09-27) |
 | [Phase 5 — Multi-machine](phase-5-multi-machine.md) | Multi-machine | phase 2 | not started |
 | [Phase 6 — A2A edge](phase-6-a2a-edge.md) | A2A edge | phase 2 | not started |
+| [Phase 7 — Workflows](phase-7-workflows.md) | Workflows | phase 2b, phase 2d | in progress |
 
 ## Dependency graph
 
@@ -57,7 +58,7 @@ phase-1 ──► phase-2 ──► phase-2b ──► phase-2c ──┬──�
                              │                 ├──► phase-4 (web UI)
                              │                 ├──► phase-5 (multi-machine)
                              │                 └──► phase-6 (A2A edge)
-                             └──► phase-2d (lifecycle + editing; needs phase-3's TUI)
+                             └──► phase-2d (lifecycle + editing; needs phase-3's TUI) ──► phase-7 (workflows)
 ```
 
 Phases 3–6 are parallelizable after phase 2, though recommended order is
@@ -70,8 +71,12 @@ and web inbox views they built, but needs no re-plan; its milestones carry
 those surface changes.
 
 Phase 2d extends the 2b job queue and the phase-3 TUI. It does not touch
-2c's surfaces, so either can land first; 2c's migrations take the numbers
-after 0006.
+2c's surfaces, so either can land first.
+
+Phase 7 (workflows) builds on 2b's reserved delivery and schedules and on
+2d's job lifecycle. It does not depend on 2c: its result contract covers
+workflow jobs only. It took migration 0007, so 2c's migrations are 0008
+and 0009.
 
 ## Cross-cutting rules (all phases)
 

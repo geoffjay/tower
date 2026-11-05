@@ -53,9 +53,15 @@ Conventions:
 | `POST /v1/tasks/{id}/release` | `{as: <agent_id>, reason?}` | voluntary release → back to the queue (`queued`) |
 | `POST /v1/tasks/{id}/cancel` | — | cancel + interrupt owning agent |
 | `POST /v1/schedules` | `{title, cron \| daily, timezone?, target?, description?, tags?, priority?, lease_s?, max_attempts?, pre_run?, post_run?}` | create a recurring job template (operator-only) |
-| `PATCH /v1/schedules/{id}` | `{title?, description?, cron? \| daily?, timezone?, pre_run?, post_run?}` | edit in place; a cadence change recomputes `next_run_at` from now; later firings only; emits `schedule.updated` |
+| `PATCH /v1/schedules/{id}` | `{title?, description?, cron? \| daily?, timezone?, pre_run?, post_run?}` | edit in place; a cadence change recomputes `next_run_at` from now; later firings only; emits `schedule.updated`. A workflow's managed schedule answers 409 ([§5.6](05-core-objects.md)) |
 | `POST /v1/schedules/{id}/pause` · `/resume` · `/run` | — | stop firing / resume from now / fire one extra occurrence now |
-| `DELETE /v1/schedules/{id}` | — | remove (open jobs it created are left alone) |
+| `DELETE /v1/schedules/{id}` | — | remove (open jobs it created are left alone); a managed schedule answers 409 |
+| `POST /v1/tasks/{id}/artifacts` | `{as, name, content, media_type?}` | owner attaches a text artifact (≤ 1 MiB) to its open job; emits `artifact.created` |
+| `POST /v1/workflows` | `{source}` (TOML) | apply (operator-only): validate, store a new version when changed, sync schedule triggers; returns `{workflow, version, changed}` |
+| `DELETE /v1/workflows/{name}` | — | remove the workflow and its schedules; 409 while a run is `running` |
+| `POST /v1/workflows/{name}/enable` · `/disable` | — | disabled: no manual starts, schedules paused, event triggers off |
+| `POST /v1/workflows/{name}/runs` | `{input?}` | start a run (manual trigger); missing required input → 400 |
+| `POST /v1/runs/{id}/cancel` | — | cancel the run, its open steps, and their jobs (operator-only) |
 
 ## Query (GET)
 
@@ -65,13 +71,16 @@ Conventions:
 | `GET /v1/agents/{id}` | full detail incl. recent output ref |
 | `GET /v1/agents/{id}/read` | `?source=visible\|recent\|detection&format=text\|ansi` — proxied herdr read |
 | `GET /v1/tasks` | `?state=queued&tags=&owner=&since=&mine=<agent>` queue/inventory queries (agents use `mine`) |
-| `GET /v1/tasks/{id}` | task detail + message trail + assignment/lease history |
+| `GET /v1/tasks/{id}` | task detail + message trail + assignment/lease history + `artifacts` (rows, no content) |
 | `GET /v1/messages` | `?to=&status=&since=` inbox queries; `?agent=<name\|id>` — messages sent by or addressed to that agent (history, [D§11.1](11-tui.md)) |
 | `GET /v1/machines` | inventory |
 | `GET /v1/schedules` · `GET /v1/schedules/{id}` | schedules with next run; detail adds the jobs it created |
 | `GET /v1/events/history` | the event log newest first, one page at a time: `?before=<seq>&limit=<n>&filter=type:...&exclude=type:...&subject=agent:<id>` (same filters as the stream). Returns `{events, head, more}`: at most `limit` events (default 50, 1–500) with `seq < before` (no `before`: from the head), `more` when older matches exist, and `head`, the log's latest seq when the page was read. A client shows the page, pages back with `before` = the oldest seq it holds, and follows live with `GET /v1/events?cursor=<head>`: nothing between the two is lost or repeated |
 | `GET /healthz`, `GET /v1/schema` | health, contract |
 | `GET /v1/ui/token` | the scoped read-only UI token + login path, for `tower ui` (bearer only, [D§13](13-security.md)) |
+| `GET /v1/artifacts/{id}` | artifact row + `content` |
+| `GET /v1/workflows` · `GET /v1/workflows/{name}` | workflows with version, enabled, triggers; detail adds the definition, source, and 20 newest runs |
+| `GET /v1/runs` · `GET /v1/runs/{id}` | `?workflow=&state=` newest first; detail adds the steps in order. Live: `GET /v1/events?subject=workflow_run:<id>` |
 
 ## Streaming (GET, SSE)
 
@@ -107,8 +116,12 @@ tools: `tower_ps`, `tower_spawn`, `tower_stop`, `tower_prompt`, `tower_send`,
 `tower_task_heartbeat`, `tower_task_status`, `tower_task_release`,
 `tower_machine_list`, `tower_schedule_list`, `tower_schedule_show`,
 `tower_schedule_create`, `tower_schedule_edit`, `tower_schedule_pause`, `tower_schedule_resume`,
-`tower_schedule_run`, `tower_schedule_remove`. Operator-only: assign,
-`tower_stop`, `tower_task_cancel`, `tower_task_edit`, and schedule mutations. `tower_inbox`
+`tower_schedule_run`, `tower_schedule_remove`, `tower_workflow_list`, `tower_workflow_show`,
+`tower_workflow_run`, `tower_workflow_apply`, `tower_workflow_remove`, `tower_run_list`,
+`tower_run_show`, `tower_run_cancel`, `tower_artifact_put`, `tower_artifact_get`. Operator-only: assign,
+`tower_stop`, `tower_task_cancel`, `tower_task_edit`, schedule mutations,
+`tower_workflow_apply`, `tower_workflow_remove`, and `tower_run_cancel`
+(agents may start and read runs, [workflows decision](../../decisions/workflows.md) §11). `tower_inbox`
 returns the caller's messages (an agent's own, or the operator's `me`).
 One management surface for humans and agents
 (openrig-proven pattern). Agents have no self-serve claim: `tower_task_list
