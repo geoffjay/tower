@@ -207,9 +207,10 @@ export function editArgs(kind, id, fields, values) {
  * `tower task create` or `tower schedule create` arguments for the create
  * form. `when`: "now" queues it, "at" reserves it for its owner until a
  * time (`--at` needs an owner), "repeat" makes a schedule (`--daily` or
- * `--cron`, optional `--tz`; an owner gets each job reserved). Values go
- * as `--flag=value`, so a leading "-" stays a value. Throws with what is
- * missing.
+ * `--cron`, optional `--tz`; an owner gets each job reserved). `tags`
+ * (a comma/space list) become `--tag`s: a workflow's event trigger can
+ * match them (`tagTriggers`). Values go as `--flag=value`, so a leading
+ * "-" stays a value. Throws with what is missing.
  */
 export function createArgs(f) {
 	const title = f.title.trim();
@@ -220,15 +221,8 @@ export function createArgs(f) {
 		if (v?.trim()) args.push(`${flag}=${v.trim()}`);
 	};
 	if (repeat) {
-		const cadence = f.cadence_value?.trim();
-		if (!cadence) {
-			throw new Error(
-				f.cadence === "cron"
-					? "a schedule needs a cron expression"
-					: "a schedule needs a time (HH:MM)",
-			);
-		}
-		add(f.cadence === "cron" ? "--cron" : "--daily", cadence);
+		const { key, value } = cadenceOf(f);
+		add(`--${key}`, value);
 		add("--tz", f.timezone);
 	}
 	add("--description", f.description);
@@ -247,5 +241,100 @@ export function createArgs(f) {
 	}
 	add("--pre-run", f.pre_run);
 	add("--post-run", f.post_run);
+	for (const tag of splitTags(f.tags)) args.push(`--tag=${tag}`);
 	return args;
+}
+
+/** "deploy, infra  x" -> ["deploy", "infra", "x"], blanks and repeats dropped. */
+export function splitTags(s) {
+	return [
+		...new Set(
+			String(s ?? "")
+				.split(/[,\s]+/)
+				.filter(Boolean),
+		),
+	];
+}
+
+/** The cadence fields, checked: "--daily"/"--cron" and the value. */
+function cadenceOf(f) {
+	const value = f.cadence_value?.trim();
+	if (!value) {
+		throw new Error(
+			f.cadence === "cron"
+				? "a schedule needs a cron expression"
+				: "a schedule needs a time (HH:MM)",
+		);
+	}
+	return { key: f.cadence === "cron" ? "cron" : "daily", value };
+}
+
+/** The declared inputs that are required, have no default and are blank. */
+export function missingInputs(inputs, values) {
+	return Object.entries(inputs ?? {})
+		.filter(
+			([k, spec]) =>
+				spec.required && spec.default == null && !(values[k] ?? "").trim(),
+		)
+		.map(([k]) => k);
+}
+
+/** `tower workflow run <name> --input k=v ...` for the filled inputs. */
+export function runArgs(name, inputs, values) {
+	if (!name) throw new Error("pick a workflow");
+	const missing = missingInputs(inputs, values);
+	if (missing.length) throw new Error(`needs ${missing.join(", ")}`);
+	return [
+		"workflow",
+		"run",
+		name,
+		...Object.entries(values)
+			.filter(([, v]) => v.trim() !== "")
+			.flatMap(([k, v]) => ["--input", `${k}=${v.trim()}`]),
+	];
+}
+
+/**
+ * A workflow's schedules live in its definition (decision: workflows §5),
+ * so a repeating run is a `[[triggers]]` table appended to the TOML
+ * source, applied as a new version. The filled inputs become the
+ * trigger's `input`. TOML strings use JSON's escapes, which TOML shares.
+ */
+export function withScheduleTrigger(source, f, values) {
+	const { key, value } = cadenceOf(f);
+	const lines = ["", "[[triggers]]", 'kind = "schedule"'];
+	lines.push(`${key} = ${JSON.stringify(value)}`);
+	if (f.timezone?.trim()) {
+		lines.push(`timezone = ${JSON.stringify(f.timezone.trim())}`);
+	}
+	const input = Object.entries(values).filter(([, v]) => v.trim() !== "");
+	if (input.length) {
+		const pairs = input.map(([k, v]) => `${k} = ${JSON.stringify(v.trim())}`);
+		lines.push(`input = { ${pairs.join(", ")} }`);
+	}
+	return `${source.replace(/\s*$/, "\n")}${lines.join("\n")}\n`;
+}
+
+const JOB_EVENTS = {
+	"task.created": "queueing",
+	"task.completed": "completing",
+	"task.failed": "failing",
+};
+
+/** The workflows a job with these tags would start, from their event
+ * triggers on the job's events whose `match` is only a tag:
+ * [{ name, when: "completing" | "failing" | "queueing" }]. */
+export function tagTriggers(workflows, tags) {
+	const out = [];
+	for (const w of workflows ?? []) {
+		if (!w.enabled) continue;
+		for (const t of w.triggers ?? []) {
+			const when = t.kind === "event" && JOB_EVENTS[t.type];
+			const match = t.match ?? {};
+			const keys = Object.keys(match);
+			if (!when || keys.length !== 1 || keys[0] !== "tags") continue;
+			if (tags.includes(match.tags)) out.push({ name: w.name, when });
+		}
+	}
+	return out;
 }

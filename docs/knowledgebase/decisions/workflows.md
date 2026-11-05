@@ -215,6 +215,14 @@ agent, phase 6 backlog).
   match the envelope), equal to the given value, or containing it when the
   payload value is an array. Events about the workflow's own runs and jobs
   are ignored, so a run cannot trigger itself.
+- **A job as a trigger**: `task.created`, `task.completed` and
+  `task.failed` carry the job's `title` and `tags`, so a trigger can name
+  the jobs that start it: `type = "task.completed"`, `match = { tags =
+  "deploy" }`, `input = { title = "{{ event.title }}" }` starts a run each
+  time a job tagged `deploy` completes. Any job can carry the tag: one
+  queued by hand, a schedule's, or a job held until a time. A
+  `task.created` trigger starts at queueing instead, and the job itself
+  stays in the queue.
 
 ### 6. Driving it: the engine follows the event log
 

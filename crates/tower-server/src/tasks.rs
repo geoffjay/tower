@@ -702,7 +702,10 @@ pub async fn report(
             state,
             kind,
             id,
-            serde_json::json!({"task_id": id, "owner_id": owner.id, "result": task.result}),
+            serde_json::json!({
+                "task_id": id, "owner_id": owner.id, "title": task.title,
+                "tags": task.tags, "result": task.result,
+            }),
         )
         .await?;
         crate::hooks::closed(state, &owner, &task);
@@ -889,7 +892,7 @@ pub async fn update(
 /// heartbeat or sweep wins cleanly. Returns true when this call swept it.
 pub async fn expire_lease(state: &AppState, id: &TaskId, now: i64) -> anyhow::Result<bool> {
     let row = sqlx::query(&format!(
-        "SELECT owner_id, attempt_count, max_attempts, lease_expires_at FROM tasks
+        "SELECT owner_id, attempt_count, max_attempts, lease_expires_at, title, tags FROM tasks
          WHERE id = ?1 AND owner_id IS NOT NULL AND {EXPIRABLE}
            AND lease_expires_at < ?2"
     ))
@@ -902,6 +905,8 @@ pub async fn expire_lease(state: &AppState, id: &TaskId, now: i64) -> anyhow::Re
     let attempts: i64 = row.get::<i64, _>("attempt_count") + 1;
     let max: i64 = row.get("max_attempts");
     let lease: i64 = row.get("lease_expires_at");
+    let title: String = row.get("title");
+    let tags: Vec<String> = serde_json::from_str(&row.get::<String, _>("tags")).unwrap_or_default();
     let exhausted = attempts >= max;
 
     let set = if exhausted {
@@ -941,7 +946,7 @@ pub async fn expire_lease(state: &AppState, id: &TaskId, now: i64) -> anyhow::Re
             EventKind::TaskFailed,
             id,
             serde_json::json!({
-                "task_id": id, "owner_id": owner,
+                "task_id": id, "owner_id": owner, "title": title, "tags": tags,
                 "result": {"error": "lease_exhausted"},
             }),
         )

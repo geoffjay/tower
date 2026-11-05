@@ -101,18 +101,30 @@ the full width) and tower panels in place of the Files/Changes panel:
     prompt, `at` (reserved jobs), pre-run and post-run for a job, and
     cadence and timezone for a schedule. A delivered job's fields other
     than post-run show dim. Save sends the changed fields; an emptied
-    field clears it. Click the row again or `×` to close. Footer
-    `＋ New job…`: one form for a job now, a job held until a time, or a
-    schedule. Title, description, priority pills, owner pills (queue or
-    an agent), then WHEN: `now` (with an owner, a "deliver when free"
-    reserve checkbox) → `tower task create`; `at a time` (an AT field;
-    needs an owner) → `tower task create --assign --at`; `repeats`
-    (CADENCE `daily at` HH:MM or `cron`, an optional IANA timezone; an
-    owner gets each job reserved) → `tower schedule create`. PRE-RUN and
-    POST-RUN fields go with any of the three (`--pre-run` /
-    `--post-run`). The submit button says what it does: `Queue job`,
-    `Reserve job`, `Create schedule`. `jobs.js` `createArgs()` builds the
-    command and names what is missing.
+    field clears it. Click the row again or `×` to close. Footer `＋ New…`:
+    one form, first `a job` or `a workflow run`. A job: title,
+    description, TAGS (comma list → `--tag`; under it, "Completing it
+    starts workflow X" for every enabled workflow whose event trigger on
+    `task.completed` / `task.failed` / `task.created` matches only a tag
+    the job carries), priority pills, owner pills (queue or an agent),
+    then WHEN: `now` (with an owner, a "deliver when free" reserve
+    checkbox) → `tower task create`; `at a time` (an AT field; needs an
+    owner) → `tower task create --assign --at`; `repeats` (CADENCE `daily
+    at` HH:MM or `cron`, an optional IANA timezone; an owner gets each job
+    reserved) → `tower schedule create`. PRE-RUN and POST-RUN fields go
+    with any of the three (`--pre-run` / `--post-run`). A workflow run:
+    pills of the enabled workflows (`tower workflow list`), a field per
+    declared input of the picked one (`tower workflow show`; required
+    ones checked), then WHEN `now` → `tower workflow run <name> --input
+    k=v`, or `repeats` (the same cadence fields) → a `[[triggers]] kind =
+    "schedule"` table with the inputs as its `input` appended to the
+    workflow's TOML source and applied as a new version (the definition
+    owns its schedules). The submit button says what it does: `Queue
+    job`, `Reserve job`, `Create schedule`, `Start run`, `Add schedule`;
+    a run or a schedule added to a workflow is confirmed in a grey line
+    under the header. `jobs.js` builds every command (`createArgs`,
+    `runArgs`, `withScheduleTrigger`, `tagTriggers`) and names what is
+    missing.
   - **Events**: the newest 50 events (`/v1/events/history`), then the
     `/v1/events` feed live from there, newest first, two lines per event:
     time (date when not today), event kind (colored by the state it moved
@@ -197,7 +209,10 @@ the full width) and tower panels in place of the Files/Changes panel:
     `tower dismiss`, `tower read` for the peek.
   - `tower-jobs`: `tower task list/show`, `tower task create/assign/
     release/cancel/edit`, `tower schedule list/show/run/pause/resume/rm/
-    edit`; `jobs.js` formats the trail and holds the edit rules.
+    edit`, `tower workflow list/show/run/apply` (the New form's workflow
+    runs; the applied file is `<herdr-app home>/data/tower-jobs/
+    workflow.toml`); `jobs.js` formats the trail and holds the edit and
+    create rules.
   - `tower-events`: the tower REST `/v1/events/history` page and the
     `/v1/events` SSE endpoint via bounded `curl --max-time 5` polls
     (cursor from the page's `head`); the token from the tower
@@ -300,4 +315,9 @@ the full width) and tower panels in place of the Files/Changes panel:
   agent → its state moves to assigned, the owner's name shows in the row.
   `repeats` with an owner, `daily at` and a pre-run → `tower schedule
   show` has that cron, timezone, target and pre-run.
+- `a workflow run` with its inputs and `now` → `tower run list` shows the
+  run; with `repeats` → `tower workflow show` has a new version with the
+  schedule trigger and `tower schedule list` its row. A job tagged like a
+  workflow's `task.completed` trigger shows "Completing it starts
+  workflow X", and completing it starts that run.
 - `tower ui`'s web inbox and this panel agree on what needs you.

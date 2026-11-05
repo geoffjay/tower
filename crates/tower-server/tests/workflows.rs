@@ -903,6 +903,103 @@ prompt = "follow up"
     );
 }
 
+fn tagged_job(title: &str, tags: &[&str], max_attempts: Option<i64>) -> tasks::CreateTask {
+    tasks::CreateTask {
+        title: title.into(),
+        description: None,
+        priority: None,
+        tags: tags.iter().map(|t| t.to_string()).collect(),
+        assign: Some("w".into()),
+        when_available: false,
+        not_before: None,
+        lease_s: None,
+        max_attempts,
+        pre_run: None,
+        post_run: None,
+    }
+}
+
+#[tokio::test]
+async fn a_tagged_job_completing_or_failing_starts_the_workflow_that_names_its_tag() {
+    let ctx = boot_with(&["x", "w"]).await;
+    apply(
+        &ctx,
+        r#"
+name = "release-notes"
+[inputs]
+change = { required = true }
+[[triggers]]
+kind = "event"
+type = "task.completed"
+match = { tags = "deploy" }
+input = { change = "{{ event.title }}" }
+[[nodes]]
+id = "notes"
+agent = "x"
+prompt = "write notes for {{ input.change }}"
+"#,
+    )
+    .await;
+    apply(
+        &ctx,
+        r#"
+name = "postmortem"
+[[triggers]]
+kind = "event"
+type = "task.failed"
+match = { tags = "deploy" }
+[[nodes]]
+id = "why"
+agent = "x"
+prompt = "find out why"
+"#,
+    )
+    .await;
+    let close = |t: tasks::CreateTask| {
+        let state = ctx.state.clone();
+        async move {
+            let j = tasks::create(&state, t, T0).await.unwrap();
+            tasks::report(
+                &state,
+                &j.id,
+                "w",
+                Some(TaskState::Completed),
+                Some(json!("done")),
+                T0,
+            )
+            .await
+            .unwrap();
+            workflows::drain(&state, T0).await.unwrap();
+        }
+    };
+
+    close(tagged_job("ship v1.3", &["infra"], None)).await;
+    assert_eq!(count_runs(&ctx, "release-notes").await, 0, "other tag");
+
+    close(tagged_job("ship v1.4", &["infra", "deploy"], None)).await;
+    assert_eq!(count_runs(&ctx, "release-notes").await, 1);
+    let run = workflows::list_runs(&ctx.state, &Default::default())
+        .await
+        .unwrap()[0]
+        .clone();
+    assert_eq!(run.input["change"], "ship v1.4", "the job's title");
+    assert_eq!(count_runs(&ctx, "postmortem").await, 0);
+
+    // a lease that runs out on the last attempt fails the job: its tags
+    // still reach the trigger
+    let j = tasks::create(
+        &ctx.state,
+        tagged_job("ship v1.5", &["deploy"], Some(1)),
+        T0,
+    )
+    .await
+    .unwrap();
+    let late = T0 + j.lease_s * 1000 + 1;
+    assert!(tasks::expire_lease(&ctx.state, &j.id, late).await.unwrap());
+    workflows::drain(&ctx.state, late).await.unwrap();
+    assert_eq!(count_runs(&ctx, "postmortem").await, 1);
+}
+
 #[tokio::test]
 async fn the_consumer_starts_at_the_head_so_old_events_fire_nothing() {
     let ctx = boot_with(&["x"]).await;

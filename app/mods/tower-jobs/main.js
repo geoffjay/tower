@@ -19,7 +19,7 @@ import {
 	v_flex,
 } from "gpui-base";
 import { div, View } from "gpui-kit";
-import { theme } from "herdr";
+import { appHome, readTextFile, theme, writeTextFile } from "herdr";
 import {
 	CLOSED,
 	createArgs,
@@ -29,10 +29,14 @@ import {
 	OPEN,
 	resultFields,
 	resultSummary,
+	runArgs,
+	splitTags,
 	stamp,
+	tagTriggers,
 	trailLine,
 	waitingFor,
 	who,
+	withScheduleTrigger,
 } from "./jobs.js";
 import { ago, messageText, stateColor, tower, until } from "./tower.js";
 
@@ -46,6 +50,7 @@ export default class TowerJobs extends View {
 		this.busy = null; // task/schedule id with an action in flight
 		this.confirm = null; // id awaiting a second press
 		this.create = null; // the create form's fields
+		this.notice = null; // what the last create did, when the list doesn't show it
 		this.assigning = null; // task id with the assign picker open
 		this.agentMap = null; // id -> name
 		this.sel = null; // { kind: "job" | "schedule", id, from } in the detail
@@ -108,6 +113,7 @@ export default class TowerJobs extends View {
 			return;
 		}
 		this.confirm = null;
+		this.notice = null;
 		this.busy = id;
 		cx.notify();
 		cx.spawn(async (cx) => {
@@ -245,10 +251,12 @@ export default class TowerJobs extends View {
 		this.act(cx, e.id, args, false, () => this.closeEdit());
 	}
 
-	/** The create form: a job now, a job held for its owner until a time,
-	 * or a schedule (one form; `createArgs` picks the verb). */
+	/** The create form: a job (now, held until a time, or a schedule) or a
+	 * workflow run (now, or a schedule trigger added to the workflow).
+	 * `createArgs` / `runArgs` / `withScheduleTrigger` build the command. */
 	openCreate(cx) {
 		this.error = null;
+		this.notice = null;
 		const field = (placeholder) => InputState.new({ placeholder, value: "" });
 		const prompt = (placeholder) => {
 			const s = TextareaState.new({ placeholder });
@@ -256,8 +264,10 @@ export default class TowerJobs extends View {
 			return s;
 		};
 		this.create = {
+			kind: "job",
 			title: field("A short job title"),
 			description: field("Goal, inputs, limits, done criteria, what to report"),
+			tags: field("deploy, infra (optional)"),
 			priority: "0",
 			agent: null,
 			when_available: false,
@@ -268,38 +278,126 @@ export default class TowerJobs extends View {
 			timezone: field("blank: this machine's zone (e.g. America/Vancouver)"),
 			pre_run: prompt("Typed before the job prompt, e.g. /clear"),
 			post_run: prompt("Typed after the owner closes the job, e.g. /reflect"),
+			workflows: null, // `tower workflow list` (null until loaded)
+			workflow: null, // the picked workflow's `tower workflow show`
+			picking: null, // the workflow whose `show` is in flight
+			inputs: {}, // its declared inputs: name -> InputState
 		};
+		const f = this.create;
+		cx.spawn(async (cx) => {
+			try {
+				f.workflows = (await tower("workflow", "list")).workflows ?? [];
+			} catch {
+				f.workflows = []; // a server before 0.7.0: no workflows to offer
+			}
+			cx.notify();
+		});
 		cx.notify();
 	}
 
 	closeCreate() {
 		const f = this.create;
 		if (!f) return;
-		for (const k of ["title", "description", "at", "cadence_value", "timezone", "pre_run", "post_run"]) {
+		for (const k of ["title", "description", "tags", "at", "cadence_value", "timezone", "pre_run", "post_run"]) {
 			f[k].release();
 		}
+		this.releaseInputs(f);
 		this.create = null;
+	}
+
+	releaseInputs(f) {
+		for (const s of Object.values(f.inputs)) s.release();
+		f.inputs = {};
+	}
+
+	/** Pick the workflow to run: load its inputs (one field each) and
+	 * source (for a schedule trigger). The same pill again unpicks it. */
+	pickWorkflow(name, cx) {
+		const f = this.create;
+		this.releaseInputs(f);
+		if (f.workflow?.workflow?.name === name || f.picking === name) {
+			f.workflow = null;
+			f.picking = null;
+			cx.notify();
+			return;
+		}
+		f.workflow = null;
+		f.picking = name;
+		cx.spawn(async (cx) => {
+			try {
+				const d = await tower("workflow", "show", name);
+				if (this.create !== f || f.picking !== name) return;
+				f.workflow = d;
+				f.inputs = Object.fromEntries(
+					Object.entries(d.definition?.inputs ?? {}).map(([k, spec]) => [
+						k,
+						InputState.new({
+							placeholder:
+								spec.description ??
+								(spec.default != null ? `default: ${spec.default}` : k),
+						}),
+					]),
+				);
+			} catch (e) {
+				this.error = e.message;
+			}
+			f.picking = null;
+			cx.notify();
+		});
+		cx.notify();
 	}
 
 	submitCreate(cx) {
 		const f = this.create;
 		const text = (k) => f[k].value();
-		let args;
+		const values = Object.fromEntries(
+			Object.entries(f.inputs).map(([k, s]) => [k, s.value()]),
+		);
+		const name = f.workflow?.workflow?.name;
+		let run;
 		try {
-			args = createArgs({
-				title: text("title"),
-				description: text("description"),
-				priority: f.priority,
-				agent: f.agent,
-				when_available: f.when_available,
-				when: f.when,
-				at: text("at"),
-				cadence: f.cadence,
-				cadence_value: text("cadence_value"),
-				timezone: text("timezone"),
-				pre_run: text("pre_run"),
-				post_run: text("post_run"),
-			});
+			if (f.kind === "run" && f.when === "repeat") {
+				if (!name) throw new Error("pick a workflow");
+				const source = withScheduleTrigger(
+					f.workflow.source ?? "",
+					{
+						cadence: f.cadence,
+						cadence_value: text("cadence_value"),
+						timezone: text("timezone"),
+					},
+					values,
+				);
+				run = async () => {
+					const v = await this.applySource(source);
+					return `${name} v${v.version}: schedule added (tower schedule list shows it)`;
+				};
+			} else if (f.kind === "run") {
+				const args = runArgs(name, f.workflow?.definition?.inputs, values);
+				run = async () => {
+					const v = await tower(...args);
+					return `run ${v.run?.id ?? "?"} of ${name} started (Workflows panel)`;
+				};
+			} else {
+				const args = createArgs({
+					title: text("title"),
+					description: text("description"),
+					tags: text("tags"),
+					priority: f.priority,
+					agent: f.agent,
+					when_available: f.when_available,
+					when: f.when,
+					at: text("at"),
+					cadence: f.cadence,
+					cadence_value: text("cadence_value"),
+					timezone: text("timezone"),
+					pre_run: text("pre_run"),
+					post_run: text("post_run"),
+				});
+				run = async () => {
+					await tower(...args);
+					return null;
+				};
+			}
 		} catch (e) {
 			this.error = e.message;
 			cx.notify();
@@ -309,7 +407,7 @@ export default class TowerJobs extends View {
 		cx.notify();
 		cx.spawn(async (cx) => {
 			try {
-				await tower(...args);
+				this.notice = await run();
 				this.closeCreate();
 				this.error = null;
 			} catch (e) {
@@ -318,6 +416,15 @@ export default class TowerJobs extends View {
 			this.busy = null;
 			await this.refresh(cx);
 		});
+	}
+
+	/** Apply a workflow's TOML: written to this mod's draft file, then
+	 * `tower workflow apply` (mods cannot pass a program stdin). */
+	async applySource(source) {
+		const path = `${appHome()}/data/tower-jobs/workflow.toml`;
+		const current = await readTextFile(path);
+		await writeTextFile(path, source, current);
+		return tower("workflow", "apply", path);
 	}
 
 	taskRow(task, t) {
@@ -599,25 +706,61 @@ export default class TowerJobs extends View {
 		const label = (s) =>
 			div().pt(6).text_size(11).font_semibold().text_color(t.dim).child(s);
 		const note = (s) => div().pt(2).text_size(11).text_color(t.dim).child(s);
+		const job = f.kind === "job";
 		const repeat = f.when === "repeat";
-		const submit = {
-			now: ["Queue job", "Queueing…"],
-			at: ["Reserve job", "Reserving…"],
-			repeat: ["Create schedule", "Creating…"],
-		}[f.when];
+		const starts = job ? tagTriggers(f.workflows, splitTags(f.tags.value())) : [];
+		const picked = f.workflow?.workflow?.name ?? f.picking ?? null;
+		const inputs = Object.entries(f.workflow?.definition?.inputs ?? {});
+		const offered = (f.workflows ?? []).filter((w) => w.enabled);
+		const submit = job
+			? {
+					now: ["Queue job", "Queueing…"],
+					at: ["Reserve job", "Reserving…"],
+					repeat: ["Create schedule", "Creating…"],
+				}[f.when]
+			: repeat
+				? ["Add schedule", "Saving…"]
+				: ["Start run", "Starting…"];
 		return v_flex()
 			.p(14)
 			.gap(4)
-			.child(div().text_size(15).font_semibold().child("New job"))
-			.child(label("TITLE"))
-			.child(fieldBox("cf-title", f.title))
-			.child(label("DESCRIPTION (the brief the agent works from)"))
-			.child(fieldBox("cf-desc", f.description))
-			.child(label("PRIORITY (higher runs first)"))
-			.child(this.priorityPills(f, t))
-			.child(label("OWNER"))
-			.child(this.agentPills(f, t))
-			.when(Boolean(f.agent) && f.when === "now", (el) =>
+			.child(div().text_size(15).font_semibold().child("New"))
+			.child(
+				this.choicePills(
+					"cf-kind",
+					[
+						["job", "a job"],
+						["run", "a workflow run"],
+					],
+					f.kind,
+					(v) => {
+						f.kind = v;
+						if (v === "run" && f.when === "at") f.when = "now";
+					},
+					t,
+				),
+			)
+			.when(job, (el) =>
+				el
+					.child(label("TITLE"))
+					.child(fieldBox("cf-title", f.title))
+					.child(label("DESCRIPTION (the brief the agent works from)"))
+					.child(fieldBox("cf-desc", f.description))
+					.child(label("TAGS"))
+					.child(fieldBox("cf-tags", f.tags))
+					.children(
+						starts.map((s) =>
+							note(
+								`${s.when[0].toUpperCase()}${s.when.slice(1)} it starts workflow ${s.name}.`,
+							),
+						),
+					)
+					.child(label("PRIORITY (higher runs first)"))
+					.child(this.priorityPills(f, t))
+					.child(label("OWNER"))
+					.child(this.agentPills(f, t)),
+			)
+			.when(job && Boolean(f.agent) && f.when === "now", (el) =>
 				el.child(
 					h_flex()
 						.pt(4)
@@ -646,15 +789,49 @@ export default class TowerJobs extends View {
 						),
 				),
 			)
+			.when(!job, (el) =>
+				el
+					.child(label("WORKFLOW"))
+					.when(f.workflows === null, (el2) => el2.child(note("Loading…")))
+					.when(f.workflows !== null && offered.length === 0, (el2) =>
+						el2.child(note("No enabled workflows (Workflows panel to make one).")),
+					)
+					.child(
+						this.choicePills(
+							"cf-wf",
+							offered.map((w) => [w.name, w.name]),
+							picked,
+							(v, cx) => this.pickWorkflow(v, cx),
+							t,
+						).flex_wrap(),
+					)
+					.when(Boolean(f.picking), (el2) => el2.child(note("Loading…")))
+					.when(Boolean(f.workflow?.workflow?.description), (el2) =>
+						el2.child(note(f.workflow.workflow.description)),
+					)
+					.children(
+						inputs.flatMap(([k, spec]) => [
+							label(
+								`${k.toUpperCase()}${spec.required && spec.default == null ? " *" : ""}`,
+							),
+							fieldBox(`cf-in-${k}`, f.inputs[k]),
+						]),
+					),
+			)
 			.child(label("WHEN"))
 			.child(
 				this.choicePills(
 					"cf-when",
-					[
-						["now", "now"],
-						["at", "at a time"],
-						["repeat", "repeats"],
-					],
+					job
+						? [
+								["now", "now"],
+								["at", "at a time"],
+								["repeat", "repeats"],
+							]
+						: [
+								["now", "now"],
+								["repeat", "repeats"],
+							],
 					f.when,
 					(v) => {
 						f.when = v;
@@ -662,7 +839,7 @@ export default class TowerJobs extends View {
 					t,
 				),
 			)
-			.when(f.when === "at", (el) =>
+			.when(job && f.when === "at", (el) =>
 				el
 					.child(label("AT"))
 					.child(fieldBox("cf-at", f.at))
@@ -704,16 +881,21 @@ export default class TowerJobs extends View {
 					.child(fieldBox("cf-tz", f.timezone))
 					.child(
 						note(
-							f.agent
-								? `Each firing makes a job reserved for ${f.agent}.`
-								: "Each firing queues a job for you to assign.",
+							!job
+								? `Adds a schedule trigger to ${picked ?? "the workflow"}'s definition, saved as a new version; the inputs above go with every run.`
+								: f.agent
+									? `Each firing makes a job reserved for ${f.agent}.`
+									: "Each firing queues a job for you to assign.",
 						),
 					),
 			)
-			.child(label(repeat ? "PRE-RUN (each job)" : "PRE-RUN"))
-			.child(promptBox("cf-pre", f.pre_run))
-			.child(label(repeat ? "POST-RUN (each job)" : "POST-RUN"))
-			.child(promptBox("cf-post", f.post_run))
+			.when(job, (el) =>
+				el
+					.child(label(repeat ? "PRE-RUN (each job)" : "PRE-RUN"))
+					.child(promptBox("cf-pre", f.pre_run))
+					.child(label(repeat ? "POST-RUN (each job)" : "POST-RUN"))
+					.child(promptBox("cf-post", f.post_run)),
+			)
 			.child(
 				h_flex()
 					.pt(10)
@@ -759,7 +941,7 @@ export default class TowerJobs extends View {
 						.border_color(current === v ? t.accent : t.border)
 						.hover((s) => s.bg(t.hover))
 						.on_click((_e, cx) => {
-							pick(v);
+							pick(v, cx);
 							cx.notify();
 						})
 						.child(l),
@@ -899,6 +1081,16 @@ export default class TowerJobs extends View {
 						.child(this.error ?? this.loadError),
 				),
 			)
+			.when(Boolean(this.notice) && !(this.error ?? this.loadError), (el) =>
+				el.child(
+					div()
+						.px(14)
+						.py(6)
+						.text_size(12)
+						.text_color(t.muted)
+						.child(this.notice),
+				),
+			)
 			.child(
 				div()
 					.id("tower-jobs-body")
@@ -974,7 +1166,7 @@ export default class TowerJobs extends View {
 						.child(
 							this.button(
 								"new-job",
-								"＋ New job…",
+								"＋ New…",
 								t,
 								(cx) => this.openCreate(cx),
 								{ solid: true, h: 24, px: 8 },
