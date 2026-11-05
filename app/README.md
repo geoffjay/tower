@@ -79,11 +79,13 @@ the same way (mods cannot read the environment).
   Answer in place, approve/deny with a confirm press (an approval lets an
   agent act), dismiss stale ones, peek at the asking agent's screen.
 - **Jobs** (right panel): open jobs with owner/priority/age, the last ten
-  to close, schedules with next runs. Queue a job, assign it to an agent
-  (pills), release or cancel owned jobs, pause/resume/run schedules. Click
-  a job for its facts, prompts, result, trail and messages, or a schedule
-  for its cadence, prompts and runs (a run opens as a job). Edit either
-  in place.
+  to close, schedules with next runs. `＋ New job…` queues a job now,
+  holds one for its owner until a time, or creates a schedule (daily or
+  cron), with pre-run and post-run prompts. Assign a job to an agent
+  (pills), release or cancel owned jobs, pause/resume/run schedules.
+  Click a job for its facts, prompts, result, trail and messages, or a
+  schedule for its cadence, prompts and runs (a run opens as a job).
+  Edit either in place.
 - **Events** (right panel): the tower event log, newest 50 first, then
   followed live, filtered by type, in names rather than ids; "Load older"
   pages back. Click an event for every field and its full body (an

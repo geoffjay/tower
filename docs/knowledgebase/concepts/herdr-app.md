@@ -70,6 +70,15 @@ behavior contract; this doc records the facts and decisions behind it.
   leading `-` stays a value; an emptied field clears it.
   `tower-jobs/jobs.js` holds these rules and the formatters. RECENT sorts
   closed jobs by `updated_at`, because `task list` puts the oldest first.
+- **Jobs create form.** `＋ New job…` is one form for the three ways
+  work enters the queue, picked by WHEN: `now` (`task create`, optionally
+  reserved with "deliver when free"), `at a time` (`task create --assign
+  --at`; a hold needs an owner, the CLI's rule) and `repeats` (`schedule
+  create --daily|--cron [--tz]`). One form, not a second button, because
+  the fields are the same (title, description, priority, owner, pre-run,
+  post-run) and only the timing differs. Pre-run and post-run are on the
+  form so a job no longer needs an edit after it is created.
+  `jobs.js` `createArgs()` builds the command, `--flag=value` like edit.
 - **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
   colors the Inbox button `blocked` while anything is pending. The Inbox
   panel is usually closed, so the always-shown tab bar carries the signal.

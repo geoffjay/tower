@@ -102,8 +102,17 @@ the full width) and tower panels in place of the Files/Changes panel:
     cadence and timezone for a schedule. A delivered job's fields other
     than post-run show dim. Save sends the changed fields; an emptied
     field clears it. Click the row again or `×` to close. Footer
-    `＋ Queue a job…`: title, description, priority pills, owner pills
-    (queue or an agent, with a "deliver when free" reserve checkbox).
+    `＋ New job…`: one form for a job now, a job held until a time, or a
+    schedule. Title, description, priority pills, owner pills (queue or
+    an agent), then WHEN: `now` (with an owner, a "deliver when free"
+    reserve checkbox) → `tower task create`; `at a time` (an AT field;
+    needs an owner) → `tower task create --assign --at`; `repeats`
+    (CADENCE `daily at` HH:MM or `cron`, an optional IANA timezone; an
+    owner gets each job reserved) → `tower schedule create`. PRE-RUN and
+    POST-RUN fields go with any of the three (`--pre-run` /
+    `--post-run`). The submit button says what it does: `Queue job`,
+    `Reserve job`, `Create schedule`. `jobs.js` `createArgs()` builds the
+    command and names what is missing.
   - **Events**: the newest 50 events (`/v1/events/history`), then the
     `/v1/events` feed live from there, newest first, two lines per event:
     time (date when not today), event kind (colored by the state it moved
@@ -289,4 +298,6 @@ the full width) and tower panels in place of the Files/Changes panel:
   sender sees `responded_at`.
 - Queue a job from the form → `tower task list` shows it; Assign it to an
   agent → its state moves to assigned, the owner's name shows in the row.
+  `repeats` with an owner, `daily at` and a pre-run → `tower schedule
+  show` has that cron, timezone, target and pre-run.
 - `tower ui`'s web inbox and this panel agree on what needs you.

@@ -22,6 +22,7 @@ import { div, View } from "gpui-kit";
 import { theme } from "herdr";
 import {
 	CLOSED,
+	createArgs,
 	editArgs,
 	editFields,
 	hookText,
@@ -244,25 +245,63 @@ export default class TowerJobs extends View {
 		this.act(cx, e.id, args, false, () => this.closeEdit());
 	}
 
+	/** The create form: a job now, a job held for its owner until a time,
+	 * or a schedule (one form; `createArgs` picks the verb). */
 	openCreate(cx) {
 		this.error = null;
-		const field = (placeholder, value) =>
-			InputState.new({ placeholder, value: value ?? "" });
+		const field = (placeholder) => InputState.new({ placeholder, value: "" });
+		const prompt = (placeholder) => {
+			const s = TextareaState.new({ placeholder });
+			s.set_auto_grow(1, 6);
+			return s;
+		};
 		this.create = {
 			title: field("A short job title"),
 			description: field("Goal, inputs, limits, done criteria, what to report"),
 			priority: "0",
 			agent: null,
 			when_available: false,
+			when: "now",
+			at: field("HH:MM, or YYYY-MM-DD HH:MM"),
+			cadence: "daily",
+			cadence_value: field("09:00"),
+			timezone: field("blank: this machine's zone (e.g. America/Vancouver)"),
+			pre_run: prompt("Typed before the job prompt, e.g. /clear"),
+			post_run: prompt("Typed after the owner closes the job, e.g. /reflect"),
 		};
 		cx.notify();
 	}
 
+	closeCreate() {
+		const f = this.create;
+		if (!f) return;
+		for (const k of ["title", "description", "at", "cadence_value", "timezone", "pre_run", "post_run"]) {
+			f[k].release();
+		}
+		this.create = null;
+	}
+
 	submitCreate(cx) {
 		const f = this.create;
-		const title = f.title.value().trim();
-		if (!title) {
-			this.error = "a job needs a title";
+		const text = (k) => f[k].value();
+		let args;
+		try {
+			args = createArgs({
+				title: text("title"),
+				description: text("description"),
+				priority: f.priority,
+				agent: f.agent,
+				when_available: f.when_available,
+				when: f.when,
+				at: text("at"),
+				cadence: f.cadence,
+				cadence_value: text("cadence_value"),
+				timezone: text("timezone"),
+				pre_run: text("pre_run"),
+				post_run: text("post_run"),
+			});
+		} catch (e) {
+			this.error = e.message;
 			cx.notify();
 			return;
 		}
@@ -270,17 +309,8 @@ export default class TowerJobs extends View {
 		cx.notify();
 		cx.spawn(async (cx) => {
 			try {
-				const args = ["task", "create", title];
-				if (f.description.value().trim())
-					args.push("--description", f.description.value().trim());
-				const p = Number.parseInt(f.priority, 10);
-				if (Number.isFinite(p) && p !== 0) args.push("--priority", String(p));
-				if (f.agent) {
-					args.push("--assign", f.agent);
-					if (f.when_available) args.push("--when-available");
-				}
 				await tower(...args);
-				this.create = null;
+				this.closeCreate();
 				this.error = null;
 			} catch (e) {
 				this.error = e.message;
@@ -556,12 +586,29 @@ export default class TowerJobs extends View {
 				.border_color(t.input)
 				.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
 				.child(Input.new(state).h_full().w_full().text_size(12));
+		const promptBox = (id, state) =>
+			div()
+				.id(id)
+				.px(9)
+				.py(5)
+				.rounded(7)
+				.border_1()
+				.border_color(t.input)
+				.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+				.child(Textarea.new(state).w_full().text_size(12));
 		const label = (s) =>
 			div().pt(6).text_size(11).font_semibold().text_color(t.dim).child(s);
+		const note = (s) => div().pt(2).text_size(11).text_color(t.dim).child(s);
+		const repeat = f.when === "repeat";
+		const submit = {
+			now: ["Queue job", "Queueing…"],
+			at: ["Reserve job", "Reserving…"],
+			repeat: ["Create schedule", "Creating…"],
+		}[f.when];
 		return v_flex()
 			.p(14)
 			.gap(4)
-			.child(div().text_size(15).font_semibold().child("Queue a job"))
+			.child(div().text_size(15).font_semibold().child("New job"))
 			.child(label("TITLE"))
 			.child(fieldBox("cf-title", f.title))
 			.child(label("DESCRIPTION (the brief the agent works from)"))
@@ -570,7 +617,7 @@ export default class TowerJobs extends View {
 			.child(this.priorityPills(f, t))
 			.child(label("OWNER"))
 			.child(this.agentPills(f, t))
-			.when(Boolean(f.agent), (el) =>
+			.when(Boolean(f.agent) && f.when === "now", (el) =>
 				el.child(
 					h_flex()
 						.pt(4)
@@ -599,6 +646,74 @@ export default class TowerJobs extends View {
 						),
 				),
 			)
+			.child(label("WHEN"))
+			.child(
+				this.choicePills(
+					"cf-when",
+					[
+						["now", "now"],
+						["at", "at a time"],
+						["repeat", "repeats"],
+					],
+					f.when,
+					(v) => {
+						f.when = v;
+					},
+					t,
+				),
+			)
+			.when(f.when === "at", (el) =>
+				el
+					.child(label("AT"))
+					.child(fieldBox("cf-at", f.at))
+					.child(
+						note(
+							f.agent
+								? `Reserved for ${f.agent}; delivered once the time has passed and it is free.`
+								: "A held job needs an owner: pick one above.",
+						),
+					),
+			)
+			.when(repeat, (el) =>
+				el
+					.child(label("CADENCE"))
+					.child(
+						this.choicePills(
+							"cf-cadence",
+							[
+								["daily", "daily at"],
+								["cron", "cron"],
+							],
+							f.cadence,
+							(v) => {
+								f.cadence = v;
+								f.cadence_value.set_value("");
+							},
+							t,
+						),
+					)
+					.child(fieldBox("cf-cadence-value", f.cadence_value))
+					.child(
+						note(
+							f.cadence === "cron"
+								? "5 or 6 fields, e.g. 0 9 * * MON-FRI"
+								: "HH:MM, every day",
+						),
+					)
+					.child(label("TIMEZONE (IANA)"))
+					.child(fieldBox("cf-tz", f.timezone))
+					.child(
+						note(
+							f.agent
+								? `Each firing makes a job reserved for ${f.agent}.`
+								: "Each firing queues a job for you to assign.",
+						),
+					),
+			)
+			.child(label(repeat ? "PRE-RUN (each job)" : "PRE-RUN"))
+			.child(promptBox("cf-pre", f.pre_run))
+			.child(label(repeat ? "POST-RUN (each job)" : "POST-RUN"))
+			.child(promptBox("cf-post", f.post_run))
 			.child(
 				h_flex()
 					.pt(10)
@@ -606,7 +721,7 @@ export default class TowerJobs extends View {
 					.justify_end()
 					.child(
 						this.button("cf-cancel", "Cancel", t, (cx) => {
-							this.create = null;
+							this.closeCreate();
 							this.error = null;
 							cx.notify();
 						}),
@@ -614,12 +729,41 @@ export default class TowerJobs extends View {
 					.child(
 						this.button(
 							"cf-go",
-							this.busy === "create" ? "Queueing…" : "Queue job",
+							this.busy === "create" ? submit[1] : submit[0],
 							t,
 							(cx) => this.submitCreate(cx),
 							{ solid: true },
 						),
 					),
+			);
+	}
+
+	/** One choice out of a few, as pills. */
+	choicePills(id, options, current, pick, t) {
+		return h_flex()
+			.pt(4)
+			.gap(5)
+			.children(
+				options.map(([v, l]) =>
+					h_flex()
+						.id(`${id}-${v}`)
+						.h(24)
+						.px(8)
+						.items_center()
+						.rounded(6)
+						.text_size(12)
+						.cursor_pointer()
+						.bg(current === v ? t.selected : t.raised)
+						.text_color(current === v ? t.foreground : t.muted)
+						.border_1()
+						.border_color(current === v ? t.accent : t.border)
+						.hover((s) => s.bg(t.hover))
+						.on_click((_e, cx) => {
+							pick(v);
+							cx.notify();
+						})
+						.child(l),
+				),
 			);
 	}
 
@@ -830,7 +974,7 @@ export default class TowerJobs extends View {
 						.child(
 							this.button(
 								"new-job",
-								"＋ Queue a job…",
+								"＋ New job…",
 								t,
 								(cx) => this.openCreate(cx),
 								{ solid: true, h: 24, px: 8 },
