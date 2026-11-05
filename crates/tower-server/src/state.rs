@@ -18,6 +18,9 @@ pub struct Inner {
     pub token: String,
     pub driver: Arc<dyn Harness>,
     pub started_at: i64,
+    /// Serializes every write to workflow run and step rows (D§9.7):
+    /// routes, the event consumer, and reconciliation all take it.
+    pub workflow_lock: tokio::sync::Mutex<()>,
 }
 
 impl std::ops::Deref for AppState {
@@ -42,6 +45,7 @@ impl AppState {
             token,
             driver,
             started_at: tower_core::now_ms(),
+            workflow_lock: tokio::sync::Mutex::new(()),
         }))
     }
 }

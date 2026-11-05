@@ -397,6 +397,58 @@ async fn call_tool(
                 }
             }
         }
+        "tower_workflow_list" => json!({ "workflows": crate::workflows::list(state).await? }),
+        "tower_workflow_show" => {
+            crate::workflows::show(state, &req_arg::<String>(args, "name")?).await?
+        }
+        "tower_workflow_apply" => {
+            operator_only(caller, "define workflows")?;
+            let source: String = req_arg(args, "source")?;
+            json!(crate::workflows::apply(state, &source, now).await?)
+        }
+        "tower_workflow_remove" => {
+            operator_only(caller, "remove workflows")?;
+            crate::workflows::remove(state, &req_arg::<String>(args, "name")?, now).await?;
+            json!({ "ok": true })
+        }
+        "tower_workflow_run" => {
+            let name: String = req_arg(args, "name")?;
+            let input = arg::<serde_json::Map<String, Value>>(args, "input")?.unwrap_or_default();
+            let trigger = json!({ "kind": "manual", "by": caller.unwrap_or("me") });
+            json!({ "run": crate::workflows::start_run(state, &name, input, trigger, now).await? })
+        }
+        "tower_run_list" => {
+            let f = crate::workflows::RunFilter {
+                workflow: arg(args, "workflow")?,
+                state: arg(args, "state")?,
+                limit: arg(args, "limit")?,
+            };
+            json!({ "runs": crate::workflows::list_runs(state, &f).await? })
+        }
+        "tower_run_show" => {
+            let id = tower_core::RunId::from(req_arg::<String>(args, "run_id")?);
+            crate::workflows::show_run(state, &id).await?
+        }
+        "tower_run_cancel" => {
+            operator_only(caller, "cancel runs")?;
+            let id = tower_core::RunId::from(req_arg::<String>(args, "run_id")?);
+            json!({ "run": crate::workflows::cancel_run(state, &id, now).await? })
+        }
+        "tower_artifact_put" => {
+            let id = TaskId::from(req_arg::<String>(args, "task_id")?);
+            let req = crate::artifacts::PutArtifact {
+                as_agent: acting(args, caller)?,
+                name: req_arg(args, "name")?,
+                content: req_arg(args, "content")?,
+                media_type: arg(args, "media_type")?,
+            };
+            json!({ "artifact": crate::artifacts::put(state, &id, req, now).await? })
+        }
+        "tower_artifact_get" => {
+            let id = tower_core::ArtifactId::from(req_arg::<String>(args, "artifact_id")?);
+            let (artifact, content) = crate::artifacts::fetch(state, &id).await?;
+            json!({ "artifact": artifact, "content": content })
+        }
         other => return Err(ToolError::Protocol(format!("unknown tool: {other}"))),
     })
 }
@@ -613,6 +665,77 @@ fn tool_list() -> Vec<Value> {
             "Give your job back to the queue.",
             json!({"task_id": task_id, "as": as_agent, "reason": {"type": "string"}}),
             &["task_id"],
+        ),
+        tool(
+            "tower_workflow_list",
+            "Workflows with their current version, triggers, and open run count.",
+            json!({}),
+            &[],
+        ),
+        tool(
+            "tower_workflow_show",
+            "One workflow: definition, TOML source, schedules, and its 20 newest runs.",
+            json!({"name": {"type": "string", "description": "workflow name or id"}}),
+            &["name"],
+        ),
+        tool(
+            "tower_workflow_apply",
+            "Validate a TOML workflow definition and store it as a new version when it changed (operator only).",
+            json!({"source": {"type": "string", "description": "the TOML definition"}}),
+            &["source"],
+        ),
+        tool(
+            "tower_workflow_remove",
+            "Remove a workflow and its schedules; refused while a run is running (operator only).",
+            json!({"name": {"type": "string"}}),
+            &["name"],
+        ),
+        tool(
+            "tower_workflow_run",
+            "Start a run of a workflow's current version.",
+            json!({
+                "name": {"type": "string"},
+                "input": {"type": "object", "description": "values for the workflow's [inputs]"},
+            }),
+            &["name"],
+        ),
+        tool(
+            "tower_run_list",
+            "Workflow runs, newest first.",
+            json!({
+                "workflow": {"type": "string"},
+                "state": {"type": "string", "enum": ["running", "completed", "failed", "canceled"]},
+                "limit": {"type": "integer"},
+            }),
+            &[],
+        ),
+        tool(
+            "tower_run_show",
+            "One run with its steps: node, visit, agent, state, outcome, summary, job.",
+            json!({"run_id": {"type": "string"}}),
+            &["run_id"],
+        ),
+        tool(
+            "tower_run_cancel",
+            "Cancel a running run and its open jobs (operator only).",
+            json!({"run_id": {"type": "string"}}),
+            &["run_id"],
+        ),
+        tool(
+            "tower_artifact_put",
+            "Attach text (at most 1 MiB) to your own open job: long output a later workflow step reads on demand.",
+            json!({
+                "task_id": task_id, "as": as_agent,
+                "name": {"type": "string"}, "content": {"type": "string"},
+                "media_type": {"type": "string"},
+            }),
+            &["task_id", "name", "content"],
+        ),
+        tool(
+            "tower_artifact_get",
+            "Read an artifact's content.",
+            json!({"artifact_id": {"type": "string"}}),
+            &["artifact_id"],
         ),
     ]
 }

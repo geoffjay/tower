@@ -111,19 +111,21 @@ pub enum Fired {
         task_id: tower_core::TaskId,
         expired: Option<tower_core::TaskId>,
     },
-    /// The previous occurrence is still being worked.
-    Skipped { running: tower_core::TaskId },
+    /// A workflow schedule started a run (D§5.6).
+    Started { run_id: tower_core::RunId },
+    /// The previous occurrence (a job, or a workflow's run) is still open.
+    Skipped { running: String },
     /// This occurrence already had a job (duplicate firing, exactly-once).
     Duplicate,
 }
 
 // ---- time ----------------------------------------------------------------
 
-fn parse_cron(expr: &str) -> anyhow::Result<Cron> {
+pub(crate) fn parse_cron(expr: &str) -> anyhow::Result<Cron> {
     Cron::from_str(expr).map_err(|e| TowerError::invalid(format!("cron {expr:?}: {e}")).into())
 }
 
-fn parse_tz(name: &str) -> anyhow::Result<Tz> {
+pub(crate) fn parse_tz(name: &str) -> anyhow::Result<Tz> {
     Tz::from_str(name).map_err(|_| {
         TowerError::invalid(format!(
             "unknown timezone {name:?} (IANA name, e.g. America/Los_Angeles)"
@@ -319,6 +321,9 @@ async fn apply_occurrence(
     manual: bool,
     now: i64,
 ) -> anyhow::Result<Fired> {
+    if s.workflow_id.is_some() {
+        return fire_workflow(state, s, occurrence, missed, manual, now).await;
+    }
     let mut expired = None;
     if let Some(prev) = crate::tasks::open_occurrence(state, &s.id).await? {
         if prev.state == TaskState::Queued && prev.owner_id.is_none() {
@@ -337,7 +342,7 @@ async fn apply_occurrence(
                 }),
             )
             .await?;
-            return Ok(Fired::Skipped { running: prev.id });
+            return Ok(Fired::Skipped { running: prev.id.0 });
         }
     }
     let Some(task) = crate::tasks::create_occurrence(state, s, occurrence, now).await? else {
@@ -374,6 +379,63 @@ pub async fn run_now(state: &AppState, id: &ScheduleId, now: i64) -> anyhow::Res
     Ok(fired)
 }
 
+/// A workflow schedule's occurrence: start a run, or skip while the run it
+/// started last is still open (decision: workflows §5).
+async fn fire_workflow(
+    state: &AppState,
+    s: &Schedule,
+    occurrence: i64,
+    missed: i64,
+    manual: bool,
+    now: i64,
+) -> anyhow::Result<Fired> {
+    match crate::workflows::fire_schedule(state, s, occurrence, now).await? {
+        crate::workflows::Scheduled::Running(running) => {
+            event(
+                state,
+                EventKind::ScheduleSkipped,
+                &s.id,
+                serde_json::json!({
+                    "schedule_id": s.id, "occurrence_at": occurrence,
+                    "reason": "previous_running", "running": running, "manual": manual,
+                }),
+            )
+            .await?;
+            Ok(Fired::Skipped { running: running.0 })
+        }
+        crate::workflows::Scheduled::Started(run) => {
+            event(
+                state,
+                EventKind::ScheduleFired,
+                &s.id,
+                serde_json::json!({
+                    "schedule_id": s.id, "run_id": run.id, "workflow_id": run.workflow_id,
+                    "occurrence_at": occurrence, "missed": missed, "manual": manual,
+                }),
+            )
+            .await?;
+            Ok(Fired::Started { run_id: run.id })
+        }
+    }
+}
+
+/// A workflow's schedule answers `conflict` to edit and remove: the
+/// definition owns it (D§5.2.2).
+fn refuse_managed(s: &Schedule, action: &str) -> anyhow::Result<()> {
+    match &s.workflow_id {
+        Some(w) => {
+            let mut e = TowerError::conflict(format!(
+                "schedule {} belongs to workflow {w}: {action} it by changing the \
+                 workflow's triggers and running `tower workflow apply`",
+                s.id
+            ));
+            e.detail = Some(serde_json::json!({ "workflow_id": w }));
+            Err(e.into())
+        }
+        None => Ok(()),
+    }
+}
+
 pub async fn pause(
     state: &AppState,
     id: &ScheduleId,
@@ -402,6 +464,14 @@ pub async fn pause(
 pub async fn resume(state: &AppState, id: &ScheduleId, now: i64) -> anyhow::Result<Schedule> {
     let s = require(state, id).await?;
     if !s.enabled {
+        if let Some(w) = &s.workflow_id {
+            if !crate::workflows::is_enabled(state, w).await? {
+                return Err(TowerError::conflict(format!(
+                    "schedule {id} belongs to disabled workflow {w}: `tower workflow enable` it"
+                ))
+                .into());
+            }
+        }
         let next = next_after(&parse_cron(&s.cron)?, parse_tz(&s.timezone)?, now)?;
         sqlx::query(
             "UPDATE schedules SET enabled = 1, next_run_at = ?1, updated_at = ?2 WHERE id = ?3",
@@ -423,8 +493,13 @@ pub async fn resume(state: &AppState, id: &ScheduleId, now: i64) -> anyhow::Resu
 }
 
 /// Delete the template; jobs it created keep their `schedule_id` (history)
-/// and open ones are left alone.
+/// and open ones are left alone. A workflow's schedule answers `conflict`.
 pub async fn remove(state: &AppState, id: &ScheduleId) -> anyhow::Result<()> {
+    refuse_managed(&require(state, id).await?, "remove")?;
+    delete(state, id, None).await
+}
+
+async fn delete(state: &AppState, id: &ScheduleId, reason: Option<&str>) -> anyhow::Result<()> {
     let res = sqlx::query("DELETE FROM schedules WHERE id = ?1")
         .bind(id.0.as_str())
         .execute(&state.pool)
@@ -436,9 +511,113 @@ pub async fn remove(state: &AppState, id: &ScheduleId) -> anyhow::Result<()> {
         state,
         EventKind::ScheduleRemoved,
         id,
-        serde_json::json!({"schedule_id": id}),
+        serde_json::json!({"schedule_id": id, "reason": reason}),
     )
     .await
+}
+
+/// Make a workflow's managed schedules match its schedule triggers
+/// (decision: workflows §5): a trigger whose cron and zone match a row
+/// keeps it (and its `next_run_at`) with the new input; others get a new
+/// row; rows no trigger matches are deleted. New rows follow the
+/// workflow's enabled state.
+pub(crate) async fn sync_workflow(
+    state: &AppState,
+    workflow: &tower_core::Workflow,
+    def: &crate::workflows::def::Definition,
+    now: i64,
+) -> anyhow::Result<()> {
+    let mut unmatched = managed(state, &workflow.id).await?;
+    for t in &def.triggers {
+        let crate::workflows::def::Trigger::Schedule {
+            cron,
+            daily,
+            timezone,
+            input,
+        } = t
+        else {
+            continue;
+        };
+        let cron = match (cron, daily) {
+            (Some(c), _) => c.trim().to_string(),
+            (None, Some(d)) => daily_cron(d)?,
+            (None, None) => continue, // refused by validation
+        };
+        let timezone = timezone.clone().unwrap_or_else(system_timezone);
+        let input = serde_json::to_string(input)?;
+        let title = format!("workflow {}", workflow.name);
+        if let Some(pos) = unmatched
+            .iter()
+            .position(|s| s.cron == cron && s.timezone == timezone)
+        {
+            let s = unmatched.remove(pos);
+            sqlx::query(
+                "UPDATE schedules SET title = ?1, workflow_input = ?2, updated_at = ?3 WHERE id = ?4",
+            )
+            .bind(&title)
+            .bind(&input)
+            .bind(now)
+            .bind(s.id.0.as_str())
+            .execute(&state.pool)
+            .await?;
+            continue;
+        }
+        let next = next_after(&parse_cron(&cron)?, parse_tz(&timezone)?, now)?;
+        let id = ScheduleId::new();
+        sqlx::query(
+            "INSERT INTO schedules (id, title, cron, timezone, enabled, next_run_at,
+                                    workflow_id, workflow_input, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+        )
+        .bind(id.0.as_str())
+        .bind(&title)
+        .bind(&cron)
+        .bind(&timezone)
+        .bind(workflow.enabled)
+        .bind(next)
+        .bind(workflow.id.0.as_str())
+        .bind(&input)
+        .bind(now)
+        .execute(&state.pool)
+        .await?;
+        event(
+            state,
+            EventKind::ScheduleCreated,
+            &id,
+            serde_json::json!({
+                "schedule_id": id, "title": title, "cron": cron, "timezone": timezone,
+                "workflow_id": workflow.id, "next_run_at": next,
+            }),
+        )
+        .await?;
+    }
+    for s in unmatched {
+        delete(state, &s.id, Some("workflow_changed")).await?;
+    }
+    Ok(())
+}
+
+/// The schedules a workflow's triggers own.
+pub(crate) async fn managed(
+    state: &AppState,
+    workflow: &tower_core::WorkflowId,
+) -> anyhow::Result<Vec<Schedule>> {
+    let rows = sqlx::query("SELECT * FROM schedules WHERE workflow_id = ?1 ORDER BY created_at")
+        .bind(workflow.0.as_str())
+        .fetch_all(&state.pool)
+        .await?;
+    Ok(rows.iter().map(row_to_schedule).collect())
+}
+
+/// Workflow removed: its schedules go with it.
+pub(crate) async fn remove_managed(
+    state: &AppState,
+    workflow: &tower_core::WorkflowId,
+) -> anyhow::Result<()> {
+    for s in managed(state, workflow).await? {
+        delete(state, &s.id, Some("workflow_removed")).await?;
+    }
+    Ok(())
 }
 
 /// Operator edit (D§5.2.3). Later firings see it; a job already fired keeps
@@ -451,6 +630,7 @@ pub async fn update(
     now: i64,
 ) -> anyhow::Result<Schedule> {
     let s = require(state, id).await?;
+    refuse_managed(&s, "edit")?;
     let fields: Vec<&str> = [
         ("title", req.title.is_some()),
         ("description", req.description.is_some()),
@@ -588,6 +768,12 @@ fn row_to_schedule(r: &sqlx::sqlite::SqliteRow) -> Schedule {
         last_run_at: r.get("last_run_at"),
         pre_run: r.get("pre_run"),
         post_run: r.get("post_run"),
+        workflow_id: r
+            .get::<Option<String>, _>("workflow_id")
+            .map(tower_core::WorkflowId::from),
+        workflow_input: r
+            .get::<Option<String>, _>("workflow_input")
+            .and_then(|s| serde_json::from_str(&s).ok()),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }
@@ -626,9 +812,14 @@ async fn create_route(State(s): State<AppState>, Json(b): Json<CreateSchedule>) 
     }
 }
 
-/// One schedule plus its 20 most recent jobs, newest occurrence first.
+/// One schedule plus its 20 most recent jobs, newest occurrence first; a
+/// workflow's schedule lists the runs it started instead.
 pub async fn show(state: &AppState, id: &ScheduleId) -> anyhow::Result<serde_json::Value> {
     let sc = require(state, id).await?;
+    if sc.workflow_id.is_some() {
+        let runs = crate::workflows::runs_of_schedule(state, id, 20).await?;
+        return Ok(serde_json::json!({ "schedule": sc, "jobs": [], "runs": runs }));
+    }
     let rows = sqlx::query(
         "SELECT * FROM tasks WHERE schedule_id = ?1 ORDER BY occurrence_at DESC LIMIT 20",
     )

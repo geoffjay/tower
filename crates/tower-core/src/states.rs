@@ -128,6 +128,60 @@ impl HookPhase {
     }
 }
 
+/// Workflow run lifecycle (D§5.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RunState {
+    Running,
+    Completed,
+    Failed,
+    Canceled,
+}
+
+impl RunState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RunState::Running => "running",
+            RunState::Completed => "completed",
+            RunState::Failed => "failed",
+            RunState::Canceled => "canceled",
+        }
+    }
+}
+
+/// Workflow step lifecycle (D§5.6): `pending` is a `join = "all"` node
+/// collecting fired edges; `ready` has its job id chosen but not running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StepState {
+    Pending,
+    Ready,
+    Running,
+    Completed,
+    Failed,
+    Canceled,
+}
+
+impl StepState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StepState::Pending => "pending",
+            StepState::Ready => "ready",
+            StepState::Running => "running",
+            StepState::Completed => "completed",
+            StepState::Failed => "failed",
+            StepState::Canceled => "canceled",
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        matches!(
+            self,
+            StepState::Pending | StepState::Ready | StepState::Running
+        )
+    }
+}
+
 /// Message kinds (unified table, D§5.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -298,6 +352,32 @@ pub enum EventKind {
     NodeRegistered,
     #[serde(rename = "node.disconnected")]
     NodeDisconnected,
+    #[serde(rename = "workflow.applied")]
+    WorkflowApplied,
+    #[serde(rename = "workflow.removed")]
+    WorkflowRemoved,
+    #[serde(rename = "workflow.enabled")]
+    WorkflowEnabled,
+    #[serde(rename = "workflow.disabled")]
+    WorkflowDisabled,
+    #[serde(rename = "workflow.run.started")]
+    RunStarted,
+    #[serde(rename = "workflow.run.completed")]
+    RunCompleted,
+    #[serde(rename = "workflow.run.failed")]
+    RunFailed,
+    #[serde(rename = "workflow.run.canceled")]
+    RunCanceled,
+    #[serde(rename = "workflow.step.started")]
+    StepStarted,
+    #[serde(rename = "workflow.step.completed")]
+    StepCompleted,
+    #[serde(rename = "workflow.step.failed")]
+    StepFailed,
+    #[serde(rename = "workflow.step.canceled")]
+    StepCanceled,
+    #[serde(rename = "artifact.created")]
+    ArtifactCreated,
 }
 
 impl EventKind {
@@ -332,6 +412,19 @@ impl EventKind {
             EventKind::MachineState => "machine.state",
             EventKind::NodeRegistered => "node.registered",
             EventKind::NodeDisconnected => "node.disconnected",
+            EventKind::WorkflowApplied => "workflow.applied",
+            EventKind::WorkflowRemoved => "workflow.removed",
+            EventKind::WorkflowEnabled => "workflow.enabled",
+            EventKind::WorkflowDisabled => "workflow.disabled",
+            EventKind::RunStarted => "workflow.run.started",
+            EventKind::RunCompleted => "workflow.run.completed",
+            EventKind::RunFailed => "workflow.run.failed",
+            EventKind::RunCanceled => "workflow.run.canceled",
+            EventKind::StepStarted => "workflow.step.started",
+            EventKind::StepCompleted => "workflow.step.completed",
+            EventKind::StepFailed => "workflow.step.failed",
+            EventKind::StepCanceled => "workflow.step.canceled",
+            EventKind::ArtifactCreated => "artifact.created",
         }
     }
 }

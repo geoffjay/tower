@@ -26,7 +26,6 @@ async fn test_state() -> (AppState, tempfile::TempDir) {
     let paths = Paths {
         config_file: dir.path().join("config.toml"),
         db_file: dir.path().join("tower.db"),
-        artifacts_dir: dir.path().join("artifacts"),
         token_file: dir.path().join("token"),
         socket_file: dir.path().join("tower.sock"),
         agents_dir: dir.path().join("agents"),
