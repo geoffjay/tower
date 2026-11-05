@@ -30,6 +30,18 @@ per mod (verified identical by hash).
 With the Herdr app installed and a tower server running (`tower serve` or
 `tower service install`):
 
+### Using an Agent
+
+Tell your agent:
+
+```
+```
+Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/geoffjay/tower/tree/main/app
+```
+```
+
+### During Development
+
 ```sh
 cp app/layouts/tower.json ~/.config/herdr-app/layouts/
 cp -R app/mods/tower-{agents,workflows,inbox,jobs,events,tabs} ~/.config/herdr-app/mods/
