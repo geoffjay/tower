@@ -12,6 +12,7 @@ it):
 ```text
 app/
 ├── layouts/tower.json     the window: center terminals + tower panel stack
+├── keys.json              cmd-shift-left/right cycle the tower panels (merged, never replacing yours)
 └── mods/
     ├── tower-agents/      fleet: rows per agent, detail with prompt/actions/screen, spawn
     ├── tower-workflows/   workflows: list, top-down graph, runs over the graph, run/edit/create
@@ -43,6 +44,13 @@ Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/geoffj
 ```sh
 cp app/layouts/tower.json ~/.config/herdr-app/layouts/
 cp -R app/mods/tower-{agents,workflows,inbox,jobs,events,tabs} ~/.config/herdr-app/mods/
+# add app/keys.json's keys that ~/.config/herdr-app/keys.json doesn't bind yet
+K=~/.config/herdr-app/keys.json
+jq -s '.[0] as $u | ([$u[] | keys[]]) as $used | .[1]
+  | reduce (to_entries[] | .key as $s | .value | to_entries[]
+      | select(.key as $k | $used | any(.[]; . == $k) | not)
+      | {s: $s, k: .key, v: .value}) as $e
+    ($u; .[$e.s] = ((.[$e.s] // {}) + {($e.k): $e.v}))' "$K" app/keys.json > "$K.new" && mv "$K.new" "$K"
 herdr-app do layout.switch --name tower
 ```
 
@@ -62,6 +70,18 @@ picker: "Follow space", or pin this computer or a machine (a dot marks a
 pin; shared state `tower.machine`). A remote machine needs its own
 `tower` CLI and server; calls run there through herdr-core's ssh
 connection, so its server stays on loopback.
+
+### Keys
+
+`cmd-shift-right` / `cmd-shift-left` show the next / previous tower panel
+(Agents → Workflows → Jobs → Events → Inbox, wrapping; with the panel
+closed, the first / last). They live in your `~/.config/herdr-app/keys.json`
+under `layout:tower`, so they only act while this layout shows, and you
+can rebind them there: the actions are `tower-tabs.next` and
+`tower-tabs.prev`. Installing adds them only where you don't already
+bind those keys, in any section. Herdr treats an edited `keys.json` as
+yours, so new default shortcuts from later Herdr releases need adding by
+hand after that.
 
 ## What it does
 
@@ -99,8 +119,9 @@ connection, so its server stays on loopback.
   agent's screen, a job's result). Agent screen snapshots stay under
   their own filter. Needs a tower 0.6.0 server.
 
-Center and tab bar are the shipped Herdr mods unchanged — the deck sits
-around the terminals you already work in.
+Center is the shipped Herdr pane cards unchanged, and the tab bar is the
+shipped one plus the tower buttons — the deck sits around the terminals
+you already work in.
 
 ## Verification
 

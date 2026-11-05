@@ -1,0 +1,6 @@
+{
+	"layout:tower": {
+		"cmd-shift-left": "tower-tabs.prev",
+		"cmd-shift-right": "tower-tabs.next"
+	}
+}

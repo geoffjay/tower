@@ -4,6 +4,7 @@ import {
 	closeOverlay,
 	layout,
 	machines,
+	nextCommand,
 	openOverlay,
 	panes,
 	props,
@@ -23,6 +24,15 @@ import {
 } from "./tower.js";
 
 const INBOX_MS = 10000; // the Inbox panel's own refresh period
+
+// This layout's panel children are tower's, in tab bar order.
+const PANELS = [
+	"tower-agents",
+	"tower-workflows",
+	"tower-jobs",
+	"tower-events",
+	"tower-inbox",
+];
 
 function find(node, id) {
 	if (node?.id === id) return node;
@@ -65,6 +75,33 @@ export default class Tabs extends View {
 		});
 		cx.timer.every(INBOX_MS, poll);
 		poll(cx);
+		// Key commands from keys.json (`tower-tabs.next` / `tower-tabs.prev`).
+		cx.spawn(async (cx) => {
+			for (;;) {
+				const c = await nextCommand();
+				if (c === "next") this.cycle(1);
+				else if (c === "prev") this.cycle(-1);
+				cx.notify();
+			}
+		});
+	}
+
+	/** Show the next or previous tower panel, wrapping around; with the
+	 * panel closed, the first (next) or the last (prev). */
+	cycle(step) {
+		const root = layout(),
+			panel = find(root, "panel"),
+			body = find(root, "panel-body");
+		if (!panel) return;
+		const at = panel.hidden ? -1 : PANELS.indexOf(body?.active);
+		const i =
+			at < 0
+				? step > 0
+					? 0
+					: PANELS.length - 1
+				: (at + step + PANELS.length) % PANELS.length;
+		run("layout.select", { stack: "panel-body", child: PANELS[i] });
+		run("layout.show", { id: "panel" });
 	}
 
 	/** The picker: follow the shown space, or pin this computer or a machine
@@ -310,18 +347,10 @@ export default class Tabs extends View {
 				: 10;
 		const panel = find(root, "panel"),
 			body = find(root, "panel-body");
-		// This layout's panel children are tower's, always offered; the
-		// per-space restore below keeps a space's last open tower panel
-		// (or closed) instead of closing what shared("workspace.panels")
-		// doesn't name.
-		const enabled = [
-			"tower-agents",
-			"tower-workflows",
-			"tower-jobs",
-			"tower-events",
-			"tower-inbox",
-		];
-		this.syncPanel(space, panel, body, enabled);
+		// The panel children are tower's, always offered; the per-space
+		// restore below keeps a space's last open tower panel (or closed)
+		// instead of closing what shared("workspace.panels") doesn't name.
+		this.syncPanel(space, panel, body, PANELS);
 		const panelButton = (id, label, icon, attention = false) => {
 			const on = panel && !panel.hidden && body?.active === id;
 			return h_flex()
