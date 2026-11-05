@@ -265,7 +265,7 @@ Append-only log row. Every state change anywhere is one event. Event types:
 | `task.created` / `task.status` | task_id, state, result ref |
 | `task.assigned` | task_id, owner_id, lease_expires_at |
 | `task.leased_out` | task_id, prior owner, state → queued |
-| `task.completed` / `task.failed` | task_id, owner_id, result ref |
+| `task.completed` / `task.failed` | task_id, owner_id, title, tags, result ref (title and tags let a workflow event trigger match the job, [§5.6](#56-workflow-run-step)) |
 | `task.updated` | task_id, changed field names ([§5.2.3](#523-lifecycle-prompts-and-editing)) |
 | `task.hook` | task_id, owner_id, phase (`pre`/`post`), status (`running`/`done`/`failed`/`interrupted`), error |
 | `schedule.updated` | schedule_id, changed field names, next_run_at |

@@ -79,9 +79,11 @@ the same way (mods cannot read the environment).
   Answer in place, approve/deny with a confirm press (an approval lets an
   agent act), dismiss stale ones, peek at the asking agent's screen.
 - **Jobs** (right panel): open jobs with owner/priority/age, the last ten
-  to close, schedules with next runs. `＋ New job…` queues a job now,
-  holds one for its owner until a time, or creates a schedule (daily or
-  cron), with pre-run and post-run prompts. Assign a job to an agent
+  to close, schedules with next runs. `＋ New…` queues a job now, holds
+  one for its owner until a time, or creates a schedule (daily or cron),
+  with tags and pre-run and post-run prompts, or starts a workflow run
+  now or on a schedule. A tag shows which workflows the job's completion
+  starts. Assign a job to an agent
   (pills), release or cancel owned jobs, pause/resume/run schedules.
   Click a job for its facts, prompts, result, trail and messages, or a
   schedule for its cadence, prompts and runs (a run opens as a job).

@@ -70,15 +70,30 @@ behavior contract; this doc records the facts and decisions behind it.
   leading `-` stays a value; an emptied field clears it.
   `tower-jobs/jobs.js` holds these rules and the formatters. RECENT sorts
   closed jobs by `updated_at`, because `task list` puts the oldest first.
-- **Jobs create form.** `＋ New job…` is one form for the three ways
-  work enters the queue, picked by WHEN: `now` (`task create`, optionally
-  reserved with "deliver when free"), `at a time` (`task create --assign
-  --at`; a hold needs an owner, the CLI's rule) and `repeats` (`schedule
-  create --daily|--cron [--tz]`). One form, not a second button, because
-  the fields are the same (title, description, priority, owner, pre-run,
-  post-run) and only the timing differs. Pre-run and post-run are on the
-  form so a job no longer needs an edit after it is created.
-  `jobs.js` `createArgs()` builds the command, `--flag=value` like edit.
+- **Jobs create form.** `＋ New…` is one form for the ways work enters
+  tower, first `a job` or `a workflow run`, then WHEN: a job `now`
+  (`task create`, optionally reserved with "deliver when free"), `at a
+  time` (`task create --assign --at`; a hold needs an owner, the CLI's
+  rule) or `repeats` (`schedule create --daily|--cron [--tz]`); a run
+  `now` (`workflow run --input`) or `repeats`. One form, not a second
+  button, because the fields overlap and only the timing differs.
+  Pre-run and post-run are on the form so a job needs no edit after it
+  is created.
+- **A job that starts a workflow.** Jobs carry tags, and
+  `task.completed` / `task.failed` events carry the job's title and tags
+  ([D§5.4](design/05-core-objects.md)), so a workflow event trigger with
+  `match = { tags = "deploy" }` starts when such a job closes. The form
+  names the workflows a job's tags would start (`tagTriggers`: enabled
+  workflows whose trigger on a job event matches only a tag). A tower
+  0.7.0 server leaves title and tags out of those two events, so
+  completion triggers on tags need a newer server.
+- **A repeating workflow run** is a schedule trigger in the workflow's
+  TOML, not a `schedule create`: the definition owns its schedules
+  (decision: workflows §5). The form appends a `[[triggers]]` table to
+  the source from `workflow show` and applies it as a new version; a
+  source that declares `triggers = [...]` inline is refused by the
+  server's parser, and its error shows in the strip.
+  `jobs.js` builds every command, `--flag=value` like edit.
 - **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
   colors the Inbox button `blocked` while anything is pending. The Inbox
   panel is usually closed, so the always-shown tab bar carries the signal.

@@ -427,7 +427,18 @@ kind = "event"               # any event on the bus
 type = "agent.state"
 match = { to = "blocked" }
 input = { agent = "{{ event.subject_id }}" }
+
+[[triggers]]
+kind = "event"               # a job finishing: any job tagged `deploy`
+type = "task.completed"
+match = { tags = "deploy" }
+input = { change = "{{ event.title }}" }
 ```
+
+With the last trigger, `tower task create "ship v1.4" --tag deploy`
+queues ordinary work; when its owner reports it completed, the workflow
+starts with `change = "ship v1.4"`. A schedule whose jobs carry the tag
+does the same on a cadence.
 
 A trigger skips while the run it started last is still running. Applying
 a changed file adds a version; running runs keep theirs. `tower workflow
