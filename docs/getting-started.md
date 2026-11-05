@@ -357,6 +357,85 @@ A queued job takes every change; a delivered job only its post-run
 prompt; a closed job none. A schedule edit applies from its next firing —
 a job it already fired keeps what it was fired with.
 
+### Workflows
+
+A **workflow** chains jobs: each step is a job for a named agent, the
+agent's reported outcome picks the next step, and each step's job carries
+the earlier steps' summaries. Write the graph in TOML and apply it:
+
+```toml
+# parity.toml
+name = "parity"
+description = "Classify a number, then announce it on the matching branch."
+result = "announce"
+
+[inputs]
+number = { required = true }
+
+[[nodes]]
+id = "classify"
+agent = "classifier"
+outcomes = ["even", "odd"]
+prompt = "Decide whether {{ input.number }} is even or odd."
+
+[[nodes]]
+id = "announce"
+agent = "writer"
+prompt = "The classifier said {{ input.number }} is {{ nodes.classify.outcome }}. Confirm it."
+
+[[edges]]
+from = "classify"
+to = "announce"
+on = "odd"
+```
+
+```console
+$ tower workflow apply parity.toml
+parity  v1 (created)
+
+$ tower workflow run parity --input number=7 --wait
+run 01M6MZPXNNBJ5C9FAYVEEHZC5D  started (parity v1)
+  classify #1  running  classifier
+  classify #1  completed  classifier  → odd
+  announce #1  running  writer
+  announce #1  completed  writer
+run 01M6MZPXNNBJ5C9FAYVEEHZC5D  completed → announce: The number 7 is odd…
+
+$ tower run show 01M6MZPXNNBJ5C9FAYVEEHZC5D   # steps, agents, outcomes, summaries
+$ tower workflow show parity                  # nodes, edges, triggers, recent runs
+```
+
+Each step's agent finishes with a result object — `summary` (at most
+2,000 characters), `outcome` when the node lists outcomes, optional
+`data` — and tower refuses a report without them. Long output goes into
+an artifact on the job (`tower artifact put`); the next step's job lists
+it. Edges fire on an outcome, on `completed` (the default), or on
+`failed`; `join = "all"` waits for every incoming edge; a loop back to
+an earlier node needs `max_visits` on one of its nodes. A failed step
+with no `failed` edge fails the run and cancels its other open jobs.
+
+Runs start by hand, or from triggers in the definition:
+
+```toml
+[[triggers]]
+kind = "schedule"            # a managed schedule: `tower schedule list` shows it
+cron = "0 8 * * MON-FRI"
+timezone = "America/Vancouver"
+
+[[triggers]]
+kind = "event"               # any event on the bus
+type = "agent.state"
+match = { to = "blocked" }
+input = { agent = "{{ event.subject_id }}" }
+```
+
+A trigger skips while the run it started last is still running. Applying
+a changed file adds a version; running runs keep theirs. `tower workflow
+disable` pauses its schedules and triggers, `tower run cancel` stops a run
+and its jobs, `tower workflow rm` removes it (not while a run is
+running). The full rules are the
+[workflows decision](knowledgebase/decisions/workflows.md).
+
 ## 8. Watch the system
 
 ```console
@@ -497,6 +576,9 @@ it to run outside the sandbox.
 | `tower inbox` / `tower ask` / `tower approve ID` / `tower dismiss ID` | human ↔ agent loop; dismiss = drop stale, no answer sent |
 | `tower task create/list/assign/show/edit/cancel/release` | job queue (you assign, agents own) |
 | `tower schedule create/list/show/edit/pause/resume/run/rm` | recurring jobs |
+| `tower workflow apply/list/show/run/enable/disable/rm` | workflows: graphs of jobs, routed by outcomes |
+| `tower run list/show/cancel` | workflow runs and their steps |
+| `tower artifact put/get` | text attached to a job, read by later workflow steps |
 | `tower service install/uninstall/status` | keep `tower serve` running |
 | `tower events --follow [--filter ...]` | system event stream |
 | `tower machines add/remove/list` | node registry |

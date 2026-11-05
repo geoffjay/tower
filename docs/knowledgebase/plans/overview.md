@@ -49,7 +49,7 @@ are recorded as amendments there first, then implemented.
 | [Phase 4 — Web UI (agent cloud)](phase-4-web-ui.md) | Web UI | phase 2 (independent of 3) | **complete** (2026-09-27) |
 | [Phase 5 — Multi-machine](phase-5-multi-machine.md) | Multi-machine | phase 2 | not started |
 | [Phase 6 — A2A edge](phase-6-a2a-edge.md) | A2A edge | phase 2 | not started |
-| [Phase 7 — Workflows](phase-7-workflows.md) | Workflows | phase 2b, phase 2d | in progress |
+| [Phase 7 — Workflows](phase-7-workflows.md) | Workflows | phase 2b, phase 2d | **complete** (2026-11-04) |
 
 ## Dependency graph
 

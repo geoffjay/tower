@@ -146,9 +146,12 @@ agent, phase 6 backlog).
   next fire into it opens a new `pending` step. One rule covers skipped
   branches and loops; the cost is that a join waiting on a skipped branch
   starts only after the rest of the run goes quiet.
-- **Loops** are edges back to an earlier node. Each node has
-  `max_visits` (default 1; a loop target sets it higher). An activation
-  past the limit creates the step as `failed` with `max_visits`.
+- **Loops** are edges back to an earlier node. `max_visits` caps how
+  many steps a node may have in one run; without it a node has no limit
+  (a `join = "any"` node with two fired edges runs twice). Every loop
+  must contain at least one node that sets it — the loop guard — or
+  `apply` refuses the definition. An activation past the limit creates
+  the step as `failed` with `max_visits (n) reached`, and creates no job.
 - **Failure**: a failed step follows its `on = "failed"` edges. With none,
   the run fails at once: its open steps are canceled and their jobs
   canceled (interrupting their owners, the existing cancel path). A job
@@ -361,8 +364,9 @@ TOML, like `config.toml` ([§4](../concepts/design/04-paths-and-configuration.md
 `tower workflow apply <file>` validates the file and stores a new version
 when it changed. Validation checks: node ids are unique slugs, edges name
 real nodes, `on` values are declared outcomes (or `completed`/`failed`),
-a mapped agent's `from` node declares every mapped outcome, a node with a
-loop edge into it allows more than one visit, agents named by the
+a mapped agent's `from` node declares every mapped outcome, every loop
+has a guard (a node on it with `max_visits`), some node has no incoming
+edge (a start), agents named by the
 definition exist, templates refer only to known names. Templates are a
 small `{{ path }}` substitution, not a template engine: `{{ input.<key> }}`,
 `{{ run.id }}`, `{{ nodes.<id>.outcome }}`, `{{ nodes.<id>.summary }}`,
