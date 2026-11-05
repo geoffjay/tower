@@ -9,7 +9,6 @@ use directories::ProjectDirs;
 pub struct Paths {
     pub config_file: PathBuf,
     pub db_file: PathBuf,
-    pub artifacts_dir: PathBuf,
     pub token_file: PathBuf,
     pub socket_file: PathBuf,
     pub agents_dir: PathBuf,
@@ -23,7 +22,6 @@ impl Paths {
             return Ok(Self {
                 config_file: home.join("config.toml"),
                 db_file: home.join("tower.db"),
-                artifacts_dir: home.join("artifacts"),
                 token_file: home.join("token"),
                 socket_file: home.join("tower.sock"),
                 agents_dir: home.join("agents"),
@@ -39,7 +37,6 @@ impl Paths {
         Ok(Self {
             config_file: dirs.config_dir().join("config.toml"),
             db_file: dirs.data_dir().join("tower.db"),
-            artifacts_dir: dirs.data_dir().join("artifacts"),
             token_file: dirs.data_dir().join("token"),
             socket_file: runtime.join("tower.sock"),
             agents_dir: dirs.config_dir().join("agents"),
@@ -53,7 +50,6 @@ impl Paths {
         if let Some(p) = self.db_file.parent() {
             std::fs::create_dir_all(p)?;
         }
-        std::fs::create_dir_all(&self.artifacts_dir)?;
         if let Some(p) = self.socket_file.parent() {
             std::fs::create_dir_all(p)?;
         }

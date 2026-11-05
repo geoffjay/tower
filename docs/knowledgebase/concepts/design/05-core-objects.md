@@ -185,6 +185,12 @@ table there is normative.
   into one; target removed → schedule paused, reserved jobs fall back to
   the general queue. Schedules are operator-only and editable in place
   ([§5.2.3](#523-lifecycle-prompts-and-editing)).
+- **Workflow schedules**: a schedule with `workflow_id` belongs to a
+  workflow's schedule trigger ([§5.6](#56-workflow-run-step)). Each firing
+  starts a run instead of creating a job; it skips (`previous_running`)
+  while the run it started last is still `running`. `apply` creates,
+  updates, and deletes these rows; edit and remove answer `conflict`;
+  pause, resume, and run work as for any schedule.
 
 ## 5.2.3 Lifecycle prompts and editing
 
@@ -263,6 +269,10 @@ Append-only log row. Every state change anywhere is one event. Event types:
 | `task.updated` | task_id, changed field names ([§5.2.3](#523-lifecycle-prompts-and-editing)) |
 | `task.hook` | task_id, owner_id, phase (`pre`/`post`), status (`running`/`done`/`failed`/`interrupted`), error |
 | `schedule.updated` | schedule_id, changed field names, next_run_at |
+| `workflow.applied` / `removed` / `enabled` / `disabled` | workflow_id, name, version ([§5.6](#56-workflow-run-step)) |
+| `workflow.run.started` / `completed` / `failed` / `canceled` | run_id, workflow, trigger, error |
+| `workflow.step.started` / `completed` / `failed` / `canceled` | run_id, step_id, node, visit, task_id, outcome, error |
+| `artifact.created` | task_id, artifact_id, name, size (subject: the task) |
 | `message.created` / `message.status` | message summary, status transitions |
 | `approval.expired` | message_id, agent_id |
 | `machine.state` | machine_id, status |
@@ -275,3 +285,47 @@ the global monotonic cursor.
 
 A registered host. `role: coordinator | node`, `status: online | offline |
 degraded`, `last_seen_at`. Local machine is always present (`local`).
+
+## 5.6 Workflow, run, step
+
+Decision: [workflows](../../decisions/workflows.md) — its §3–§6 are
+normative for routing, hand-off, triggers, and the engine.
+
+- **Workflow**: a named graph of `job` nodes and edges, stored in
+  versions (`tower workflow apply <file.toml>` adds one when the
+  definition changed). Enabled or disabled. Operator-defined only.
+- **Run**: one execution of one version, with an `input` object and its
+  trigger (manual, schedule, event). A run's id is the `context_id` of
+  every job it creates (A2A context grouping).
+
+```
+RunState:  running ──► completed
+              │  └───► failed     (a step failed with no `on = "failed"` edge)
+              └──────► canceled   (operator)
+```
+
+- **Step**: one execution of one node; a loop visit is a new step
+  (`visit` + 1, at most the node's `max_visits`). A job step owns exactly
+  one job (origin `workflow`), reserved for the node's agent — static, or
+  mapped from an earlier node's outcome.
+
+```
+StepState:  pending ──► ready ──► running ──► completed
+            (join=all       │          └────► failed
+             collecting)    └───────────────► failed   (no agent, max_visits)
+            any open state ─────────────────► canceled  (run failed or canceled)
+```
+
+- **Routing**: an edge fires on the source step's declared outcome,
+  `completed` (default), or `failed`. `join = "any"` (default) starts a
+  step per fired edge; `join = "all"` collects in a `pending` step and
+  runs when every incoming edge fired — or when the run has nothing else
+  `ready`/`running`, with the edges that did fire.
+- **Result contract** (workflow jobs only): a `completed` report carries
+  `{summary ≤ 2000 chars, outcome ∈ node outcomes, data ≤ 16 KB}`;
+  otherwise 400 `invalid` with `detail.reason`. A `failed` report needs
+  no summary.
+- **Hand-off**: the job description is the node prompt plus the run
+  input, the context steps' outcome, summary, and artifact ids, the
+  node's own earlier visits, and the contract. Artifacts (text ≤ 1 MiB,
+  attached by the job's owner while open) are read on demand.

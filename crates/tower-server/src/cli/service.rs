@@ -293,17 +293,33 @@ async fn status(platform: Platform, label: &str) -> anyhow::Result<()> {
     };
     println!("{:<12} {service}", "service");
 
-    let server = match Client::connect(None) {
-        Ok(c) => c.get("/healthz").await.map(|v| v["ok"] == true),
+    let health = match Client::connect(None) {
+        Ok(c) => c.get("/healthz").await,
         Err(e) => Err(e),
     };
-    let server = match server {
-        Ok(true) => "healthz ok".to_string(),
-        Ok(false) => "healthz reports a database error".to_string(),
+    let server = match &health {
+        Ok(v) if v["ok"] == true => "healthz ok".to_string(),
+        Ok(_) => "healthz reports a database error".to_string(),
         Err(e) => format!("not reachable: {e:#}"),
     };
     println!("{:<12} {server}", "server");
+    let running = health.as_ref().ok().and_then(|v| v["version"].as_str());
+    println!(
+        "{:<12} {}",
+        "version",
+        describe_versions(running, env!("CARGO_PKG_VERSION"))
+    );
     Ok(())
+}
+
+/// The `version` line: what the server runs beside this CLI's version. A
+/// mismatch (an upgrade not yet restarted, typically) says so.
+fn describe_versions(server: Option<&str>, cli: &str) -> String {
+    match server {
+        Some(s) if s == cli => format!("server {s} (cli {cli})"),
+        Some(s) => format!("server {s}, cli {cli} — restart the service to run {cli}"),
+        None => format!("server unknown (cli {cli})"),
+    }
 }
 
 /// Summarize `launchctl print` output: `state = …`, `pid = …`,
@@ -569,6 +585,21 @@ mod tests {
     fn systemd_quote_escapes_specifiers() {
         assert_eq!(systemd_quote("/a b/100%/$x", true), "\"/a b/100%%/$$x\"");
         assert_eq!(systemd_quote("P=a\"b\\c$", false), "\"P=a\\\"b\\\\c$\"");
+    }
+
+    #[test]
+    fn version_line_flags_an_upgrade_not_yet_restarted() {
+        assert_eq!(
+            describe_versions(Some("0.6.0"), "0.6.0"),
+            "server 0.6.0 (cli 0.6.0)"
+        );
+        let stale = describe_versions(Some("0.5.0"), "0.6.0");
+        assert!(stale.starts_with("server 0.5.0, cli 0.6.0"), "{stale}");
+        assert!(stale.contains("restart"), "{stale}");
+        assert_eq!(
+            describe_versions(None, "0.6.0"),
+            "server unknown (cli 0.6.0)"
+        );
     }
 
     #[test]

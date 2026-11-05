@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: Design §6 — Data model (DDL)
-description: SQLite schema for machines, agents, tasks, messages, artifacts, and events; single-writer discipline.
+description: SQLite schema for machines, agents, tasks, schedules, messages, artifacts, workflows, and events; single-writer discipline.
 tags:
   - design
   - design-s6
@@ -95,6 +95,8 @@ CREATE TABLE schedules (                          -- migration 0003
   last_run_at      INTEGER,
   pre_run          TEXT,                            -- copied into every job it fires (0006)
   post_run         TEXT,                            -- (0006)
+  workflow_id      TEXT,                            -- managed: fires a workflow run instead of a job (0007, D§5.6)
+  workflow_input   TEXT,                            -- JSON input for the run it starts (0007)
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
 );
@@ -116,14 +118,75 @@ CREATE TABLE messages (
 CREATE INDEX idx_messages_to ON messages(to_kind, to_id, status);
 CREATE INDEX idx_messages_task ON messages(task_id);
 
-CREATE TABLE artifacts (
+CREATE TABLE artifacts (                          -- rebuilt in 0007 (never written before)
   id           TEXT PRIMARY KEY,
-  task_id      TEXT REFERENCES tasks(id),
+  task_id      TEXT NOT NULL REFERENCES tasks(id),
   name         TEXT NOT NULL,
   media_type   TEXT,
-  content_path TEXT NOT NULL,  -- file under artifacts/
-  size         INTEGER NOT NULL,
+  content      TEXT NOT NULL,                     -- UTF-8 text, ≤ 1 MiB
+  size         INTEGER NOT NULL,                  -- bytes
+  created_by   TEXT,                              -- the owning agent's id
   created_at   INTEGER NOT NULL
+);
+CREATE INDEX idx_artifacts_task ON artifacts(task_id);
+
+CREATE TABLE workflows (                          -- 0007, D§5.6
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL UNIQUE,
+  description     TEXT,
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  current_version INTEGER NOT NULL,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+
+CREATE TABLE workflow_versions (
+  workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+  version     INTEGER NOT NULL,
+  source      TEXT NOT NULL,                      -- TOML as applied
+  definition  TEXT NOT NULL,                      -- validated graph, JSON
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (workflow_id, version)
+);
+
+CREATE TABLE workflow_runs (
+  id            TEXT PRIMARY KEY,                 -- = tasks.context_id of its jobs
+  workflow_id   TEXT NOT NULL,                    -- no FK: history survives removal
+  workflow_name TEXT NOT NULL,
+  version       INTEGER NOT NULL,
+  state         TEXT NOT NULL,                    -- running | completed | failed | canceled
+  input         TEXT NOT NULL,                    -- JSON object
+  trigger       TEXT NOT NULL,                    -- JSON {kind, schedule_id?, event_seq?, trigger?}
+  result        TEXT,
+  error         TEXT,
+  created_at    INTEGER NOT NULL,
+  ended_at      INTEGER
+);
+CREATE INDEX idx_runs_workflow ON workflow_runs(workflow_id, state);
+CREATE INDEX idx_runs_state ON workflow_runs(state);
+
+CREATE TABLE workflow_steps (
+  id           TEXT PRIMARY KEY,
+  run_id       TEXT NOT NULL REFERENCES workflow_runs(id),
+  node_id      TEXT NOT NULL,
+  visit        INTEGER NOT NULL,
+  state        TEXT NOT NULL,                     -- pending | ready | running | completed | failed | canceled
+  activated_by TEXT NOT NULL DEFAULT '[]',        -- JSON array of step ids whose edges fired
+  task_id      TEXT UNIQUE,                       -- chosen before the job exists (no FK)
+  agent_id     TEXT,
+  outcome      TEXT,
+  result       TEXT,                              -- {summary, data}, frozen at close
+  error        TEXT,
+  created_at   INTEGER NOT NULL,
+  started_at   INTEGER,
+  ended_at     INTEGER,
+  UNIQUE (run_id, node_id, visit)
+);
+CREATE INDEX idx_steps_state ON workflow_steps(state);
+
+CREATE TABLE event_consumers (                    -- durable in-process event cursors (D§9.6)
+  name   TEXT PRIMARY KEY,
+  cursor INTEGER NOT NULL
 );
 
 CREATE TABLE events (

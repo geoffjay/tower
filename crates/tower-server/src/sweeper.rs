@@ -48,6 +48,9 @@ pub fn spawn(state: AppState) -> tokio::task::JoinHandle<()> {
             if let Err(e) = crate::tasks::dispatch_all(&state, now).await {
                 tracing::warn!(error = %e, "sweeper: dispatch failed");
             }
+            if let Err(e) = crate::workflows::reconcile(&state, now).await {
+                tracing::warn!(error = %e, "sweeper: workflow reconcile failed");
+            }
         }
     })
 }

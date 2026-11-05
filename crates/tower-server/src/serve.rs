@@ -19,6 +19,8 @@ pub fn router(state: AppState) -> axum::Router {
         .merge(crate::messaging::router())
         .merge(crate::tasks::router())
         .merge(crate::schedules::router())
+        .merge(crate::workflows::router())
+        .merge(crate::artifacts::router())
         .merge(crate::mcp::router())
         .merge(
             axum::Router::new()
@@ -73,6 +75,9 @@ pub async fn serve() -> anyhow::Result<()> {
         .await?;
     tracing::info!(seq = ev.seq, "server.started");
 
+    // workflows engine (D§9.7): its event cursor is registered before the
+    // sweeper's first prune
+    let workflows = crate::workflows::Consumer::start(&state).await?;
     let pump_state = state.clone();
     let routes = router(state);
     let tcp_app = with_tcp_auth(routes.clone(), &token);
@@ -125,6 +130,7 @@ pub async fn serve() -> anyhow::Result<()> {
 
     // driver event pump (T2.1): state changes, output events, blocked → question
     tasks.push(crate::pump::spawn(pump_state.clone()));
+    tasks.push(workflows.spawn());
     // sweeper (T2.3, T3.2): message deadlines + task leases
     tasks.push(crate::sweeper::spawn(pump_state));
 

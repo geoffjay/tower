@@ -1,9 +1,11 @@
 use clap::{Parser, Subcommand};
 use tower_client::Client;
 
+mod artifact;
 mod schedule;
 mod service;
 mod task;
+mod workflow;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -120,6 +122,21 @@ pub enum Command {
         #[command(subcommand)]
         cmd: schedule::ScheduleCmd,
     },
+    /// Workflows: apply a definition, list, show, run, enable, disable, rm
+    Workflow {
+        #[command(subcommand)]
+        cmd: workflow::WorkflowCmd,
+    },
+    /// Workflow runs: list, show, cancel
+    Run {
+        #[command(subcommand)]
+        cmd: workflow::RunCmd,
+    },
+    /// Artifacts: attach text to your job, or read one
+    Artifact {
+        #[command(subcommand)]
+        cmd: artifact::ArtifactCmd,
+    },
     /// Run `tower serve` as a user service (launchd / systemd)
     Service {
         #[command(subcommand)]
@@ -186,6 +203,11 @@ async fn main_async(cli: Cli) -> anyhow::Result<()> {
         Command::Service { cmd } => service::run(cmd).await,
         Command::Schedule { cmd } => schedule::run(&client(cli.token).await?, cmd, cli.json).await,
         Command::Task { cmd } => task::run(&client(cli.token).await?, cmd, cli.json).await,
+        Command::Workflow { cmd } => {
+            workflow::run_workflow(&client(cli.token).await?, cmd, cli.json).await
+        }
+        Command::Run { cmd } => workflow::run_runs(&client(cli.token).await?, cmd, cli.json).await,
+        Command::Artifact { cmd } => artifact::run(&client(cli.token).await?, cmd, cli.json).await,
         Command::Ask {
             name,
             text,

@@ -2,10 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{AgentId, MachineId, MessageId, ScheduleId, TaskId};
+use crate::ids::{
+    AgentId, ArtifactId, MachineId, MessageId, RunId, ScheduleId, StepId, TaskId, WorkflowId,
+};
 use crate::states::{
     AgentState, DesiredState, EventKind, HookPhase, MessageKind, MessageStatus, PartyKind,
-    Permissions, TaskState,
+    Permissions, RunState, StepState, TaskState,
 };
 
 /// An agent row: named seat bound to a harness instance (D§5.1).
@@ -115,6 +117,13 @@ pub struct Schedule {
     pub pre_run: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_run: Option<String>,
+    /// Managed by this workflow's schedule trigger: a firing starts a run
+    /// instead of creating a job (D§5.2.2, D§5.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<WorkflowId>,
+    /// The input object of the runs it starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_input: Option<serde_json::Value>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -139,16 +148,81 @@ pub struct Message {
     pub created_at: i64,
 }
 
-/// An artifact row (D§6).
+/// An artifact row (D§6, D§5.6): text attached to a job by its owner. The
+/// content is served separately (`GET /v1/artifacts/{id}`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Artifact {
-    pub id: String,
-    pub task_id: Option<TaskId>,
+    pub id: ArtifactId,
+    pub task_id: TaskId,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
-    pub content_path: String,
+    /// Content length in bytes.
     pub size: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<AgentId>,
     pub created_at: i64,
+}
+
+/// A workflow definition (D§5.6); the graph lives in its versions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Workflow {
+    pub id: WorkflowId,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub enabled: bool,
+    pub current_version: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// One execution of one workflow version (D§5.6).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowRun {
+    pub id: RunId,
+    pub workflow_id: WorkflowId,
+    pub workflow_name: String,
+    pub version: i64,
+    pub state: RunState,
+    pub input: serde_json::Value,
+    /// What started it: `{kind: manual|schedule|event, …}`.
+    pub trigger: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
+}
+
+/// One execution of one node in a run (D§5.6).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkflowStep {
+    pub id: StepId,
+    pub run_id: RunId,
+    pub node_id: String,
+    pub visit: i64,
+    pub state: StepState,
+    /// Steps whose edges fired into this one.
+    pub activated_by: Vec<StepId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<TaskId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<AgentId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// `{summary, data?}`, frozen when the step closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
 }
 
 /// A machine row (D§5.5).

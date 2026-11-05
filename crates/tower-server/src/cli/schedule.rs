@@ -211,8 +211,11 @@ pub async fn run(c: &Client, cmd: ScheduleCmd, json_out: bool) -> anyhow::Result
                     }
                     println!("{s}");
                 }
+                Some("started") => {
+                    println!("{id}  ran → run {}", f["run_id"].as_str().unwrap_or("?"))
+                }
                 Some("skipped") => println!(
-                    "{id}  skipped: previous run {} is still being worked",
+                    "{id}  skipped: previous run {} is still open",
                     f["running"].as_str().unwrap_or("?")
                 ),
                 _ => println!("{id}  no new job (already exists for this time)"),
@@ -242,7 +245,9 @@ fn cadence(cron: &str) -> String {
 }
 
 fn target(s: &Value, names: &HashMap<String, String>) -> String {
-    if s["target_agent_id"].is_string() {
+    if s["workflow_id"].is_string() {
+        "(workflow)".into()
+    } else if s["target_agent_id"].is_string() {
         name(names, &s["target_agent_id"]).to_string()
     } else {
         "(queue)".into()

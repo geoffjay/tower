@@ -58,6 +58,24 @@ as "proceed with your default or stop", and approvals are **denied**.
 `{"summary": "…"}`. Report `failed` (with a reason in `result`) rather
 than going silent — silence costs a lease window and an attempt.
 
+**Workflow jobs**: a job that is one step of a workflow run says so below
+its prompt ("Workflow `…`, run …, step `…`"), with the run's input and the
+summaries of the earlier steps it depends on. Its `completed` report must
+carry a result object, and tower refuses it (400, `detail.reason`) until
+it does:
+
+| Field | Rule |
+|---|---|
+| `summary` | required, at most 2,000 characters: what you did and what the next step needs (plain text from the CLI counts as the summary) |
+| `outcome` | required when the job lists outcomes: exactly one of them — it decides which step runs next |
+| `data` | optional JSON, at most 16 KB |
+
+Put long output in an **artifact** on your open job — `tower_artifact_put
+{"task_id": …, "name": …, "content": …}` or `tower artifact put <id> <name>
+--file <path>` (text, at most 1 MiB) — and mention it in the summary. A
+later step's job lists the artifact ids; read one with `tower_artifact_get
+{"artifact_id": …}` or `tower artifact get <id>`.
+
 **Lifecycle prompts**: the operator may attach a pre-run prompt to a job
 (it arrives before the delegation notice) and a post-run prompt (it
 arrives after you report `completed` or `failed`) — for example `/clear`

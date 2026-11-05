@@ -53,5 +53,9 @@ id_type!(TaskId, "Task identity");
 id_type!(MessageId, "Message identity");
 id_type!(MachineId, "Machine identity");
 id_type!(ScheduleId, "Recurring job schedule identity");
+id_type!(WorkflowId, "Workflow definition identity (D§5.6)");
+id_type!(RunId, "Workflow run identity; the context_id of its jobs");
+id_type!(StepId, "Workflow step identity (one node execution)");
+id_type!(ArtifactId, "Artifact identity (text attached to a job)");
 
 pub type EventSeq = i64;

@@ -286,6 +286,75 @@ pub async fn create_occurrence(
     Ok(Some(require(state, &id).await?))
 }
 
+/// A workflow step's job (D§5.6, D§9.7): an ordinary job reserved for the
+/// step's agent, with origin `workflow` and the run id as `context_id`.
+pub struct WorkflowJob<'a> {
+    /// Chosen by the step before the job exists.
+    pub id: &'a TaskId,
+    pub run: &'a tower_core::RunId,
+    pub title: String,
+    pub description: String,
+    pub target: &'a AgentId,
+    pub priority: Option<i64>,
+    pub lease_s: Option<i64>,
+    pub max_attempts: Option<i64>,
+    pub pre_run: Option<&'a str>,
+    pub post_run: Option<&'a str>,
+}
+
+/// Insert a workflow step's job unless one with its id exists (a step
+/// restarted by reconciliation never gets a second job), then deliver it if
+/// the agent is available. Returns true when this call inserted it.
+pub async fn create_workflow_job(
+    state: &AppState,
+    job: WorkflowJob<'_>,
+    now: i64,
+) -> anyhow::Result<bool> {
+    let res = sqlx::query(
+        "INSERT INTO tasks (id, title, description, state, priority, tags, max_attempts, lease_s,
+                            origin, context_id, target_agent_id, pre_run, post_run,
+                            created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'queued', ?4, '[]', ?5, ?6, 'workflow', ?7, ?8, ?9, ?10, ?11, ?11)
+         ON CONFLICT(id) DO NOTHING",
+    )
+    .bind(job.id.0.as_str())
+    .bind(&job.title)
+    .bind(&job.description)
+    .bind(job.priority.unwrap_or(0))
+    .bind(job.max_attempts.unwrap_or(3))
+    .bind(job.lease_s.unwrap_or(DEFAULT_LEASE_S))
+    .bind(job.run.0.as_str())
+    .bind(job.target.0.as_str())
+    .bind(crate::hooks::prompt_text(job.pre_run))
+    .bind(crate::hooks::prompt_text(job.post_run))
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Ok(false);
+    }
+    let by = format!("workflow:{}", job.run);
+    event(
+        state,
+        EventKind::TaskCreated,
+        job.id,
+        serde_json::json!({
+            "task_id": job.id, "title": job.title, "priority": job.priority.unwrap_or(0),
+            "tags": [], "run_id": job.run,
+        }),
+    )
+    .await?;
+    event(
+        state,
+        EventKind::TaskReserved,
+        job.id,
+        serde_json::json!({ "task_id": job.id, "target": job.target, "not_before": null, "by": by }),
+    )
+    .await?;
+    dispatch_for(state, job.target, now).await?;
+    Ok(true)
+}
+
 /// The schedule's newest job that is still open, if any (at most one by
 /// the policies: skip while running, replace while undelivered).
 pub async fn open_occurrence(
@@ -580,6 +649,13 @@ pub async fn report(
     now: i64,
 ) -> anyhow::Result<Task> {
     let owner = resolve_agent(state, as_agent).await?;
+    // a workflow job's close carries the step's result contract (D§5.6)
+    let result = match new_state {
+        Some(TaskState::Completed) => {
+            crate::workflows::check_report(state, id, &owner.id, result).await?
+        }
+        _ => result,
+    };
     let result_json = result.as_ref().map(serde_json::to_string).transpose()?;
     let set = match new_state {
         None => "result = COALESCE(?4, result), lease_expires_at = ?3 + lease_s * 1000",
@@ -1299,7 +1375,10 @@ async fn show_route(State(s): State<AppState>, Path(id): Path<String>) -> Respon
                 .iter()
                 .map(crate::messaging::row_to_message)
                 .collect();
-        anyhow::Ok(serde_json::json!({ "task": task, "trail": trail, "messages": messages }))
+        let artifacts = crate::artifacts::list_for_task(&s, &id).await?;
+        anyhow::Ok(serde_json::json!({
+            "task": task, "trail": trail, "messages": messages, "artifacts": artifacts,
+        }))
     };
     match res.await {
         Ok(v) => Json(v).into_response(),

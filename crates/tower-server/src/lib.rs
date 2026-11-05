@@ -1,6 +1,7 @@
 pub mod agent_defs;
 pub mod agents_api;
 pub mod api;
+pub mod artifacts;
 pub mod auth;
 pub mod config;
 pub mod contract;
@@ -21,6 +22,7 @@ pub mod storage;
 pub mod sweeper;
 pub mod tasks;
 pub mod ui;
+pub mod workflows;
 
 pub use config::Config;
 pub use paths::Paths;
