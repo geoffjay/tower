@@ -134,7 +134,11 @@ export default class TowerInbox extends View {
 		cx.spawn(async (cx) => {
 			let text = null;
 			try {
-				text = (await towerRead(m.from_id)).trim().split("\n").slice(-24).join("\n");
+				text = (await towerRead(m.from_id))
+					.trim()
+					.split("\n")
+					.slice(-24)
+					.join("\n");
 			} catch (e) {
 				text = `cannot read ${m.from_id}: ${e.message}`;
 			}

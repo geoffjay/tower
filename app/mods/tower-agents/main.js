@@ -8,16 +8,25 @@
 // rows), spawn (a form of installed harnesses).
 
 import {
+	Editor,
+	EditorState,
 	h_flex,
 	Input,
 	InputState,
 	Scrollbar,
+	VirtualListScrollHandle,
 	v_flex,
 	v_virtual_list,
-	VirtualListScrollHandle,
 } from "gpui-base";
 import { div, View } from "gpui-kit";
-import { knownAgents, settings, theme } from "herdr";
+import {
+	closeOverlay,
+	knownAgents,
+	openOverlay,
+	props,
+	settings,
+	theme,
+} from "herdr";
 import { parseAnsi } from "./ansi.js";
 import { stateColor, tower, towerRead } from "./tower.js";
 
@@ -29,6 +38,24 @@ const CHAR_W = 7.3; // px per column, for the screen's scroll width
 
 export default class TowerAgents extends View {
 	init(_props, cx) {
+		// Opened as an overlay by `openOverlay({ mod: "tower-agents", props:
+		// { output } })`: only the read-only output viewer, no polling.
+		const out = props()?.output;
+		if (out) {
+			this.viewer = {
+				name: out.name,
+				overlay: props().overlay,
+				editor: EditorState.new({
+					value: out.text,
+					readonly: true,
+					line_numbers: false,
+					soft_wrap: false,
+					font_family: settings().font_family,
+					font_size: 12,
+				}),
+			};
+			return;
+		}
 		this.agents = null;
 		this.jobs = []; // open jobs (queued / working / input-required)
 		this.error = null; // the last action's failure, kept until the next action
@@ -62,7 +89,8 @@ export default class TowerAgents extends View {
 			]);
 			this.agents = ps.agents ?? [];
 			this.jobs = (tasks?.tasks ?? []).filter(
-				(j) => !["completed", "failed", "canceled", "rejected"].includes(j.state),
+				(j) =>
+					!["completed", "failed", "canceled", "rejected"].includes(j.state),
 			);
 			this.loadError = null;
 		} catch (e) {
@@ -305,7 +333,9 @@ export default class TowerAgents extends View {
 					.truncate()
 					.text_size(11)
 					.text_color(t.muted)
-					.child(job ? `job: ${job.title}` : (a.workdir ?? a.worktree ?? a.kind)),
+					.child(
+						job ? `job: ${job.title}` : (a.workdir ?? a.worktree ?? a.kind),
+					),
 			);
 	}
 
@@ -455,6 +485,9 @@ export default class TowerAgents extends View {
 					)
 					.child(div().flex_1())
 					.child(
+						this.button("ag-copy", "Copy…", t, (cx) => this.openOutput(cx)),
+					)
+					.child(
 						this.button(
 							"ag-follow",
 							this.follow ? "Following" : "↓ Follow",
@@ -544,20 +577,18 @@ export default class TowerAgents extends View {
 									LINE_H,
 									(i) => String(i),
 									(range) =>
-										lines
-											.slice(range.start, range.end)
-											.map((l) =>
-												h_flex()
-													.h(LINE_H)
-													.px(10)
-													.whitespace_nowrap()
-													.text_color(t.foreground)
-													.children(
-														l.runs.length > 0
-															? l.runs.map((r) => this.run(r, t))
-															: [div().child(" ")],
-													),
-											),
+										lines.slice(range.start, range.end).map((l) =>
+											h_flex()
+												.h(LINE_H)
+												.px(10)
+												.whitespace_nowrap()
+												.text_color(t.foreground)
+												.children(
+													l.runs.length > 0
+														? l.runs.map((r) => this.run(r, t))
+														: [div().child(" ")],
+												),
+										),
 								)
 									.track_scroll(this.scroll)
 									.size_full(),
@@ -666,8 +697,62 @@ export default class TowerAgents extends View {
 			);
 	}
 
+	/** The screen as plain text, one string, for the copy dialog. */
+	plainScreen() {
+		return (this.lines ?? [])
+			.map((l) => l.runs.map((r) => r.t).join(""))
+			.join("\n");
+	}
+
+	/** A dialog with a snapshot of the screen as selectable text. */
+	openOutput(_cx) {
+		if (!this.selected) return;
+		openOverlay({
+			mod: "tower-agents",
+			kind: "dialog",
+			width: 0.7,
+			height: 0.8,
+			props: { output: { name: this.selected, text: this.plainScreen() } },
+		});
+	}
+
+	close() {
+		this.viewer?.editor.release();
+	}
+
+	/** The overlay copy's whole view: a title bar over the read-only text. */
+	viewerView(t) {
+		const v = this.viewer;
+		return v_flex()
+			.id("tower-agents-output")
+			.size_full()
+			.min_h(0)
+			.bg(t.popover)
+			.text_size(13)
+			.child(
+				h_flex()
+					.h(40)
+					.flex_none()
+					.px(14)
+					.gap(8)
+					.items_center()
+					.border_b(1)
+					.border_color(t.border)
+					.child(div().font_semibold().child(`${v.name} output`))
+					.child(
+						div().text_size(11).text_color(t.dim).child("select, then copy"),
+					)
+					.child(div().flex_1())
+					.child(
+						this.button("out-close", "Close", t, () => closeOverlay(v.overlay)),
+					),
+			)
+			.child(div().flex_1().min_h(0).child(Editor.new(v.editor)));
+	}
+
 	render() {
 		const t = theme();
+		if (this.viewer) return this.viewerView(t);
 		const agents = this.agents ?? [];
 		const stacks = new Map();
 		for (const a of agents) {
@@ -719,7 +804,12 @@ export default class TowerAgents extends View {
 									.pb(10)
 									.when(this.agents === null, (el) =>
 										el.child(
-											div().px(14).py(8).text_size(12).text_color(t.dim).child("Loading…"),
+											div()
+												.px(14)
+												.py(8)
+												.text_size(12)
+												.text_color(t.dim)
+												.child("Loading…"),
 										),
 									)
 									.when(this.agents !== null && agents.length === 0, (el) =>
@@ -756,7 +846,9 @@ export default class TowerAgents extends View {
 			)
 			.child(div().flex_1())
 			.when(!this.spawn, (el) =>
-				el.child(this.button("spawn", "＋ Spawn…", t, (cx) => this.openSpawn(cx))),
+				el.child(
+					this.button("spawn", "＋ Spawn…", t, (cx) => this.openSpawn(cx)),
+				),
 			);
 	}
 }

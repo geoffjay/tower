@@ -298,7 +298,16 @@ export default class TowerJobs extends View {
 	closeCreate() {
 		const f = this.create;
 		if (!f) return;
-		for (const k of ["title", "description", "tags", "at", "cadence_value", "timezone", "pre_run", "post_run"]) {
+		for (const k of [
+			"title",
+			"description",
+			"tags",
+			"at",
+			"cadence_value",
+			"timezone",
+			"pre_run",
+			"post_run",
+		]) {
 			f[k].release();
 		}
 		this.releaseInputs(f);
@@ -708,7 +717,9 @@ export default class TowerJobs extends View {
 		const note = (s) => div().pt(2).text_size(11).text_color(t.dim).child(s);
 		const job = f.kind === "job";
 		const repeat = f.when === "repeat";
-		const starts = job ? tagTriggers(f.workflows, splitTags(f.tags.value())) : [];
+		const starts = job
+			? tagTriggers(f.workflows, splitTags(f.tags.value()))
+			: [];
 		const picked = f.workflow?.workflow?.name ?? f.picking ?? null;
 		const inputs = Object.entries(f.workflow?.definition?.inputs ?? {});
 		const offered = (f.workflows ?? []).filter((w) => w.enabled);
@@ -794,7 +805,9 @@ export default class TowerJobs extends View {
 					.child(label("WORKFLOW"))
 					.when(f.workflows === null, (el2) => el2.child(note("Loading…")))
 					.when(f.workflows !== null && offered.length === 0, (el2) =>
-						el2.child(note("No enabled workflows (Workflows panel to make one).")),
+						el2.child(
+							note("No enabled workflows (Workflows panel to make one)."),
+						),
 					)
 					.child(
 						this.choicePills(
@@ -1226,9 +1239,7 @@ export default class TowerJobs extends View {
 		const job = s.kind === "job";
 		const c = job ? stateColor(obj.state) : obj.enabled ? "working" : "dim";
 		const state = job ? obj.state : obj.enabled ? "active" : "paused";
-		const from = s.from
-			? (this.names().schedules[s.from] ?? "schedule")
-			: null;
+		const from = s.from ? (this.names().schedules[s.from] ?? "schedule") : null;
 		return shell
 			.child(
 				h_flex()
@@ -1261,7 +1272,9 @@ export default class TowerJobs extends View {
 			.when(job && this.assigning === obj.id, (el) =>
 				el.child(this.assignPicker(obj, t).flex_none().px(14).pb(8)),
 			)
-			.child(this.factsGrid(job ? this.jobFacts(obj) : this.scheduleFacts(obj), t))
+			.child(
+				this.factsGrid(job ? this.jobFacts(obj) : this.scheduleFacts(obj), t),
+			)
 			.child(
 				div()
 					.id("jb-detail-body")
@@ -1356,7 +1369,10 @@ export default class TowerJobs extends View {
 			)
 			.when(!open, (el) =>
 				el.child(
-					div().text_size(11).text_color(t.dim).child(`closed ${ago(j.updated_at)}`),
+					div()
+						.text_size(11)
+						.text_color(t.dim)
+						.child(`closed ${ago(j.updated_at)}`),
 				),
 			);
 	}
@@ -1373,11 +1389,7 @@ export default class TowerJobs extends View {
 			)
 			.child(
 				this.button("sd-pause", paused ? "Resume" : "Pause", t, (cx) =>
-					this.act(cx, s.id, [
-						"schedule",
-						paused ? "resume" : "pause",
-						s.id,
-					]),
+					this.act(cx, s.id, ["schedule", paused ? "resume" : "pause", s.id]),
 				),
 			)
 			.when(!this.edit, (el) =>
@@ -1436,7 +1448,10 @@ export default class TowerJobs extends View {
 		const tags = (s.tags ?? []).filter((x) => x !== "");
 		return [
 			["cadence", `${s.cron} · ${s.timezone}`, true],
-			["target", s.target_agent_id ? who(s.target_agent_id, n) : "general queue"],
+			[
+				"target",
+				s.target_agent_id ? who(s.target_agent_id, n) : "general queue",
+			],
 			[
 				"next",
 				s.enabled && s.next_run_at
@@ -1517,7 +1532,11 @@ export default class TowerJobs extends View {
 			.children(
 				String(text)
 					.split("\n")
-					.map((l) => div().min_w(0).child(l || " ")),
+					.map((l) =>
+						div()
+							.min_w(0)
+							.child(l || " "),
+					),
 			);
 	}
 
@@ -1543,12 +1562,7 @@ export default class TowerJobs extends View {
 					.child(stamp(ts)),
 			)
 			.child(
-				div()
-					.flex_1()
-					.min_w(0)
-					.text_size(12)
-					.text_color(color)
-					.child(text),
+				div().flex_1().min_w(0).text_size(12).text_color(color).child(text),
 			);
 	}
 
