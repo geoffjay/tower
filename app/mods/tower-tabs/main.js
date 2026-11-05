@@ -200,7 +200,13 @@ export default class Tabs extends View {
 		// per-space restore below keeps a space's last open tower panel
 		// (or closed) instead of closing what shared("workspace.panels")
 		// doesn't name.
-		const enabled = ["tower-agents", "tower-jobs", "tower-events", "tower-inbox"];
+		const enabled = [
+			"tower-agents",
+			"tower-workflows",
+			"tower-jobs",
+			"tower-events",
+			"tower-inbox",
+		];
 		this.syncPanel(space, panel, body, enabled);
 		const panelButton = (id, label, icon, attention = false) => {
 			const on = panel && !panel.hidden && body?.active === id;
@@ -267,6 +273,13 @@ export default class Tabs extends View {
 			)
 			.child(
 				panelButton("tower-agents", "Agents", "mods/tower-tabs/agents.svg"),
+			)
+			.child(
+				panelButton(
+					"tower-workflows",
+					"Workflows",
+					"mods/tower-tabs/workflows.svg",
+				),
 			)
 			.child(panelButton("tower-jobs", "Jobs", "mods/tower-tabs/jobs.svg"))
 			.child(

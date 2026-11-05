@@ -202,3 +202,50 @@ export function editArgs(kind, id, fields, values) {
 	}
 	return args.length > 3 ? args : null;
 }
+
+/**
+ * `tower task create` or `tower schedule create` arguments for the create
+ * form. `when`: "now" queues it, "at" reserves it for its owner until a
+ * time (`--at` needs an owner), "repeat" makes a schedule (`--daily` or
+ * `--cron`, optional `--tz`; an owner gets each job reserved). Values go
+ * as `--flag=value`, so a leading "-" stays a value. Throws with what is
+ * missing.
+ */
+export function createArgs(f) {
+	const title = f.title.trim();
+	if (!title) throw new Error("a job needs a title");
+	const repeat = f.when === "repeat";
+	const args = [repeat ? "schedule" : "task", "create", title];
+	const add = (flag, v) => {
+		if (v?.trim()) args.push(`${flag}=${v.trim()}`);
+	};
+	if (repeat) {
+		const cadence = f.cadence_value?.trim();
+		if (!cadence) {
+			throw new Error(
+				f.cadence === "cron"
+					? "a schedule needs a cron expression"
+					: "a schedule needs a time (HH:MM)",
+			);
+		}
+		add(f.cadence === "cron" ? "--cron" : "--daily", cadence);
+		add("--tz", f.timezone);
+	}
+	add("--description", f.description);
+	const p = Number.parseInt(f.priority, 10);
+	if (Number.isFinite(p) && p !== 0) args.push(`--priority=${p}`);
+	if (f.agent) {
+		args.push(`--assign=${f.agent}`);
+		if (f.when === "at") {
+			if (!f.at?.trim()) throw new Error("give a time to hold the job until");
+			add("--at", f.at);
+		} else if (f.when === "now" && f.when_available) {
+			args.push("--when-available");
+		}
+	} else if (f.when === "at") {
+		throw new Error("a job held until a time needs an owner");
+	}
+	add("--pre-run", f.pre_run);
+	add("--post-run", f.post_run);
+	return args;
+}

@@ -17,7 +17,8 @@ const PENDING = new Set(["pending"]);
 export default class TowerInbox extends View {
 	init(_props, cx) {
 		this.items = null;
-		this.error = null;
+		this.error = null; // the last action's failure, kept until the next action
+		this.loadError = null; // the last poll's failure
 		this.busy = null; // message id with an action in flight
 		this.confirm = null; // message id awaiting a second press
 		this.screen = null; // {from, text} the asking agent's screen tail
@@ -31,9 +32,9 @@ export default class TowerInbox extends View {
 		try {
 			const v = await tower("inbox");
 			this.items = v.messages ?? [];
-			this.error = null;
+			this.loadError = null;
 		} catch (e) {
-			this.error = String(e.message ?? e);
+			this.loadError = String(e.message ?? e);
 		}
 		cx.notify();
 	}
@@ -90,6 +91,7 @@ export default class TowerInbox extends View {
 	/** Answer a question: a text field opens on the item; Enter sends. */
 	openAnswer(m, cx) {
 		if (this.answer?.id === m.id) return;
+		this.error = null;
 		const state = InputState.new({
 			placeholder: `Answer ${m.from_id}…`,
 			value: "",
@@ -338,14 +340,14 @@ export default class TowerInbox extends View {
 						),
 					),
 			)
-			.when(Boolean(this.error), (el) =>
+			.when(Boolean(this.error ?? this.loadError), (el) =>
 				el.child(
 					div()
 						.px(14)
 						.py(6)
 						.text_size(12)
 						.text_color(t.ansi1)
-						.child(this.error),
+						.child(this.error ?? this.loadError),
 				),
 			)
 			.child(

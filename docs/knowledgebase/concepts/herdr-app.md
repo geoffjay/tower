@@ -1,11 +1,12 @@
 ---
 type: Concept
 title: Herdr app package
-description: The app/ layout and mods that put tower's agents, inbox, jobs and event log in the Herdr desktop app; how each mod reaches tower and the rules the events panel follows.
+description: The app/ layout and mods that put tower's agents, workflows, inbox, jobs and event log in the Herdr desktop app; how each mod reaches tower, how the workflows graph is laid out, and the rules the events panel follows.
 tags:
   - herdr
   - herdr-app
   - mods
+  - workflows
   - events
 status: stable
 generated:
@@ -20,17 +21,17 @@ sources:
 
 # Herdr app package
 
-`app/` holds a layout (`layouts/tower.json`) and five mods for the Herdr
+`app/` holds a layout (`layouts/tower.json`) and six mods for the Herdr
 desktop app (`herdr-app`, the GUI over herdr-core). Installed under
 `~/.config/herdr-app/`, they put tower's fleet beside the terminals:
-Agents, Jobs, Events and Inbox as tabs of the right panel (one shown at a
-time, so none takes room until opened; the layout has no sidebar); and a
-`tower-tabs` tab bar. `app/RECIPE.md` is the install and behavior contract;
-this doc records the facts and decisions behind it.
+Agents, Workflows, Jobs, Events and Inbox as tabs of the right panel (one
+shown at a time, so none takes room until opened; the layout has no
+sidebar); and a `tower-tabs` tab bar. `app/RECIPE.md` is the install and
+behavior contract; this doc records the facts and decisions behind it.
 
 ## How the mods reach tower
 
-- **Agents, Inbox, Jobs** call the `tower` CLI with `--json` (`tower.js`
+- **Agents, Workflows, Inbox, Jobs** call the `tower` CLI with `--json` (`tower.js`
   `tower()`). The CLI resolves the server and token like every client, so
   these panels honor `TOWER_URL` / `TOWER_TOKEN`. Agent screens (the
   Agents detail section, the Inbox peek) use `towerRead()`, plain `tower
@@ -69,6 +70,15 @@ this doc records the facts and decisions behind it.
   leading `-` stays a value; an emptied field clears it.
   `tower-jobs/jobs.js` holds these rules and the formatters. RECENT sorts
   closed jobs by `updated_at`, because `task list` puts the oldest first.
+- **Jobs create form.** `＋ New job…` is one form for the three ways
+  work enters the queue, picked by WHEN: `now` (`task create`, optionally
+  reserved with "deliver when free"), `at a time` (`task create --assign
+  --at`; a hold needs an owner, the CLI's rule) and `repeats` (`schedule
+  create --daily|--cron [--tz]`). One form, not a second button, because
+  the fields are the same (title, description, priority, owner, pre-run,
+  post-run) and only the timing differs. Pre-run and post-run are on the
+  form so a job no longer needs an edit after it is created.
+  `jobs.js` `createArgs()` builds the command, `--flag=value` like edit.
 - **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
   colors the Inbox button `blocked` while anything is pending. The Inbox
   panel is usually closed, so the always-shown tab bar carries the signal.
@@ -81,7 +91,49 @@ this doc records the facts and decisions behind it.
   `window().platform` (or shared state `tower.token_file`) and uses the
   default bind (or `tower.server_url`).
 - Every mod folder carries an identical copy of `tower.js`: mods cannot
-  import across folders. Change one, copy it to all five.
+  import across folders. Change one, copy it to all six.
+
+## Workflows panel
+
+The panel over [workflows](../decisions/workflows.md) (D§5.6); it needs a
+tower 0.7.0 server.
+
+- **A list, then a screen.** The panel lists workflows; clicking one
+  replaces the list with that workflow (`‹ Workflows` goes back), the way
+  PR Flow's PR timeline does, instead of the other panels' detail section
+  below the list: a graph needs the panel's height.
+- **The graph is a top-down list, not a node canvas.** `workflows.js`
+  `graphRows()` turns a definition into rows: a chain of single edges
+  stays at one depth; where a node fans out, each target is a branch one
+  level deeper with its edge's condition as a chip. Edges back to a node
+  on the current depth-first path (loops) are `↺ back to <node>` rows, so
+  a loop never draws a node twice. A node with several forward edges in
+  (a join) waits until all its predecessors are drawn and then shows
+  once, at the depth where its branches split, with `after a, b`. Several
+  start nodes hang under one `Start` row. Rails are computed from the
+  bottom up: a level's line continues while a later row sits at that
+  level before a shallower one. Conditional paths read as indented
+  branches, which is why a full node graph was not needed.
+- **Runs over the graph.** `tower run show` has no definition, so a run
+  is drawn on the workflow's current version; a run of another version
+  says so, and steps of nodes the version lacks are listed after the
+  graph. Each node's mark and line come from its latest step; a click
+  shows every visit. Opening a workflow whose newest run is running
+  shows that run, and a running run re-reads every 3 s.
+- **Creating.** The form writes TOML (`draftToml()`): one node per step,
+  one edge per outcome (or "when done") that doesn't go to `end`; `next`
+  is the following step. A route to the same or an earlier step is a
+  loop, and its target gets `max_visits = 3`. Step 1 is never offered as
+  a target: a start is a node with no incoming edge, loops included, so
+  the server would refuse it. Everything else (mapped agents, joins,
+  triggers, context) is the TOML editor's job; `TOML…` carries the form
+  over. Mods cannot pass stdin to a program, so a definition reaches the
+  server as a file: `writeTextFile` to
+  `<herdr-app home>/data/tower-workflows/draft.toml`, then `tower
+  workflow apply <path>`.
+- **Errors.** An action's error stays until the next action; the 10 s
+  poll keeps its own error, so a successful poll right after a refused
+  apply does not erase the server's reason.
 
 ## Events panel rules
 

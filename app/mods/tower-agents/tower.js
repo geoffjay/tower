@@ -141,6 +141,10 @@ export const STATE_COLOR = {
 	failed: "ansi1",
 	canceled: "dim",
 	rejected: "dim",
+	// workflow runs and steps (D§5.6)
+	running: "working",
+	pending: "dim",
+	ready: "accent",
 };
 
 /** A state's theme color name, unknown states included. */
