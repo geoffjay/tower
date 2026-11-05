@@ -1,10 +1,10 @@
 # tower
 
-A tower control deck for the Herdr app: the fleet, the job queue, the
-inbox and the live event log in a panel beside the terminals. Everything the `tower`
-CLI can show, as panels that act — prompt an agent, answer an inbox item,
-queue a job, pause a schedule — while the terminals you're already in stay
-in the middle.
+A tower control deck for the Herdr app: the fleet, workflows, the job
+queue, the inbox and the live event log in a panel beside the terminals.
+Everything the `tower` CLI can show, as panels that act — prompt an agent,
+start a workflow run, answer an inbox item, queue a job, pause a schedule
+— while the terminals you're already in stay in the middle.
 
 ## Before you add it
 
@@ -18,8 +18,8 @@ token file. No tower, and every panel says so.
 A clone of the shipped `main` layout with no sidebar (the terminals get
 the full width) and tower panels in place of the Files/Changes panel:
 
-- **Right panel** (380px), opened from the tab bar's Agents / Jobs /
-  Events / Inbox buttons and remembered per space: a stack of:
+- **Right panel** (380px), opened from the tab bar's Agents / Workflows /
+  Jobs / Events / Inbox buttons and remembered per space: a stack of:
   - **Agents**: every agent seat grouped by stack (agents named
     `<stack>-<role>`), each row a state dot (theme colors: `working`,
     `blocked`, `done`, `idle`; dead red `ansi1`), the name, the state word,
@@ -37,6 +37,51 @@ the full width) and tower panels in place of the Files/Changes panel:
     Click the row again or `×` to close. The header's `＋ Spawn…` opens a
     form: name, harness pills (installed kinds, via `knownAgents()`),
     workdir, first prompt → `tower spawn`.
+  - **Workflows**: every workflow (`tower workflow list`): state dot
+    (`working` while a run is running, `idle` enabled, dim disabled), the
+    name, `v<n>`, the state word ("2 running" / "enabled" / "disabled"),
+    then steps · triggers · description. Click a row: the panel shows that
+    workflow (`tower workflow show`), with `‹ Workflows` to go back:
+    name, description, actions (`Run…` while enabled, `Edit`,
+    `Disable`/`Enable`, `Remove` with a second press), facts (triggers,
+    inputs with `*` for required, result node, next scheduled run,
+    updated), RUNS (the newest 5, `show all` for the 20 the server keeps:
+    state dot, start time, state, result gist or trigger), then the GRAPH
+    as a top-down list of nodes in the shape of a PR timeline: a mark per
+    node on a vertical rail, the node id, its agent (a mapped agent as
+    `builder | designer (by triage)`), its outcomes as chips, `join all` /
+    `≤3 visits` badges. A chain of single edges stays in line; where a
+    node fans out, each target is a branch indented under it with its
+    condition as a chip (`on design`, or `then` for an unconditional fan
+    out); an edge back to a node already on the path is a `↺ back to
+    <node>` row, never a second copy; a node several edges enter (a join)
+    shows once, after the branches it waits for, with `after a, b`;
+    several start nodes hang under a `Start` row. Click a node: its prompt
+    and the nodes it reads. Click a run: the graph shows that run (the
+    newest one opens by itself when it is running) — run facts (trigger,
+    started, input, ended, the result or error), and each node's latest
+    step as its mark (filled check done, filled cross failed, spinner
+    running, ring waiting, small dim ring not reached) with visit,
+    agent, state, outcome and time, then the summary's first line. Click
+    a node: every visit with its full summary, error and job id. A
+    running run re-reads every 3s and has `Cancel run` (second press);
+    `× Graph` (or the run again) goes back to the definition. A run of an
+    older version says so; steps of nodes the current version lacks are
+    listed after the graph. `Run…` opens a field per declared input
+    (required ones checked before sending) → `tower workflow run <name>
+    --input k=v`, then shows the new run. `Edit` opens the stored TOML
+    source in a code editor; Save applies it (a change is a new version).
+    Footer `＋ New workflow…`: name, description, inputs (comma list, each
+    required), and steps, each with an id, agent pills, a prompt, optional
+    outcomes, and THEN: per outcome (or "when done" without outcomes)
+    pills for `next (<step>)`, `end`, or any later or earlier step except
+    step 1 (`↺` marks a loop; the loop's target gets `max_visits = 3`).
+    `Create` builds the TOML and applies it; `TOML…` continues in the
+    code editor with the form's TOML (a starter definition when the form
+    is empty), `‹ Form` goes back. Applying writes the source to the
+    mod's draft file and runs `tower workflow apply` on it; the server's
+    validation errors show in the red strip, and success opens the
+    workflow with "<name> v<n> created/saved/unchanged".
   - **Jobs**: QUEUE section (open jobs: state dot, title, `P<n>` priority,
     state, owner/hold/tags/age), RECENT (the last 10 to close), SCHEDULES
     (title, cron, next run, target). Per-job buttons: `Assign…` (pills of
@@ -83,12 +128,12 @@ the full width) and tower panels in place of the Files/Changes panel:
     input, Enter sends `tower approve <id> --answer`), `Dismiss`.
 - **Center**: the shipped pane cards, unchanged.
 - **Tab bar**: a clone of the shipped `tabs` mod (same tabs, drag, `+`,
-  window buttons) with Agents / Jobs / Events / Inbox panel buttons in
-  place of Files / Changes. The clone is required: the shipped `tabs`
+  window buttons) with Agents / Workflows / Jobs / Events / Inbox panel
+  buttons in place of Files / Changes. The clone is required: the shipped `tabs`
   polices the panel against `shared("workspace.panels")` (files/changes)
   and would close a tower panel on every space switch. The clone's
-  `enabled` list is `["tower-agents", "tower-jobs", "tower-events",
-  "tower-inbox"]`, so its per-space memory restores a
+  `enabled` list is `["tower-agents", "tower-workflows", "tower-jobs",
+  "tower-events", "tower-inbox"]`, so its per-space memory restores a
   space's last tower panel instead. The Inbox button turns the theme's
   `blocked` color (label and icon) while anything is pending; the tab
   bar runs its own `tower inbox` poll every 10s, so this works with the
@@ -97,8 +142,8 @@ the full width) and tower panels in place of the Files/Changes panel:
 ## How it behaves
 
 - Every panel polls the `tower` CLI every 10s (events: bounded SSE polls
-  every 6s). A panel action refreshes immediately after its command
-  returns.
+  every 6s; a running workflow run on screen: every 3s). A panel action
+  refreshes immediately after its command returns.
 - Actions that stop work or let an agent act (Stop, Cancel, Approve,
   Deny, Remove) ask once with a second press.
 - Errors from the server (conflict, not found, unauthorized) show in a
@@ -122,7 +167,7 @@ the full width) and tower panels in place of the Files/Changes panel:
   `workspace-status` mod reused as-is; the tab bar is the `tower-tabs`
   clone below, which pads for the macOS window buttons itself when there
   is no sidebar).
-- Five mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
+- Six mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
   the layout is the only placement), and a shared `tower.js` (identical
   in every folder):
   - `tower-agents`: `tower ps`, `tower task list` (owned and reserved
@@ -130,6 +175,14 @@ the full width) and tower panels in place of the Files/Changes panel:
     `tower prompt`, `tower interrupt`,
     `tower stop [--remove]`, `tower spawn [--continue]`; `knownAgents()`
     for the spawn form.
+  - `tower-workflows`: `tower workflow list/show/run/enable/disable/rm/
+    apply`, `tower run show/cancel`, `tower ps` (agent names, the form's
+    agent pills); `workflows.js` lays a definition out as graph rows,
+    lays a run's steps over them, and builds the create form's TOML. The
+    draft file is `<herdr-app home>/data/tower-workflows/draft.toml`
+    (`writeTextFile`, then `tower workflow apply <path>`); `check.svg` and
+    `cross.svg` are the done/failed marks, the spinner is the shipped
+    `mods/workspace-chrome/spinner.svg`.
   - `tower-inbox`: `tower inbox`, `tower approve [--answer|--deny]`,
     `tower dismiss`, `tower read` for the peek.
   - `tower-jobs`: `tower task list/show`, `tower task create/assign/
@@ -145,19 +198,22 @@ the full width) and tower panels in place of the Files/Changes panel:
     default bind. `events.js` formats rows and the detail section and
     resolves names (`tower ps`, `tower task list`, `tower schedule list`).
   - `tower-tabs`: a clone of the shipped `tabs` mod, `enabled` hardcoded
-    to `["tower-agents", "tower-jobs", "tower-events", "tower-inbox"]`,
-    panel buttons switched to those four (icons `mods/tower-tabs/agents.svg`,
-    `jobs.svg`, `events.svg`, `inbox.svg`), plus a `tower inbox` poll for
-    the Inbox button's color.
+    to `["tower-agents", "tower-workflows", "tower-jobs", "tower-events",
+    "tower-inbox"]`, panel buttons switched to those five (icons
+    `mods/tower-tabs/agents.svg`, `workflows.svg`, `jobs.svg`,
+    `events.svg`, `inbox.svg`), plus a `tower inbox` poll for the Inbox
+    button's color.
     Everything else is the shipped tab bar: tab pills, drag-to-reorder,
     `+` menu, window buttons.
-- `herdr`: `exec`, `theme`, `readTextFile`, `knownAgents`, `layout`, `run`,
-  `settings`, `shared`, `window`. `gpui-base`: `v_flex`, `h_flex`,
-  `InputState`, `Input`, `Editor`, `EditorState`.
-  `gpui-kit`: `View`, `div`.
-- The mods run programs (`tower`, `curl`) and read one file outside their
-  folders (the tower token file). They reach no network except the local
-  tower server.
+- `herdr`: `exec`, `theme`, `readTextFile`, `writeTextFile`, `appHome`,
+  `knownAgents`, `layout`, `run`, `settings`, `shared`, `window`.
+  `gpui-base`: `v_flex`, `h_flex`, `InputState`, `Input`,
+  `TextareaState`, `Textarea`, `Editor`, `EditorState`. `gpui-kit`:
+  `View`, `div`, `svg`.
+- The mods run programs (`tower`, `curl`), read one file outside their
+  folders (the tower token file) and write one (the workflows draft, in
+  the app's data folder). They reach no network except the local tower
+  server.
 
 ## Watch out
 
@@ -191,11 +247,19 @@ the full width) and tower panels in place of the Files/Changes panel:
   after the app opened would never be picked up.
 - `InputState.new` belongs in handlers, never in `render`.
 - Two-press confirms reset on the next refresh cycle if the row changed.
+- The Workflows panel needs a tower 0.7.0 server (`tower workflow`,
+  `tower run`). Its graph is the workflow's current version: a run of an
+  older version is drawn on it, with a note.
+- A workflow's start is a node with no incoming edge, loops included, so
+  the create form never offers step 1 as a route target.
+- Action errors in the Workflows panel stay until the next action; a
+  poll's success must not clear them (the poll's own failure is shown
+  separately).
 
 ## Done when
 
 - `herdr-app check` passes for each mod folder. The tab bar shows Agents /
-  Jobs / Events / Inbox buttons; clicking Jobs opens the panel on the Jobs stack, and
+  Workflows / Jobs / Events / Inbox buttons; clicking Jobs opens the panel on the Jobs stack, and
   after switching to another space and back, that space's panel is as it
   was left (the shipped `tabs` would have closed it).
 - With a tower server running: the Agents panel lists every agent
@@ -207,6 +271,13 @@ the full width) and tower panels in place of the Files/Changes panel:
   line; the Events panel opens on the newest events at
   once, follows live within ~6s, and `Load older` adds the page before
   the oldest row.
+- The Workflows panel lists what `tower workflow list` shows; a
+  workflow's graph has one row per node, branches indented with their
+  outcome, loops as `↺` rows; `Run…` with its inputs starts a run that
+  `tower run list` shows, and the graph follows it to completion (marks
+  and summaries match `tower run show`); a workflow made with
+  `＋ New workflow…` matches its TOML in `tower workflow show`, and
+  `Edit` → Save of a changed source makes `v2`.
 - Prompt an idle agent from its detail section → the agent's terminal
   shows the turn, and the section's screen shows it within ~2s;
   `tower prompt <name>` shows the same delivered message.

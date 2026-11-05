@@ -64,6 +64,11 @@
 											"content": { "mod": "tower-agents" }
 										},
 										{
+											"id": "tower-workflows",
+											"type": "block",
+											"content": { "mod": "tower-workflows" }
+										},
+										{
 											"id": "tower-jobs",
 											"type": "block",
 											"content": { "mod": "tower-jobs" }
