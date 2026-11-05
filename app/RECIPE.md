@@ -160,7 +160,9 @@ the full width) and tower panels in place of the Files/Changes panel:
   space's last tower panel instead. The Inbox button turns the theme's
   `blocked` color (label and icon) while anything is pending; the tab
   bar runs its own `tower inbox` poll every 10s, so this works with the
-  panel closed.
+  panel closed. `cmd-shift-right` / `cmd-shift-left` show the next /
+  previous tower panel in button order, wrapping; with the panel closed,
+  the first / last.
 
 ## How it behaves
 
@@ -232,9 +234,15 @@ the full width) and tower panels in place of the Files/Changes panel:
     button's color and the machine button, which opens `tower-tabs`
     itself as a popup (`props: { machines: true }`) to pick the machine.
     Everything else is the shipped tab bar: tab pills, drag-to-reorder,
-    `+` menu, window buttons.
+    `+` menu, window buttons. A `nextCommand()` loop takes `next` / `prev`
+    and selects the neighbouring `panel-body` child, then shows `panel`.
+- `keys.json` (the folder's root, herdr.dev convention for a mod's keys):
+  `"layout:tower": { "cmd-shift-left": "tower-tabs.prev",
+  "cmd-shift-right": "tower-tabs.next" }`. Install merges it into the
+  person's `keys.json`, adding only keys no section there binds yet; a
+  layout section beats `global`, so adding a key they use would take it.
 - `herdr`: `exec`, `theme`, `readTextFile`, `writeTextFile`, `appHome`,
-  `knownAgents`, `layout`, `run`, `settings`, `shared`, `window`.
+  `knownAgents`, `layout`, `nextCommand`, `run`, `settings`, `shared`, `window`.
   `gpui-base`: `v_flex`, `h_flex`, `InputState`, `Input`,
   `TextareaState`, `Textarea`, `Editor`, `EditorState`. `gpui-kit`:
   `View`, `div`, `svg`.
@@ -332,3 +340,7 @@ the full width) and tower panels in place of the Files/Changes panel:
   server's events. Pin "this computer" from the machine button → the
   panels show the local fleet while the remote space stays shown, and a
   dot marks the pin; "Follow space" undoes it.
+- `cmd-shift-right` four times from Agents → Workflows, Jobs, Events,
+  Inbox; once more → Agents. `cmd-shift-left` from Agents → Inbox. With
+  the panel closed, `cmd-shift-right` opens Agents. A key already bound in
+  the person's `keys.json` before install still does what it did.

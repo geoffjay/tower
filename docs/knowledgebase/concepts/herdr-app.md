@@ -103,6 +103,15 @@ behavior contract; this doc records the facts and decisions behind it.
 - **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
   colors the Inbox button `blocked` while anything is pending. The Inbox
   panel is usually closed, so the always-shown tab bar carries the signal.
+- **Panel keys live in the person's `keys.json`.** Herdr has no way for a
+  layout or mod to ship default bindings: `keys.json` is the only source,
+  and a shared mod brings a `keys.json` to merge. `app/keys.json` binds
+  `cmd-shift-left` / `cmd-shift-right` to `tower-tabs.prev` / `.next`
+  (delivered to the tab bar's `nextCommand()`) in a `layout:tower`
+  section, so the keys act only while this layout shows. Install adds a
+  key only if no section of the person's file binds it: `layout:<name>`
+  beats `global`, so adding a key they already use would silently take
+  it. After that the binding is theirs to change.
 - **Events** reads `/v1/events/history` (one page, newest first) and then
   `/v1/events` (SSE) from the page's `head`
   ([D§7](design/07-server-api.md)), directly with `curl`: bounded
