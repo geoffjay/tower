@@ -270,8 +270,8 @@ fn print_list(workflows: &[Value]) {
             } else {
                 "disabled"
             },
-            w["nodes"],
-            w["open_runs"],
+            w["nodes"].to_string(),
+            w["open_runs"].to_string(),
             if triggers.is_empty() {
                 "manual".into()
             } else {
