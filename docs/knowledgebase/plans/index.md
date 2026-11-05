@@ -13,4 +13,5 @@ Plans for the tower project.
 * [Phase 5 — Multi-machine](phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.
 * [Phase 6 — A2A edge](phase-6-a2a-edge.md) - Agent Card + A2A delegation.
 * [Phase 7 — Workflows](phase-7-workflows.md) - complete; versioned graphs of job nodes, outcome routing, joins and bounded loops, summary + artifact hand-off, manual / schedule / event triggers, event-log engine.
+* [Agent output copy dialog](agent-output-copy-dialog.md) - stable; plan B chosen: tower-agents opens a read-only, copyable snapshot dialog of an agent's screen in the Herdr app.
 * [Release management](release-management.md) - tag-push releases: CI gate, cross-platform tarballs, Homebrew tap, AUR.
