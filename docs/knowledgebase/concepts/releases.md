@@ -112,6 +112,12 @@ The PKGBUILD sources the release tarballs from GitHub (per-`$CARCH`
 sha256), so the GitHub release must exist first — the job depends on the
 release job. AUR's git server only accepts pushes to the `master` branch.
 
+The local source filename is version-qualified
+(`tower-bin-<ver>-<arch>.tar.gz::<url>`). Upstream tarball names carry no
+version, and makepkg reuses a same-named file from `SRCDEST` or the AUR
+helper's cache, so a bare name fails the next upgrade's checksum ("One or
+more files did not pass the validity check!").
+
 # Secrets
 
 | Secret | Used by | Effect when unset |

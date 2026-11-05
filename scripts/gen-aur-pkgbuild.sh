@@ -93,9 +93,9 @@ pkgbase = tower-bin
 	provides = tower
 	conflicts = tower
 	conflicts = tower-git
-	source_aarch64 = ${URL_LNX_ARM}
+	source_aarch64 = tower-bin-${VERSION}-aarch64.tar.gz::${URL_LNX_ARM}
 	sha256sums_aarch64 = ${SHA_LNX_ARM}
-	source_x86_64 = ${URL_LNX_X86}
+	source_x86_64 = tower-bin-${VERSION}-x86_64.tar.gz::${URL_LNX_X86}
 	sha256sums_x86_64 = ${SHA_LNX_X86}
 
 pkgname = tower-bin

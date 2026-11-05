@@ -15,10 +15,15 @@ license=("MIT" "Apache-2.0")
 provides=("tower")
 conflicts=("tower" "tower-git")
 
-source_aarch64=("@@URL_AARCH64@@")
+# The local filename is version-qualified. The upstream tarball name is the
+# same in every release; makepkg/AUR helpers reuse an existing file of the
+# same name from SRCDEST or the helper's cache, so a bare name makes the next
+# upgrade fail the checksum with "One or more files did not pass the validity
+# check!".
+source_aarch64=("${pkgname}-${pkgver}-aarch64.tar.gz::@@URL_AARCH64@@")
 sha256sums_aarch64=('@@SHA256_AARCH64@@')
 
-source_x86_64=("@@URL_X86_64@@")
+source_x86_64=("${pkgname}-${pkgver}-x86_64.tar.gz::@@URL_X86_64@@")
 sha256sums_x86_64=('@@SHA256_X86_64@@')
 
 package() {
