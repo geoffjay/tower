@@ -45,7 +45,12 @@ behavior contract; this doc records the facts and decisions behind it.
   `v_virtual_list` of lines, not an `EditorState`: the editor has no
   scroll API, and the list's `VirtualListScrollHandle.scroll_to_bottom()`
   keeps it on the newest line. A wheel-up (`delta.y > 0`) stops following
-  until the `↓ Follow` button; the trade-off is no text selection or copy.
+  until the `↓ Follow` button; the live screen has no text selection. The
+  `Copy…` button next to Follow opens `tower-agents` itself as a dialog
+  (`openOverlay({ mod: "tower-agents", kind: "dialog", props: { output:
+  { name, text } } })`): `init` sees `props().output`, builds a readonly
+  `EditorState` of the plain-text snapshot (no colors) and starts no
+  timers; selection and Cmd-C work, Esc and Close dismiss it.
 - **Agent screen colors.** `tower read --ansi` keeps herdr's SGR escapes
   (truecolor, 256-color, bold/italic/inverse; no cursor moves).
   `tower-agents/ansi.js` parses each line into runs of one style, and each

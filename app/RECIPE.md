@@ -193,7 +193,7 @@ the full width) and tower panels in place of the Files/Changes panel:
   the layout is the only placement), and a shared `tower.js` (identical
   in every folder):
   - `tower-agents`: `tower ps`, `tower task list` (owned and reserved
-    jobs), `tower read --ansi` (the screen, colors parsed by `ansi.js`),
+    jobs), `tower read --ansi` (the screen, colors parsed by `ansi.js`; `Copy…` reopens the mod as a read-only text dialog),
     `tower prompt`, `tower interrupt`,
     `tower stop [--remove]`, `tower spawn [--continue]`; `knownAgents()`
     for the spawn form.

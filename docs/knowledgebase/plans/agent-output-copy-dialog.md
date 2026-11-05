@@ -6,7 +6,7 @@ tags:
   - plan
   - herdr-app
   - tower-agents
-status: draft
+status: stable
 ---
 
 # Agent output copy dialog
@@ -65,4 +65,7 @@ the overlay copy must not disturb the panel's state, and two views in one
 
 ## Outcome
 
-_(open — fill in after the prototype)_
+Plan B works (verified in the app): the dialog opens from `Copy…`, text
+selects and copies, Esc and Close dismiss it, and the panel behind keeps
+running. Chosen over plan A (no seventh mod). Plan A stays above as the
+fallback only.

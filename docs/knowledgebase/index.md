@@ -71,7 +71,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 * [Phase 4 — Web UI](plans/phase-4-web-ui.md) - complete; read-only agent cloud via Topcoat at `/ui`, scoped UI token, event retention.
 * [Phase 5 — Multi-machine](plans/phase-5-multi-machine.md) - remote nodes, single coordinator, cross-machine assignment.
 * [Phase 6 — A2A edge](plans/phase-6-a2a-edge.md) - Agent Card + A2A delegation.
-* [Agent output copy dialog](plans/agent-output-copy-dialog.md) - draft; a dialog with a read-only, copyable snapshot of an agent's screen in the Herdr app; separate mod (A) vs reusing tower-agents (B).
+* [Agent output copy dialog](plans/agent-output-copy-dialog.md) - complete (plan B); a dialog with a read-only, copyable snapshot of an agent's screen in the Herdr app; separate mod (A) vs reusing tower-agents (B).
 
 ## References
 
