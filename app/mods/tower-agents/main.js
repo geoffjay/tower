@@ -31,7 +31,8 @@ export default class TowerAgents extends View {
 	init(_props, cx) {
 		this.agents = null;
 		this.jobs = []; // open jobs (queued / working / input-required)
-		this.error = null;
+		this.error = null; // the last action's failure, kept until the next action
+		this.loadError = null; // the last poll's failure
 		this.busy = null; // agent name with an action in flight
 		this.confirm = null; // "stop:<name>" / "remove:<name>" awaiting a second press
 		this.spawn = null; // the spawn form's fields
@@ -63,9 +64,9 @@ export default class TowerAgents extends View {
 			this.jobs = (tasks?.tasks ?? []).filter(
 				(j) => !["completed", "failed", "canceled", "rejected"].includes(j.state),
 			);
-			this.error = null;
+			this.loadError = null;
 		} catch (e) {
-			this.error = String(e.message ?? e);
+			this.loadError = String(e.message ?? e);
 		}
 		if (this.selected && this.agents && !this.find(this.selected)) {
 			this.select(null); // removed elsewhere
@@ -80,6 +81,7 @@ export default class TowerAgents extends View {
 
 	/** Open one agent in the detail section; the same agent again closes it. */
 	select(name, cx) {
+		this.error = null;
 		this.prompt?.release();
 		this.prompt = null;
 		this.lines = null;
@@ -205,6 +207,7 @@ export default class TowerAgents extends View {
 
 	/** The spawn form: name, harness pills, workdir, first prompt. */
 	openSpawn(cx) {
+		this.error = null;
 		this.spawn = {
 			name: InputState.new({ placeholder: "reviewer" }),
 			kind: null,
@@ -651,6 +654,7 @@ export default class TowerAgents extends View {
 					.child(
 						this.button("sf-cancel", "Cancel", t, (cx) => {
 							this.spawn = null;
+							this.error = null;
 							cx.notify();
 						}),
 					)
@@ -689,9 +693,14 @@ export default class TowerAgents extends View {
 			.min_h(0)
 			.text_size(13)
 			.child(this.header(t))
-			.when(Boolean(this.error), (el) =>
+			.when(Boolean(this.error ?? this.loadError), (el) =>
 				el.child(
-					div().px(14).py(6).text_size(12).text_color(t.ansi1).child(this.error),
+					div()
+						.px(14)
+						.py(6)
+						.text_size(12)
+						.text_color(t.ansi1)
+						.child(this.error ?? this.loadError),
 				),
 			)
 			.child(
