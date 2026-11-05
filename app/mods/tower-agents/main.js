@@ -5,7 +5,9 @@
 // terminal screen, following its newest output.
 // Reads: `tower ps`, `tower task list`, `tower read <name>`. Acts: prompt,
 // interrupt, stop / remove (two presses), resume (`spawn --continue`, dead
-// rows), spawn (a form of installed harnesses).
+// rows), spawn (a form of the harnesses installed there). All of it on the
+// machine the panels follow (tower.js); a switch empties the list and reads
+// the new machine's.
 
 import {
 	Editor,
@@ -28,7 +30,13 @@ import {
 	theme,
 } from "herdr";
 import { parseAnsi } from "./ansi.js";
-import { stateColor, tower, towerRead } from "./tower.js";
+import {
+	followMachine,
+	machineLabel,
+	stateColor,
+	towerOn,
+	towerRead,
+} from "./tower.js";
 
 const REFRESH_MS = 10000;
 const SCREEN_MS = 2000; // the open agent's screen re-reads this often
@@ -57,6 +65,7 @@ export default class TowerAgents extends View {
 			return;
 		}
 		this.agents = null;
+		this.gen = 0; // bumped on a machine switch; older replies are dropped
 		this.jobs = []; // open jobs (queued / working / input-required)
 		this.error = null; // the last action's failure, kept until the next action
 		this.loadError = null; // the last poll's failure
@@ -78,24 +87,53 @@ export default class TowerAgents extends View {
 				if (await this.readScreen()) cx.notify();
 			});
 		});
+		this.machine = followMachine(cx, (m, cx) => this.switchMachine(m, cx));
 		this.refresh(cx);
 	}
 
+	/** Another machine: forget the old one's agents, jobs, selection, errors
+	 * and spawn form (its harnesses and workdir were the old machine's), and
+	 * read the new one's now. */
+	switchMachine(machine, cx) {
+		this.machine = machine;
+		this.gen += 1;
+		this.select(null);
+		this.agents = null;
+		this.jobs = [];
+		this.error = null;
+		this.loadError = null;
+		this.busy = null;
+		this.spawn = null;
+		this.refresh(cx);
+		cx.notify();
+	}
+
 	async refresh(cx) {
+		const on = this.machine;
+		const gen = this.gen;
+		let agents;
+		let jobs;
+		let loadError = null;
 		try {
 			const [ps, tasks] = await Promise.all([
-				tower("ps"),
-				tower("task", "list").catch(() => null),
+				towerOn(on, "ps"),
+				towerOn(on, "task", "list").catch(() => null),
 			]);
-			this.agents = ps.agents ?? [];
-			this.jobs = (tasks?.tasks ?? []).filter(
+			agents = ps.agents ?? [];
+			jobs = (tasks?.tasks ?? []).filter(
 				(j) =>
 					!["completed", "failed", "canceled", "rejected"].includes(j.state),
 			);
-			this.loadError = null;
 		} catch (e) {
-			this.loadError = String(e.message ?? e);
+			loadError = String(e.message ?? e);
 		}
+		// A late answer from the machine before a switch is dropped.
+		if (this.gen !== gen) return;
+		if (loadError === null) {
+			this.agents = agents;
+			this.jobs = jobs;
+		}
+		this.loadError = loadError;
 		if (this.selected && this.agents && !this.find(this.selected)) {
 			this.select(null); // removed elsewhere
 		}
@@ -137,6 +175,8 @@ export default class TowerAgents extends View {
 	 * scrolls to the newest line. */
 	async readScreen() {
 		const name = this.selected;
+		const on = this.machine;
+		const gen = this.gen;
 		const a = this.find(name);
 		let text;
 		this.reading = true;
@@ -145,7 +185,7 @@ export default class TowerAgents extends View {
 				text = "(not running - Resume relaunches it)";
 			} else {
 				try {
-					text = await towerRead(name, { ansi: true });
+					text = await towerRead(name, { ansi: true, on });
 				} catch (e) {
 					text = `cannot read ${name}: ${e.message}`;
 				}
@@ -153,8 +193,10 @@ export default class TowerAgents extends View {
 		} finally {
 			this.reading = false;
 		}
-		// A late answer for an agent no longer selected is dropped.
-		if (this.selected !== name || text === this.screenText) return false;
+		// A late answer for an agent no longer selected, or from the machine
+		// before a switch, is dropped.
+		if (this.gen !== gen || this.selected !== name || text === this.screenText)
+			return false;
 		this.screenText = text;
 		const lines = parseAnsi(text).slice(-SCREEN_LINES);
 		this.lines = lines.length > 0 ? lines : parseAnsi("(no output)");
@@ -176,13 +218,23 @@ export default class TowerAgents extends View {
 		this.prompt.set_value("");
 		this.busy = name;
 		cx.notify();
+		this.settle(cx, name, ["prompt", name, text]);
+	}
+
+	/** Run `args` on the machine shown now; its outcome lands only if that
+	 * machine is still the one shown. */
+	settle(cx, name, args) {
+		const on = this.machine;
+		const gen = this.gen;
 		cx.spawn(async (cx) => {
+			let error = null;
 			try {
-				await tower("prompt", name, text);
-				this.error = null;
+				await towerOn(on, ...args);
 			} catch (e) {
-				this.error = `${name}: ${e.message}`;
+				error = `${name}: ${e.message}`;
 			}
+			if (this.gen !== gen) return;
+			this.error = error;
 			this.busy = null;
 			await this.refresh(cx);
 		});
@@ -221,22 +273,13 @@ export default class TowerAgents extends View {
 		this.confirm = null;
 		this.busy = name;
 		cx.notify();
-		cx.spawn(async (cx) => {
-			try {
-				await tower(...args);
-				this.error = null;
-			} catch (e) {
-				this.error = `${name}: ${e.message}`;
-			}
-			this.busy = null;
-			await this.refresh(cx);
-		});
+		this.settle(cx, name, args);
 	}
 
 	/** The spawn form: name, harness pills, workdir, first prompt. */
 	openSpawn(cx) {
 		this.error = null;
-		this.spawn = {
+		const f = {
 			name: InputState.new({ placeholder: "reviewer" }),
 			kind: null,
 			installed: null,
@@ -246,16 +289,21 @@ export default class TowerAgents extends View {
 				placeholder: "First prompt (sent when it settles)",
 			}),
 		};
+		this.spawn = f;
+		const on = this.machine;
 		cx.spawn(async (cx) => {
+			let installed;
 			try {
-				this.spawn.installed = (await knownAgents())
+				installed = (await knownAgents({ on }))
 					.filter((a) => a.installed)
 					.map((a) => a.key);
 			} catch {
-				this.spawn.installed = [];
+				installed = [];
 			}
-			if (!this.spawn.installed.includes(this.spawn.kind))
-				this.spawn.kind = this.spawn.installed[0] ?? null;
+			// Dropped when the form closed (a machine switch closes it) meanwhile.
+			if (this.spawn !== f) return;
+			f.installed = installed;
+			if (!installed.includes(f.kind)) f.kind = installed[0] ?? null;
 			cx.notify();
 		});
 		cx.notify();
@@ -269,7 +317,10 @@ export default class TowerAgents extends View {
 			cx.notify();
 			return;
 		}
+		const on = this.machine;
+		const gen = this.gen;
 		cx.spawn(async (cx) => {
+			let error = null;
 			try {
 				const args = ["spawn", name, "--kind", f.kind];
 				if (f.def) args.push("--worktree");
@@ -277,12 +328,16 @@ export default class TowerAgents extends View {
 					args.push("--workdir", f.workdir.value().trim());
 				if (f.prompt.value().trim())
 					args.push("--prompt", f.prompt.value().trim());
-				await tower(...args);
-				this.spawn = null;
-				this.error = null;
+				await towerOn(on, ...args);
+				if (this.spawn === f) this.spawn = null;
 			} catch (e) {
-				this.error = `spawn: ${e.message}`;
+				error = `spawn: ${e.message}`;
 			}
+			if (this.gen !== gen) {
+				cx.notify();
+				return;
+			}
+			this.error = error;
 			await this.refresh(cx);
 		});
 	}
@@ -843,6 +898,14 @@ export default class TowerAgents extends View {
 					.text_size(11)
 					.text_color(t.dim)
 					.child(`${this.agents?.length ?? 0}`),
+			)
+			.child(
+				div()
+					.min_w(0)
+					.truncate()
+					.text_size(11)
+					.text_color(t.dim)
+					.child(`on ${machineLabel(this.machine)}`),
 			)
 			.child(div().flex_1())
 			.when(!this.spawn, (el) =>

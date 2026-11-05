@@ -18,50 +18,35 @@
 // hides them by default. Filters ride the server too (?filter=), for both
 // the page and the stream.
 //
-// The token is the tower token file's content, read directly — the same
-// file every tower client reads — and re-read on every poll until one is
-// found, so a read that missed (a layout restored before window() reports
-// the platform, a token written after the app opened) never sticks the
-// panel.
+// The server URL and token resolve on the target machine like the CLI's
+// (towerHttp), so the panel follows whichever machine tower.js targets;
+// a machine change starts the feed over from that server's newest page.
 
 import { Editor, EditorState, h_flex, v_flex } from "gpui-base";
 import { div, View } from "gpui-kit";
-import {
-	exec,
-	home,
-	readTextFile,
-	settings,
-	shared,
-	theme,
-	window,
-} from "herdr";
+import { settings, theme } from "herdr";
 import { body, detail, facts, Names, stamp, subject } from "./events.js";
-import { stateColor } from "./tower.js";
+import {
+	followMachine,
+	machineLabel,
+	stateColor,
+	TowerError,
+	towerHttp,
+} from "./tower.js";
 
-/** The tower token files to try: a shared-state override if set (mods
- * cannot read TOWER_HOME/TOWER_TOKEN), else the same default tower home
- * the CLI uses per platform (dirs-rs): the OS data dir + "tower/token".
- * Before window() reports the platform, every platform's default. */
-function tokenCandidates() {
-	const override = shared("tower.token_file");
-	if (typeof override === "string" && override.trim()) return [override];
-	const mac = `${home()}/Library/Application Support/tower/token`;
-	const win = `${home()}/AppData/Roaming/tower/token`;
-	const linux = `${home()}/.local/share/tower/token`;
-	const platform = window()?.platform;
-	if (platform === "macos") return [mac];
-	if (platform === "windows") return [win];
-	if (platform) return [linux];
-	return [mac, linux, win];
-}
-
-/** The tower server's base URL: the CLI's default bind, or a shared-state
- * override for non-default setups (mods cannot read TOWER_URL). */
-function serverUrl() {
-	return String(shared("tower.server_url") ?? "http://127.0.0.1:8266").replace(
-		/\/+$/,
-		"",
-	);
+/** curl on `on`'s tower server; the exec result, or `{ error }` when no
+ * token is found or the machine is unreachable. */
+async function http(path, curlArgs, on) {
+	let r;
+	try {
+		r = await towerHttp(path, curlArgs, on);
+	} catch (e) {
+		if (e instanceof TowerError) return { error: e.message };
+		return { error: "curl not found" };
+	}
+	if (r.code === 125)
+		return { error: (r.stderr ?? "").trim() || "no tower token found" };
+	return r;
 }
 
 const POLL_MS = 6000;
@@ -84,13 +69,26 @@ export default class TowerEvents extends View {
 		this.cursor = null; // null: load the newest page, then follow from its head
 		this.more = false; // older matching events exist
 		this.older = false; // a "Load older" page in flight
-		this.gen = 0; // bumped by a filter change: older answers are dropped
+		this.gen = 0; // bumped by a filter or machine change: older answers are dropped
 		this.error = null;
 		this.type = "";
 		this.alive = false; // one poll answered
 		this.polling = false;
-		this.token = null; // read by poll() until a token file answers
-		this.names = new Names();
+		this.machine = followMachine(cx, (m, cx) => {
+			this.machine = m;
+			this.gen++;
+			this.cursor = null;
+			this.rows = [];
+			this.more = false;
+			this.older = false;
+			this.alive = false;
+			this.error = null;
+			this.select(null);
+			this.names = new Names(m);
+			this.tick(cx);
+			cx.notify();
+		});
+		this.names = new Names(this.machine);
 		this.selected = null; // the event the detail section shows
 		this.editor = null; // its body, read-only
 		this.tick = (cx) => {
@@ -113,21 +111,6 @@ export default class TowerEvents extends View {
 		cx.timer.every(POLL_MS, this.tick);
 	}
 
-	/** Reads the first non-empty token file; the error names exactly the
-	 * paths this attempt tried. */
-	async loadToken() {
-		const tried = tokenCandidates();
-		for (const file of tried) {
-			const text = (await readTextFile(file).catch(() => null))?.trim();
-			if (text) {
-				this.token = text;
-				this.error = null;
-				return;
-			}
-		}
-		this.error = `no tower token found (tried ${tried.join(", ")})`;
-	}
-
 	/** The type filters both routes take, for the current view. */
 	query() {
 		if (this.type === OUTPUT) return `&filter=type:${OUTPUT}`;
@@ -136,28 +119,23 @@ export default class TowerEvents extends View {
 	}
 
 	/** One history page (newest first) before `before` (null: from the
-	 * head), or null when it failed or the filter changed meanwhile. */
+	 * head), or null when it failed or the filter or machine changed
+	 * meanwhile. */
 	async history(before) {
 		const gen = this.gen;
+		const on = this.machine;
 		const from = before === null ? "" : `&before=${before}`;
-		const url = `${serverUrl()}/v1/events/history?limit=${PAGE}${from}${this.query()}`;
-		let r;
-		try {
-			r = await exec("curl", [
-				"-sS",
-				"--max-time",
-				"10",
-				"-w",
-				"\n%{http_code}",
-				"-H",
-				`Authorization: Bearer ${this.token}`,
-				url,
-			]);
-		} catch {
-			this.error = "curl not found";
+		const r = await http(
+			`/v1/events/history?limit=${PAGE}${from}${this.query()}`,
+			["-sS", "--max-time", "10", "-w", "\n%{http_code}"],
+			on,
+		);
+		if (gen !== this.gen) return null;
+		if (r.error) {
+			this.error = r.error;
+			this.alive = false;
 			return null;
 		}
-		if (gen !== this.gen) return null;
 		const out = r.stdout ?? "";
 		const cut = out.lastIndexOf("\n");
 		const status = Number(out.slice(cut + 1));
@@ -222,27 +200,20 @@ export default class TowerEvents extends View {
 	/** The newest page on first load, then one bounded SSE poll: every
 	 * event after the cursor, then end. */
 	async poll() {
-		if (!this.token) await this.loadToken();
-		if (!this.token) return;
 		if (this.cursor === null) return this.loadHead();
 		const gen = this.gen;
-		const url = `${serverUrl()}/v1/events?cursor=${this.cursor}${this.query()}`;
-		let r;
-		try {
-			r = await exec("curl", [
-				"-sS",
-				"-N",
-				"--max-time",
-				String(WINDOW),
-				"-H",
-				`Authorization: Bearer ${this.token}`,
-				url,
-			]);
-		} catch {
-			this.error = "curl not found";
+		const on = this.machine;
+		const r = await http(
+			`/v1/events?cursor=${this.cursor}${this.query()}`,
+			["-sS", "-N", "--max-time", String(WINDOW)],
+			on,
+		);
+		if (gen !== this.gen) return; // the filter or machine changed mid-poll
+		if (r.error) {
+			this.error = r.error;
+			this.alive = false;
 			return;
 		}
-		if (gen !== this.gen) return; // the filter changed mid-poll
 		// 28: --max-time ended the poll — the normal end of a bounded read,
 		// with nothing new when the stream is caught up
 		if (r.code !== 0 && r.code !== 28 && !r.stdout) {
@@ -356,6 +327,12 @@ export default class TowerEvents extends View {
 			.border_b(1)
 			.border_color(t.border)
 			.child(div().font_semibold().child("Events"))
+			.child(
+				div()
+					.text_size(11)
+					.text_color(t.dim)
+					.child(`on ${machineLabel(this.machine)}`),
+			)
 			.child(
 				h_flex()
 					.gap(4)

@@ -19,7 +19,7 @@ import {
 	v_flex,
 } from "gpui-base";
 import { div, View } from "gpui-kit";
-import { appHome, readTextFile, theme, writeTextFile } from "herdr";
+import { appHome, theme } from "herdr";
 import {
 	CLOSED,
 	createArgs,
@@ -38,7 +38,16 @@ import {
 	who,
 	withScheduleTrigger,
 } from "./jobs.js";
-import { ago, messageText, stateColor, tower, until } from "./tower.js";
+import {
+	ago,
+	applyWorkflow,
+	followMachine,
+	machineLabel,
+	messageText,
+	stateColor,
+	towerOn,
+	until,
+} from "./tower.js";
 
 export default class TowerJobs extends View {
 	init(_props, cx) {
@@ -58,17 +67,38 @@ export default class TowerJobs extends View {
 		this.detailError = null;
 		this.edit = null; // the edit form: { kind, id, fields, states }
 		this.expanded = new Set(); // message ids shown in full
+		// Everything above came from one machine's server: a switch drops
+		// it all (an open form too) and reloads from the new one.
+		this.machine = followMachine(cx, (m, cx) => {
+			this.machine = m;
+			this.tasks = null;
+			this.schedules = null;
+			this.agents = null;
+			this.agentMap = null;
+			this.error = null;
+			this.loadError = null;
+			this.busy = null;
+			this.confirm = null;
+			this.notice = null;
+			this.assigning = null;
+			this.closeCreate();
+			this.select(null, null, cx);
+			cx.spawn((cx) => this.refresh(cx));
+			cx.notify();
+		});
 		cx.timer.every(10000, (cx) => this.refresh(cx));
 		this.refresh(cx);
 	}
 
 	async refresh(cx) {
+		const on = this.machine;
 		try {
 			const [tasks, schedules, ps] = await Promise.all([
-				tower("task", "list"),
-				tower("schedule", "list"),
-				tower("ps"),
+				towerOn(on, "task", "list"),
+				towerOn(on, "schedule", "list"),
+				towerOn(on, "ps"),
 			]);
+			if (this.machine !== on) return; // a late answer from the old machine
 			this.tasks = tasks.tasks ?? [];
 			this.schedules = schedules.schedules ?? [];
 			this.agents = ps.agents ?? [];
@@ -77,6 +107,7 @@ export default class TowerJobs extends View {
 			);
 			this.loadError = null;
 		} catch (e) {
+			if (this.machine !== on) return;
 			this.loadError = String(e.message ?? e);
 		}
 		if (this.sel) await this.loadDetail();
@@ -116,12 +147,15 @@ export default class TowerJobs extends View {
 		this.notice = null;
 		this.busy = id;
 		cx.notify();
+		const on = this.machine;
 		cx.spawn(async (cx) => {
 			try {
-				await tower(...args);
+				await towerOn(on, ...args);
+				if (this.machine !== on) return;
 				this.error = null;
 				after?.();
 			} catch (e) {
+				if (this.machine !== on) return;
 				this.error = e.message;
 			}
 			this.busy = null;
@@ -161,7 +195,8 @@ export default class TowerJobs extends View {
 		const sel = this.sel;
 		if (!sel) return;
 		try {
-			const d = await tower(
+			const d = await towerOn(
+				this.machine,
 				sel.kind === "job" ? "task" : "schedule",
 				"show",
 				sel.id,
@@ -284,10 +319,14 @@ export default class TowerJobs extends View {
 			inputs: {}, // its declared inputs: name -> InputState
 		};
 		const f = this.create;
+		const on = this.machine;
 		cx.spawn(async (cx) => {
 			try {
-				f.workflows = (await tower("workflow", "list")).workflows ?? [];
+				const ws = (await towerOn(on, "workflow", "list")).workflows ?? [];
+				if (this.create !== f) return; // closed, or the machine changed
+				f.workflows = ws;
 			} catch {
+				if (this.create !== f) return;
 				f.workflows = []; // a server before 0.7.0: no workflows to offer
 			}
 			cx.notify();
@@ -334,7 +373,7 @@ export default class TowerJobs extends View {
 		f.picking = name;
 		cx.spawn(async (cx) => {
 			try {
-				const d = await tower("workflow", "show", name);
+				const d = await towerOn(this.machine, "workflow", "show", name);
 				if (this.create !== f || f.picking !== name) return;
 				f.workflow = d;
 				f.inputs = Object.fromEntries(
@@ -348,6 +387,7 @@ export default class TowerJobs extends View {
 					]),
 				);
 			} catch (e) {
+				if (this.create !== f) return;
 				this.error = e.message;
 			}
 			f.picking = null;
@@ -363,6 +403,7 @@ export default class TowerJobs extends View {
 			Object.entries(f.inputs).map(([k, s]) => [k, s.value()]),
 		);
 		const name = f.workflow?.workflow?.name;
+		const on = this.machine;
 		let run;
 		try {
 			if (f.kind === "run" && f.when === "repeat") {
@@ -377,13 +418,17 @@ export default class TowerJobs extends View {
 					values,
 				);
 				run = async () => {
-					const v = await this.applySource(source);
+					const v = await applyWorkflow(
+						source,
+						`${appHome()}/data/tower-jobs/workflow.toml`,
+						on,
+					);
 					return `${name} v${v.version}: schedule added (tower schedule list shows it)`;
 				};
 			} else if (f.kind === "run") {
 				const args = runArgs(name, f.workflow?.definition?.inputs, values);
 				run = async () => {
-					const v = await tower(...args);
+					const v = await towerOn(on, ...args);
 					return `run ${v.run?.id ?? "?"} of ${name} started (Workflows panel)`;
 				};
 			} else {
@@ -403,7 +448,7 @@ export default class TowerJobs extends View {
 					post_run: text("post_run"),
 				});
 				run = async () => {
-					await tower(...args);
+					await towerOn(on, ...args);
 					return null;
 				};
 			}
@@ -416,24 +461,18 @@ export default class TowerJobs extends View {
 		cx.notify();
 		cx.spawn(async (cx) => {
 			try {
-				this.notice = await run();
+				const notice = await run();
+				if (this.machine !== on) return; // the form went with the old machine
+				this.notice = notice;
 				this.closeCreate();
 				this.error = null;
 			} catch (e) {
+				if (this.machine !== on) return;
 				this.error = e.message;
 			}
 			this.busy = null;
 			await this.refresh(cx);
 		});
-	}
-
-	/** Apply a workflow's TOML: written to this mod's draft file, then
-	 * `tower workflow apply` (mods cannot pass a program stdin). */
-	async applySource(source) {
-		const path = `${appHome()}/data/tower-jobs/workflow.toml`;
-		const current = await readTextFile(path);
-		await writeTextFile(path, source, current);
-		return tower("workflow", "apply", path);
 	}
 
 	taskRow(task, t) {
@@ -1074,6 +1113,12 @@ export default class TowerJobs extends View {
 					.border_b(1)
 					.border_color(t.border)
 					.child(div().font_semibold().child("Jobs"))
+					.child(
+						div()
+							.text_size(11)
+							.text_color(t.dim)
+							.child(`on ${machineLabel(this.machine)}`),
+					)
 					.child(div().flex_1())
 					.child(
 						div()

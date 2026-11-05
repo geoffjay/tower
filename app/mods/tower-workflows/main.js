@@ -9,8 +9,8 @@
 // Acts: run (a form of the declared inputs), enable / disable, remove and
 // cancel a run (two presses), edit the TOML source, and create a workflow
 // from a form of steps (or from TOML). Definitions reach the server through
-// `tower workflow apply <file>`; the file is this mod's draft in the app's
-// data folder.
+// `tower workflow apply <file>`; locally the file is this mod's draft in the
+// app's data folder. Everything goes to the machine tower.js targets.
 
 import {
 	Editor,
@@ -23,8 +23,15 @@ import {
 	v_flex,
 } from "gpui-base";
 import { div, svg, View } from "gpui-kit";
-import { appHome, readTextFile, settings, theme, writeTextFile } from "herdr";
-import { ago, stateColor, tower } from "./tower.js";
+import { appHome, settings, theme } from "herdr";
+import {
+	ago,
+	applyWorkflow,
+	followMachine,
+	machineLabel,
+	stateColor,
+	towerOn,
+} from "./tower.js";
 import {
 	agentText,
 	draftError,
@@ -70,6 +77,31 @@ export default class TowerWorkflows extends View {
 		this.starting = null; // the run form: { [input]: InputState }
 		this.editor = null; // { state, name (null: a new one), back }
 		this.create = null; // the create form
+		this.gen = 0; // bumped when the machine changes; late answers are dropped
+		this.machine = followMachine(cx, (m, cx) => {
+			// Everything shown came from the old server: start over on the list.
+			this.machine = m;
+			this.gen++;
+			this.closeForms();
+			this.workflows = null;
+			this.agents = null;
+			this.agentMap = {};
+			this.error = null;
+			this.loadError = null;
+			this.notice = null;
+			this.busy = null;
+			this.confirm = null;
+			this.sel = null;
+			this.detail = null;
+			this.detailError = null;
+			this.autoRun = false;
+			this.runId = null;
+			this.run = null;
+			this.opened = new Set();
+			this.allRuns = false;
+			cx.spawn(async (cx) => this.refresh(cx));
+			cx.notify();
+		});
 		cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
 		cx.timer.every(RUN_MS, (cx) => {
 			if (this.run?.run?.state !== "running") return;
@@ -82,11 +114,14 @@ export default class TowerWorkflows extends View {
 	}
 
 	async refresh(cx) {
+		const on = this.machine;
+		const gen = this.gen;
 		try {
 			const [w, ps] = await Promise.all([
-				tower("workflow", "list"),
-				tower("ps"),
+				towerOn(on, "workflow", "list"),
+				towerOn(on, "ps"),
 			]);
+			if (this.gen !== gen) return;
 			this.workflows = w.workflows ?? [];
 			this.agents = ps.agents ?? [];
 			this.agentMap = Object.fromEntries(
@@ -94,20 +129,23 @@ export default class TowerWorkflows extends View {
 			);
 			this.loadError = null;
 		} catch (e) {
+			if (this.gen !== gen) return;
 			this.loadError = String(e.message ?? e);
 		}
 		if (this.sel) await this.loadDetail();
 		if (this.runId) await this.loadRun();
-		cx.notify();
+		if (this.gen === gen) cx.notify();
 	}
 
 	/** `tower workflow show` for the open workflow; a late answer for an
 	 * earlier one is dropped. The first answer may open its running run. */
 	async loadDetail() {
 		const name = this.sel;
+		const on = this.machine;
+		const gen = this.gen;
 		try {
-			const d = await tower("workflow", "show", name);
-			if (this.sel !== name) return;
+			const d = await towerOn(on, "workflow", "show", name);
+			if (this.sel !== name || this.gen !== gen) return;
 			this.detail = d;
 			this.detailError = null;
 			if (this.autoRun) {
@@ -119,7 +157,7 @@ export default class TowerWorkflows extends View {
 				}
 			}
 		} catch (e) {
-			if (this.sel !== name) return;
+			if (this.sel !== name || this.gen !== gen) return;
 			this.detailError = String(e.message ?? e);
 		}
 	}
@@ -127,11 +165,14 @@ export default class TowerWorkflows extends View {
 	async loadRun() {
 		const id = this.runId;
 		if (!id) return;
+		const on = this.machine;
+		const gen = this.gen;
 		try {
-			const r = await tower("run", "show", id);
-			if (this.runId === id) this.run = r;
+			const r = await towerOn(on, "run", "show", id);
+			if (this.runId === id && this.gen === gen) this.run = r;
 		} catch (e) {
-			if (this.runId === id) this.loadError = String(e.message ?? e);
+			if (this.runId === id && this.gen === gen)
+				this.loadError = String(e.message ?? e);
 		}
 	}
 
@@ -188,12 +229,16 @@ export default class TowerWorkflows extends View {
 		this.notice = null;
 		this.busy = key;
 		cx.notify();
+		const on = this.machine;
+		const gen = this.gen;
 		cx.spawn(async (cx) => {
 			try {
-				const v = await tower(...args);
+				const v = await towerOn(on, ...args);
+				if (this.gen !== gen) return;
 				this.error = null;
 				after?.(v);
 			} catch (e) {
+				if (this.gen !== gen) return;
 				this.error = e.message;
 			}
 			this.busy = null;
@@ -201,23 +246,21 @@ export default class TowerWorkflows extends View {
 		});
 	}
 
-	/** Store `source` as a workflow: write the draft file, then
-	 * `tower workflow apply` it. Resolves the apply answer. */
-	async apply(source) {
-		const path = `${appHome()}/data/tower-workflows/draft.toml`;
-		const current = await readTextFile(path);
-		await writeTextFile(path, source, current);
-		return tower("workflow", "apply", path);
-	}
-
 	/** Apply `source`; on success say what changed and open the workflow. */
 	applyAndOpen(cx, source, done) {
 		this.busy = "apply";
 		this.error = null;
 		cx.notify();
+		const on = this.machine;
+		const gen = this.gen;
 		cx.spawn(async (cx) => {
 			try {
-				const v = await this.apply(source);
+				const v = await applyWorkflow(
+					source,
+					`${appHome()}/data/tower-workflows/draft.toml`,
+					on,
+				);
+				if (this.gen !== gen) return;
 				const name = v.workflow?.name;
 				this.notice = `${name} v${v.version} ${
 					v.changed ? (v.version === 1 ? "created" : "saved") : "unchanged"
@@ -226,6 +269,7 @@ export default class TowerWorkflows extends View {
 				this.busy = null;
 				this.open(name, cx);
 			} catch (e) {
+				if (this.gen !== gen) return;
 				this.error = String(e.message ?? e);
 				this.busy = null;
 			}
@@ -561,6 +605,12 @@ export default class TowerWorkflows extends View {
 					.border_b(1)
 					.border_color(t.border)
 					.child(div().font_semibold().child("Workflows"))
+					.child(
+						div()
+							.text_size(11)
+							.text_color(t.dim)
+							.child(`on ${machineLabel(this.machine)}`),
+					)
 					.child(div().flex_1())
 					.child(
 						div()
