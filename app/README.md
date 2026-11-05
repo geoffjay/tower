@@ -35,9 +35,7 @@ With the Herdr app installed and a tower server running (`tower serve` or
 Tell your agent:
 
 ```
-```
 Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/geoffjay/tower/tree/main/app
-```
 ```
 
 ### During Development
