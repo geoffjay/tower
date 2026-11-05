@@ -190,7 +190,7 @@ async fn main_async(cli: Cli) -> anyhow::Result<()> {
         Command::Prompt { .. } => prompt(cli).await,
         Command::Read { .. } => read(cli).await,
         Command::Stream { name } => stream(name, cli.token).await,
-        Command::Interrupt { name } => interrupt(name).await,
+        Command::Interrupt { name } => interrupt(name, cli.json).await,
         Command::Stop { .. } => stop(cli).await,
         Command::Doctor => doctor().await,
         Command::Schema => schema().await,
@@ -212,19 +212,19 @@ async fn main_async(cli: Cli) -> anyhow::Result<()> {
             name,
             text,
             deadline_s,
-        } => ask(name, text, deadline_s).await,
+        } => ask(name, text, deadline_s, cli.json).await,
         Command::Approve {
             msg_id,
             deny,
             answer,
-        } => approve(msg_id, deny, answer).await,
-        Command::Dismiss { msg_id } => dismiss_msg(msg_id).await,
+        } => approve(msg_id, deny, answer, cli.json).await,
+        Command::Dismiss { msg_id } => dismiss_msg(msg_id, cli.json).await,
         Command::Send {
             to,
             text,
             kind,
             deadline_s,
-        } => send(to, text, kind, deadline_s).await,
+        } => send(to, text, kind, deadline_s, cli.json).await,
     }
 }
 
@@ -358,7 +358,12 @@ fn age_str(ms: i64) -> String {
     }
 }
 
-async fn ask(name: String, text: String, deadline_s: Option<i64>) -> anyhow::Result<()> {
+async fn ask(
+    name: String,
+    text: String,
+    deadline_s: Option<i64>,
+    json_out: bool,
+) -> anyhow::Result<()> {
     let c = client(None).await?;
     let mut body = serde_json::json!({
         "to": name,
@@ -370,6 +375,9 @@ async fn ask(name: String, text: String, deadline_s: Option<i64>) -> anyhow::Res
         body["deadline_s"] = serde_json::json!(s);
     }
     let v = c.post("/v1/messages", Some(body)).await?;
+    if json_out {
+        return task::print_json(&v);
+    }
     let id = v["message"]["id"].as_str().unwrap_or("?");
     println!(
         "question sent → {id} (expires in {})",
@@ -378,7 +386,12 @@ async fn ask(name: String, text: String, deadline_s: Option<i64>) -> anyhow::Res
     Ok(())
 }
 
-async fn approve(msg_id: String, deny: bool, answer: Option<String>) -> anyhow::Result<()> {
+async fn approve(
+    msg_id: String,
+    deny: bool,
+    answer: Option<String>,
+    json_out: bool,
+) -> anyhow::Result<()> {
     let c = client(None).await?;
     // Approvals use `approve` (the server answers the dialog); questions use the answer text.
     let mut body = serde_json::json!({ "approve": !deny });
@@ -388,6 +401,9 @@ async fn approve(msg_id: String, deny: bool, answer: Option<String>) -> anyhow::
     let v = c
         .post(&format!("/v1/messages/{msg_id}/respond"), Some(body))
         .await?;
+    if json_out {
+        return task::print_json(&v);
+    }
     let m = &v["message"];
     let verb = match (m["kind"].as_str(), deny) {
         (Some("approval"), false) => "approved",
@@ -401,10 +417,14 @@ async fn approve(msg_id: String, deny: bool, answer: Option<String>) -> anyhow::
     Ok(())
 }
 
-async fn dismiss_msg(msg_id: String) -> anyhow::Result<()> {
+async fn dismiss_msg(msg_id: String, json_out: bool) -> anyhow::Result<()> {
     let c = client(None).await?;
-    c.post(&format!("/v1/messages/{msg_id}/dismiss"), None)
+    let v = c
+        .post(&format!("/v1/messages/{msg_id}/dismiss"), None)
         .await?;
+    if json_out {
+        return task::print_json(&v);
+    }
     println!("dismissed {msg_id} — no response delivered");
     Ok(())
 }
@@ -414,6 +434,7 @@ async fn send(
     text: String,
     kind: Option<String>,
     deadline_s: Option<i64>,
+    json_out: bool,
 ) -> anyhow::Result<()> {
     let c = client(None).await?;
     let mut body = serde_json::json!({
@@ -427,6 +448,9 @@ async fn send(
         body["deadline_s"] = serde_json::json!(s);
     }
     let v = c.post("/v1/messages", Some(body)).await?;
+    if json_out {
+        return task::print_json(&v);
+    }
     let id = v["message"]["id"].as_str().unwrap_or("?");
     println!("sent → {id}");
     Ok(())
@@ -494,6 +518,9 @@ async fn spawn(cli: Cli) -> anyhow::Result<()> {
         body["args"] = serde_json::json!(agent_args);
     }
     let v = c.post("/v1/agents", Some(body)).await?;
+    if cli.json {
+        return task::print_json(&v);
+    }
     let a = &v["agent"];
     println!(
         "spawned {} ({})",
@@ -521,6 +548,9 @@ async fn prompt(cli: Cli) -> anyhow::Result<()> {
             Some(serde_json::json!({"text": text, "wait": wait})),
         )
         .await?;
+    if cli.json {
+        return task::print_json(&v);
+    }
     let state = v["state"].as_str().unwrap_or("unknown");
     if v["stalled"] == true {
         println!(
@@ -590,10 +620,14 @@ async fn stream(name: String, token: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn interrupt(name: String) -> anyhow::Result<()> {
+async fn interrupt(name: String, json_out: bool) -> anyhow::Result<()> {
     let c = client(None).await?;
-    c.post(&format!("/v1/agents/{name}/interrupt"), None)
+    let v = c
+        .post(&format!("/v1/agents/{name}/interrupt"), None)
         .await?;
+    if json_out {
+        return task::print_json(&v);
+    }
     println!("interrupted {name}");
     Ok(())
 }
@@ -609,6 +643,9 @@ async fn stop(cli: Cli) -> anyhow::Result<()> {
             Some(serde_json::json!({"remove": remove})),
         )
         .await?;
+    if cli.json {
+        return task::print_json(&v);
+    }
     println!("stopped {name}");
     let w = &v["worktree"];
     if let Some(path) = w["path"].as_str() {
