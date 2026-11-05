@@ -83,7 +83,8 @@ export async function towerRead(name, { ansi = false } = {}) {
 	const bin = await towerBin();
 	if (!bin) throw new TowerError("tower CLI not found on this machine", "cli");
 	const r = await exec(bin, ansi ? ["read", name, "--ansi"] : ["read", name]);
-	if (r.code !== 0) throw new TowerError((r.stderr || r.stdout || "").trim(), "cli");
+	if (r.code !== 0)
+		throw new TowerError((r.stderr || r.stdout || "").trim(), "cli");
 	return r.stdout ?? "";
 }
 

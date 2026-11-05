@@ -30,6 +30,18 @@ local linters = new Mapping<String, Step> {
     check = "biome check crates/tower-web"
     fix = "biome check --write crates/tower-web"
   }
+  // The Herdr app mods and the omp agent extensions (JS/TS/JSON).
+  ["biome-app-agent"] {
+    glob = List("app/**/*.{js,json}", "agent/**/*.{ts,json}")
+    check = "biome check app agent"
+    fix = "biome check --write app agent"
+  }
+  // Mods cannot import across folders, so every mod carries its own copy
+  // of tower.js; they must stay byte-identical.
+  ["app-tower-js-sync"] {
+    glob = "app/mods/*/tower.js"
+    check = "test \"$(cksum app/mods/*/tower.js | cut -d' ' -f1 | sort -u | wc -l)\" -eq 1"
+  }
 }
 
 hooks {

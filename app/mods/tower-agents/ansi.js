@@ -14,8 +14,9 @@
 const PLAIN = Object.freeze({});
 // CSI (SGR when it ends in "m"), OSC (BEL or ST terminated), other 2-char
 // escapes, and the line breaks.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching escapes is the point
-const TOKEN = /\x1b\[([0-9;:?<=>]*)[ -/]*([@-~])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-Z\\-_]|\r?\n|\r/g;
+const TOKEN =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching escapes is the point
+	/\x1b\[([0-9;:?<=>]*)[ -/]*([@-~])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-Z\\-_]|\r?\n|\r/g;
 const CUBE = [0, 95, 135, 175, 215, 255];
 
 /** Parse `tower read --ansi` output into lines of styled runs. Style
@@ -85,7 +86,10 @@ function sameStyle(a, b) {
 
 /** One SGR sequence's parameters applied to a style; a new style object. */
 function applySgr(style, params) {
-	const p = params === "" ? [0] : params.split(/[;:]/).map((n) => (n === "" ? 0 : Number(n)));
+	const p =
+		params === ""
+			? [0]
+			: params.split(/[;:]/).map((n) => (n === "" ? 0 : Number(n)));
 	const s = { ...style };
 	for (let k = 0; k < p.length; k++) {
 		const n = p[k];
@@ -136,10 +140,17 @@ function color256(n) {
 		return hex(v, v, v);
 	}
 	const i = n - 16;
-	return hex(CUBE[Math.floor(i / 36)], CUBE[Math.floor(i / 6) % 6], CUBE[i % 6]);
+	return hex(
+		CUBE[Math.floor(i / 36)],
+		CUBE[Math.floor(i / 6) % 6],
+		CUBE[i % 6],
+	);
 }
 
 function hex(r, g, b) {
-	const h = (v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, "0");
+	const h = (v) =>
+		Math.max(0, Math.min(255, v | 0))
+			.toString(16)
+			.padStart(2, "0");
 	return `#${h(r)}${h(g)}${h(b)}`;
 }

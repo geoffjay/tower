@@ -64,7 +64,8 @@ export class Names {
 			if (p.schedule_id && !this.schedules.has(p.schedule_id))
 				this.schedules.set(p.schedule_id, p.title);
 		}
-		if (e.kind === "schedule.created" && p.title) this.schedules.set(id, p.title);
+		if (e.kind === "schedule.created" && p.title)
+			this.schedules.set(id, p.title);
 		if (e.kind === "message.created") this.messages.set(id, p);
 	}
 
@@ -99,14 +100,17 @@ export class Names {
 	/** A message's "from → to", or "message …<tail>". */
 	message(id) {
 		const m = this.messages.get(id);
-		return m ? `${this.who(m.from)} → ${this.who(m.to)}` : `message ${tail(id)}`;
+		return m
+			? `${this.who(m.from)} → ${this.who(m.to)}`
+			: `message ${tail(id)}`;
 	}
 
 	/** A `by`/`from`/`to` reference: "schedule:<id>", an agent, operator. */
 	who(ref) {
 		const id = typeof ref === "object" && ref ? ref.id : ref;
 		if (!id) return "?";
-		if (id.startsWith("schedule:")) return `schedule ${this.schedule(id.slice(9))}`;
+		if (id.startsWith("schedule:"))
+			return `schedule ${this.schedule(id.slice(9))}`;
 		if (typeof ref === "object" && ref.kind === "human") return id;
 		return this.agent(id);
 	}
@@ -149,7 +153,10 @@ export function detail(e, n) {
 	const parts = (...xs) => xs.filter(Boolean).join(" · ");
 	switch (e.kind) {
 		case "server.started":
-			return parts(`started ${p.version ?? ""}`.trim(), p.pid && `pid ${p.pid}`);
+			return parts(
+				`started ${p.version ?? ""}`.trim(),
+				p.pid && `pid ${p.pid}`,
+			);
 		case "agent.created":
 			return parts(
 				p.adopted ? "adopted" : "spawned",
@@ -167,7 +174,10 @@ export function detail(e, n) {
 			return parts(
 				"created",
 				p.priority ? `priority ${p.priority}` : null,
-				(p.tags ?? []).filter(Boolean).map((x) => `#${x}`).join(" "),
+				(p.tags ?? [])
+					.filter(Boolean)
+					.map((x) => `#${x}`)
+					.join(" "),
 				p.schedule_id && `from schedule ${n.schedule(p.schedule_id)}`,
 			);
 		case "task.reserved":
@@ -183,11 +193,16 @@ export function detail(e, n) {
 		case "task.leased_out":
 			return parts(
 				`lease missed by ${n.agent(p.prior_owner)}`,
-				p.attempt_count && `attempt ${p.attempt_count}/${p.max_attempts ?? "?"}`,
+				p.attempt_count &&
+					`attempt ${p.attempt_count}/${p.max_attempts ?? "?"}`,
 				p.state && `→ ${p.state}`,
 			);
 		case "task.status":
-			return parts(`→ ${p.state ?? "?"}`, p.reason, p.owner_id && n.agent(p.owner_id));
+			return parts(
+				`→ ${p.state ?? "?"}`,
+				p.reason,
+				p.owner_id && n.agent(p.owner_id),
+			);
 		case "task.completed":
 			return parts(
 				p.owner_id ? `completed by ${n.agent(p.owner_id)}` : "completed",
@@ -229,7 +244,10 @@ export function detail(e, n) {
 				p.response && `"${trunc(oneLine(String(p.response)), 100)}"`,
 			);
 		case "approval.expired":
-			return parts(`${p.kind ?? "approval"} expired`, p.notified && "agent told");
+			return parts(
+				`${p.kind ?? "approval"} expired`,
+				p.notified && "agent told",
+			);
 		default:
 			return trunc(JSON.stringify(p), 120);
 	}
@@ -244,7 +262,10 @@ export function facts(e, n) {
 		["event", e.kind],
 	];
 	if (e.subject_type)
-		rows.push(["subject", `${subject(e, n)} · ${e.subject_type} ${e.subject_id}`]);
+		rows.push([
+			"subject",
+			`${subject(e, n)} · ${e.subject_type} ${e.subject_id}`,
+		]);
 	for (const [k, v] of Object.entries(e.payload ?? {})) {
 		if (v === null || v === undefined || isBodyValue(v)) continue;
 		rows.push([k.replaceAll("_", " "), factValue(k, v, n)]);
@@ -265,14 +286,18 @@ export function body(e) {
 }
 
 function isBodyValue(v) {
-	return typeof v === "object" || (typeof v === "string" && (v.length > 120 || v.includes("\n")));
+	return (
+		typeof v === "object" ||
+		(typeof v === "string" && (v.length > 120 || v.includes("\n")))
+	);
 }
 
 function factValue(key, v, n) {
 	if (typeof v === "number" && v > 1e12 && /(_at|not_before)$/.test(key))
 		return stamp(v, true);
 	if (typeof v !== "string") return String(v);
-	if (/^(owner_id|agent_id|prior_owner|target)$/.test(key)) return named(n.agent(v), v);
+	if (/^(owner_id|agent_id|prior_owner|target)$/.test(key))
+		return named(n.agent(v), v);
 	if (key === "task_id") return named(n.task(v), v);
 	if (key === "schedule_id") return named(n.schedule(v), v);
 	if (key === "by") return named(n.who(v), v);
@@ -286,7 +311,8 @@ function named(name, id) {
 
 /** A task result's one-line gist: its summary, else its first string. */
 function resultSummary(result) {
-	if (!result || typeof result !== "object") return result ? String(result) : "";
+	if (!result || typeof result !== "object")
+		return result ? String(result) : "";
 	const s = result.summary ?? result.message ?? result.error;
 	if (typeof s === "string") return oneLine(s);
 	const first = Object.values(result).find((v) => typeof v === "string");
@@ -307,7 +333,20 @@ export function stamp(ts, full = false) {
 	return `${MONTHS[d.getMonth()]} ${d.getDate()} ${hm}`;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS = [
+	"Jan",
+	"Feb",
+	"Mar",
+	"Apr",
+	"May",
+	"Jun",
+	"Jul",
+	"Aug",
+	"Sep",
+	"Oct",
+	"Nov",
+	"Dec",
+];
 
 function pad(x) {
 	return String(x).padStart(2, "0");

@@ -26,7 +26,15 @@
 
 import { Editor, EditorState, h_flex, v_flex } from "gpui-base";
 import { div, View } from "gpui-kit";
-import { exec, home, readTextFile, settings, shared, theme, window } from "herdr";
+import {
+	exec,
+	home,
+	readTextFile,
+	settings,
+	shared,
+	theme,
+	window,
+} from "herdr";
 import { body, detail, facts, Names, stamp, subject } from "./events.js";
 import { stateColor } from "./tower.js";
 
@@ -159,7 +167,8 @@ export default class TowerEvents extends View {
 			return null;
 		}
 		if (status === 404) {
-			this.error = "this panel needs tower 0.6.0 or later (GET /v1/events/history)";
+			this.error =
+				"this panel needs tower 0.6.0 or later (GET /v1/events/history)";
 			return null;
 		}
 		let page;
@@ -170,7 +179,8 @@ export default class TowerEvents extends View {
 			return null;
 		}
 		if (status !== 200) {
-			this.error = page?.error?.message ?? `events page failed (HTTP ${status})`;
+			this.error =
+				page?.error?.message ?? `events page failed (HTTP ${status})`;
 			return null;
 		}
 		for (const e of page.events) this.names.learn(e);
@@ -190,7 +200,8 @@ export default class TowerEvents extends View {
 
 	/** "Load older": the page before the oldest row held. */
 	loadOlder(cx) {
-		if (this.older || !this.more || this.cursor === null || !this.rows.length) return;
+		if (this.older || !this.more || this.cursor === null || !this.rows.length)
+			return;
 		this.older = true;
 		const gen = this.gen;
 		cx.spawn(async (cx) => {
@@ -263,7 +274,8 @@ export default class TowerEvents extends View {
 			}
 			// The id covers events the filter skipped, so a filtered view
 			// never rescans them.
-			if (Number.isFinite(reached)) this.cursor = Math.max(this.cursor, reached);
+			if (Number.isFinite(reached))
+				this.cursor = Math.max(this.cursor, reached);
 		}
 		if (this.rows.length > KEEP) {
 			this.rows = this.rows.slice(-KEEP);
@@ -393,7 +405,12 @@ export default class TowerEvents extends View {
 	 * matching events exist, else the start of the log. */
 	listEnd(t) {
 		if (!this.more) {
-			return div().px(14).py(8).text_size(11).text_color(t.dim).child("Start of the log.");
+			return div()
+				.px(14)
+				.py(8)
+				.text_size(11)
+				.text_color(t.dim)
+				.child("Start of the log.");
 		}
 		return h_flex()
 			.px(14)
@@ -537,11 +554,7 @@ export default class TowerEvents extends View {
 										.child(label),
 								)
 								.child(
-									div()
-										.flex_1()
-										.min_w(0)
-										.text_color(t.foreground)
-										.child(value),
+									div().flex_1().min_w(0).text_color(t.foreground).child(value),
 								),
 						),
 					),
@@ -565,7 +578,8 @@ function kindColor(e) {
 	if (e.kind === "agent.state") return stateColor(p.to);
 	if (e.kind === "task.status" || e.kind === "task.leased_out")
 		return stateColor(p.state);
-	if (e.kind.endsWith("failed") || e.kind === "schedule.skipped") return "ansi1";
+	if (e.kind.endsWith("failed") || e.kind === "schedule.skipped")
+		return "ansi1";
 	if (e.kind === "task.completed" || e.kind === "schedule.resumed")
 		return stateColor("completed");
 	return "dim";

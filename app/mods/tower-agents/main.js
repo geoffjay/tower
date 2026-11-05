@@ -14,12 +14,19 @@ import {
 	Input,
 	InputState,
 	Scrollbar,
+	VirtualListScrollHandle,
 	v_flex,
 	v_virtual_list,
-	VirtualListScrollHandle,
 } from "gpui-base";
 import { div, View } from "gpui-kit";
-import { closeOverlay, knownAgents, openOverlay, props, settings, theme } from "herdr";
+import {
+	closeOverlay,
+	knownAgents,
+	openOverlay,
+	props,
+	settings,
+	theme,
+} from "herdr";
 import { parseAnsi } from "./ansi.js";
 import { stateColor, tower, towerRead } from "./tower.js";
 
@@ -82,7 +89,8 @@ export default class TowerAgents extends View {
 			]);
 			this.agents = ps.agents ?? [];
 			this.jobs = (tasks?.tasks ?? []).filter(
-				(j) => !["completed", "failed", "canceled", "rejected"].includes(j.state),
+				(j) =>
+					!["completed", "failed", "canceled", "rejected"].includes(j.state),
 			);
 			this.loadError = null;
 		} catch (e) {
@@ -325,7 +333,9 @@ export default class TowerAgents extends View {
 					.truncate()
 					.text_size(11)
 					.text_color(t.muted)
-					.child(job ? `job: ${job.title}` : (a.workdir ?? a.worktree ?? a.kind)),
+					.child(
+						job ? `job: ${job.title}` : (a.workdir ?? a.worktree ?? a.kind),
+					),
 			);
 	}
 
@@ -567,20 +577,18 @@ export default class TowerAgents extends View {
 									LINE_H,
 									(i) => String(i),
 									(range) =>
-										lines
-											.slice(range.start, range.end)
-											.map((l) =>
-												h_flex()
-													.h(LINE_H)
-													.px(10)
-													.whitespace_nowrap()
-													.text_color(t.foreground)
-													.children(
-														l.runs.length > 0
-															? l.runs.map((r) => this.run(r, t))
-															: [div().child(" ")],
-													),
-											),
+										lines.slice(range.start, range.end).map((l) =>
+											h_flex()
+												.h(LINE_H)
+												.px(10)
+												.whitespace_nowrap()
+												.text_color(t.foreground)
+												.children(
+													l.runs.length > 0
+														? l.runs.map((r) => this.run(r, t))
+														: [div().child(" ")],
+												),
+										),
 								)
 									.track_scroll(this.scroll)
 									.size_full(),
@@ -796,7 +804,12 @@ export default class TowerAgents extends View {
 									.pb(10)
 									.when(this.agents === null, (el) =>
 										el.child(
-											div().px(14).py(8).text_size(12).text_color(t.dim).child("Loading…"),
+											div()
+												.px(14)
+												.py(8)
+												.text_size(12)
+												.text_color(t.dim)
+												.child("Loading…"),
 										),
 									)
 									.when(this.agents !== null && agents.length === 0, (el) =>
@@ -833,7 +846,9 @@ export default class TowerAgents extends View {
 			)
 			.child(div().flex_1())
 			.when(!this.spawn, (el) =>
-				el.child(this.button("spawn", "＋ Spawn…", t, (cx) => this.openSpawn(cx))),
+				el.child(
+					this.button("spawn", "＋ Spawn…", t, (cx) => this.openSpawn(cx)),
+				),
 			);
 	}
 }

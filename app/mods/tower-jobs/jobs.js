@@ -60,7 +60,9 @@ export function trailLine(e, names) {
 	const n = (id) => who(id, names);
 	switch (e.kind) {
 		case "task.created":
-			return p.schedule_id ? `created by ${n(`schedule:${p.schedule_id}`)}` : "created";
+			return p.schedule_id
+				? `created by ${n(`schedule:${p.schedule_id}`)}`
+				: "created";
 		case "task.assigned":
 			return `assigned to ${n(p.owner_id)} by ${n(p.by)}`;
 		case "task.reserved":
@@ -126,7 +128,8 @@ export function resultFields(result) {
 export function waitingFor(task, names) {
 	if (task.state !== "queued") return null;
 	const parts = [];
-	if (task.target_agent_id) parts.push(`for ${who(task.target_agent_id, names)}`);
+	if (task.target_agent_id)
+		parts.push(`for ${who(task.target_agent_id, names)}`);
 	if (task.not_before && task.not_before > Date.now()) {
 		parts.push(`from ${stamp(task.not_before)}`);
 	}
@@ -182,7 +185,10 @@ export function editFields(kind, obj) {
 		multi,
 		flag,
 		value: key === "at" ? atValue(obj.not_before) : String(obj[key] ?? ""),
-		locked: queued || key === "post_run" ? null : "delivered: only post-run can change",
+		locked:
+			queued || key === "post_run"
+				? null
+				: "delivered: only post-run can change",
 	}));
 }
 
