@@ -8,14 +8,16 @@
 // `tower ps`, `tower task list` and `tower schedule list`, so agents and
 // schedules removed since still resolve when the log mentions them.
 
-import { tower } from "./tower.js";
+import { towerOn } from "./tower.js";
 
 const REFRESH_MS = 60_000; // full name refresh
 const MISS_MS = 10_000; // an unknown id refreshes at most this often
 
-/** Ids → names for agents, jobs, schedules and messages. */
+/** Ids → names for agents, jobs, schedules and messages, on one machine's
+ * tower server (`on`: null for this computer). */
 export class Names {
-	constructor() {
+	constructor(on = null) {
+		this.on = on;
 		this.agents = new Map(); // id → name
 		this.tasks = new Map(); // id → title
 		this.schedules = new Map(); // id → title
@@ -36,9 +38,9 @@ export class Names {
 		this.unknown.clear();
 		try {
 			const [ps, tasks, schedules] = await Promise.all([
-				tower("ps").catch(() => null),
-				tower("task", "list").catch(() => null),
-				tower("schedule", "list").catch(() => null),
+				towerOn(this.on, "ps").catch(() => null),
+				towerOn(this.on, "task", "list").catch(() => null),
+				towerOn(this.on, "schedule", "list").catch(() => null),
 			]);
 			for (const a of ps?.agents ?? []) this.agents.set(a.id, a.name);
 			for (const t of tasks?.tasks ?? []) this.tasks.set(t.id, t.title);

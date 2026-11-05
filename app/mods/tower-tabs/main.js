@@ -1,16 +1,26 @@
 import { h_flex } from "gpui-base";
 import { div, image, svg, View } from "gpui-kit";
 import {
+	closeOverlay,
 	layout,
+	machines,
 	openOverlay,
 	panes,
+	props,
 	run,
 	settings,
 	spaces,
 	theme,
 	window,
 } from "herdr";
-import { tower } from "./tower.js";
+import {
+	followMachine,
+	machineLabel,
+	pin,
+	pinned,
+	target,
+	towerOn,
+} from "./tower.js";
 
 const INBOX_MS = 10000; // the Inbox panel's own refresh period
 
@@ -25,23 +35,95 @@ function find(node, id) {
 
 export default class Tabs extends View {
 	init(_props, cx) {
+		// Opened as the machine picker (the Machine button below): only the
+		// menu, no polling.
+		this.picker = Boolean(props()?.machines);
+		if (this.picker) return;
 		this.pressed = null;
 		this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
-		// Pending inbox items, polled here so the Inbox button shows them
-		// while the panel is closed. A failed call keeps the last count.
+		// Pending inbox items on the machine the panels follow, polled here so
+		// the Inbox button shows them while the panel is closed. A failed call
+		// keeps the last count; a machine change starts from zero.
 		this.inboxCount = 0;
-		const poll = (cx) =>
+		const poll = (cx) => {
+			const on = this.machine;
 			cx.spawn(async (cx) => {
 				try {
-					const v = await tower("inbox");
-					this.inboxCount = (v.messages ?? []).length;
+					const v = await towerOn(on, "inbox");
+					if (on === this.machine) this.inboxCount = (v.messages ?? []).length;
 				} catch {
 					// no tower: the Inbox panel itself says so
 				}
 				cx.notify();
 			});
+		};
+		this.machine = followMachine(cx, (m, cx) => {
+			this.machine = m;
+			this.inboxCount = 0;
+			poll(cx);
+			cx.notify();
+		});
 		cx.timer.every(INBOX_MS, poll);
 		poll(cx);
+	}
+
+	/** The picker: follow the shown space, or pin this computer or a machine
+	 * (`hc machine ls`). Choosing one closes it. */
+	renderPicker() {
+		const t = theme();
+		const current = pinned();
+		const space = spaces().find((p) => p.active)?.machine ?? null;
+		const choose = (value) => () => {
+			pin(value);
+			closeOverlay(props().overlay);
+		};
+		const entry = (id, label, note, chosen, value) =>
+			h_flex()
+				.id(id)
+				.h(28)
+				.px(10)
+				.gap(8)
+				.items_center()
+				.rounded(6)
+				.text_size(12.8)
+				.text_color(chosen ? t.foreground : t.muted)
+				.bg(chosen ? t.selected : t.popover)
+				.hover((s) => s.bg(t.hover))
+				.on_click(choose(value))
+				.child(div().flex_1().min_w(0).truncate().child(label))
+				.when(Boolean(note), (el) =>
+					el.child(div().flex_none().text_color(t.dim).child(note)),
+				);
+		const others = machines().filter((m) => m.name !== null);
+		return div()
+			.id("tower-machines")
+			.size_full()
+			.p(4)
+			.flex()
+			.flex_col()
+			.gap(1)
+			.child(
+				entry(
+					"machine-follow",
+					"Follow space",
+					machineLabel(space),
+					current === null,
+					null,
+				),
+			)
+			.child(div().h(1).my(3).bg(t.border))
+			.child(entry("machine-local", "this computer", null, current === "", ""))
+			.children(
+				others.map((m) =>
+					entry(
+						`machine-${m.name}`,
+						m.name,
+						m.layout === "unavailable" ? "offline" : null,
+						current === m.name,
+						m.name,
+					),
+				),
+			);
 	}
 
 	// The side panel is remembered per space: switching shows that space's choice
@@ -76,7 +158,39 @@ export default class Tabs extends View {
 		localStorage.setItem("panels", JSON.stringify(this.panels));
 	}
 
+	/** The machine the panels talk to; a pin shows as a dot. Opens the picker. */
+	machineButton(t, stop) {
+		const machine = target();
+		return h_flex()
+			.id("tower-machine")
+			.h(26)
+			.px(8)
+			.gap(5)
+			.flex_none()
+			.items_center()
+			.rounded(6)
+			.text_size(12)
+			.bg(t.chrome)
+			.text_color(t.muted)
+			.hover((s) => s.bg(t.hover))
+			.on_mouse_down("left", stop)
+			.on_click(() =>
+				openOverlay({
+					mod: "tower-tabs",
+					kind: "popup",
+					width: 220,
+					height: 64 + 29 * machines().length,
+					props: { machines: true },
+				}),
+			)
+			.child(div().max_w(120).truncate().child(machineLabel(machine)))
+			.when(pinned() !== null, (el) =>
+				el.child(div().size(5).rounded(3).bg(t.accent)),
+			);
+	}
+
 	render() {
+		if (this.picker) return this.renderPicker();
 		const t = theme();
 		const space = spaces().find((p) => p.active);
 		const shown = space?.tabs ?? [];
@@ -271,6 +385,7 @@ export default class Tabs extends View {
 					}),
 				),
 			)
+			.child(this.machineButton(t, stop))
 			.child(
 				panelButton("tower-agents", "Agents", "mods/tower-tabs/agents.svg"),
 			)

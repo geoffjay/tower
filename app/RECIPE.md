@@ -11,7 +11,9 @@ start a workflow run, answer an inbox item, queue a job, pause a schedule
 The panels talk to a running tower server through the `tower` CLI
 (`tower --version` to check). The CLI finds the server the way the TUI
 does: `TOWER_URL`/`TOWER_TOKEN`, else the tower home's `config.toml` and
-token file. No tower, and every panel says so.
+token file. No tower, and every panel says so. The panels follow the
+shown space's machine (or a pinned one, from the tab bar's machine
+button), so a remote machine needs its own `tower` CLI and server.
 
 ## What you see
 
@@ -200,9 +202,11 @@ the full width) and tower panels in place of the Files/Changes panel:
   - `tower-workflows`: `tower workflow list/show/run/enable/disable/rm/
     apply`, `tower run show/cancel`, `tower ps` (agent names, the form's
     agent pills); `workflows.js` lays a definition out as graph rows,
-    lays a run's steps over them, and builds the create form's TOML. The
-    draft file is `<herdr-app home>/data/tower-workflows/draft.toml`
-    (`writeTextFile`, then `tower workflow apply <path>`); `check.svg` and
+    lays a run's steps over them, and builds the create form's TOML.
+    Definitions go through `tower.js` `applyWorkflow()`: here, the draft
+    file `<herdr-app home>/data/tower-workflows/draft.toml`
+    (`writeTextFile`, then `tower workflow apply <path>`); on a remote
+    machine, a `mktemp` file there. `check.svg` and
     `cross.svg` are the done/failed marks, the spinner is the shipped
     `mods/workspace-chrome/spinner.svg`.
   - `tower-inbox`: `tower inbox`, `tower approve [--answer|--deny]`,
@@ -215,19 +219,18 @@ the full width) and tower panels in place of the Files/Changes panel:
     create rules.
   - `tower-events`: the tower REST `/v1/events/history` page and the
     `/v1/events` SSE endpoint via bounded `curl --max-time 5` polls
-    (cursor from the page's `head`); the token from the tower
-    home for the platform (`window().platform`: `~/.local/share/tower`
-    Linux, `~/Library/Application Support/tower` macOS,
-    `~/AppData/Roaming/tower` Windows), or the shared-state override
-    `tower.token_file`; the address from `tower.server_url` or the
-    default bind. `events.js` formats rows and the detail section and
-    resolves names (`tower ps`, `tower task list`, `tower schedule list`).
+    (cursor from the page's `head`), through `tower.js` `towerHttp()`:
+    an `sh` script on the followed machine resolves the URL and token
+    the way the CLI does, then runs `curl`. `events.js` formats rows and
+    the detail section and resolves names (`tower ps`, `tower task
+    list`, `tower schedule list`).
   - `tower-tabs`: a clone of the shipped `tabs` mod, `enabled` hardcoded
     to `["tower-agents", "tower-workflows", "tower-jobs", "tower-events",
     "tower-inbox"]`, panel buttons switched to those five (icons
     `mods/tower-tabs/agents.svg`, `workflows.svg`, `jobs.svg`,
     `events.svg`, `inbox.svg`), plus a `tower inbox` poll for the Inbox
-    button's color.
+    button's color and the machine button, which opens `tower-tabs`
+    itself as a popup (`props: { machines: true }`) to pick the machine.
     Everything else is the shipped tab bar: tab pills, drag-to-reorder,
     `+` menu, window buttons.
 - `herdr`: `exec`, `theme`, `readTextFile`, `writeTextFile`, `appHome`,
@@ -259,17 +262,18 @@ the full width) and tower panels in place of the Files/Changes panel:
 - `herdr-app check` drops `gpui-kit.d.ts` and `jsconfig.json` into the
   folder it checks — don't commit those; delete them after checking.
 - The mod runtime has no `setTimeout`/`process`/env access: timing is
-  `cx.timer.every`, and `TOWER_URL`/`TOWER_TOKEN` overrides are invisible
-  to the mods (they go through the CLI, which does see the environment —
-  run the app from a shell with them set if you need an override).
+  `cx.timer.every`. `exec` runs programs with the user's real
+  environment, so the CLI and the events panel's `sh` script see
+  `TOWER_URL`/`TOWER_TOKEN` where they run.
+- The machine: shared state `tower.machine` pins one (`""` this computer,
+  else a name from `hc machine ls`); unset follows the shown space's
+  `machine`. Every call goes to that machine (`exec` with `on`). A panel
+  checks it every 500 ms (`followMachine`), clears everything from the
+  old server and reloads; replies started on the old machine are
+  dropped, and actions go to the machine they started on. Event seqs are
+  per server, so the events cursor resets on a switch.
 - The events panel needs a tower 0.6.0 server (`/v1/events/history`,
-  `exclude=`); an older one shows "this panel needs tower 0.6.0". The
-  bounded-poll approach assumes the server keeps the default
-  `127.0.0.1:8266` bind (mods cannot read the tower config).
-- The events panel re-reads the token file on every poll until it finds
-  one. A one-shot read at startup can miss: a restored layout can mount
-  the panel before `window()` reports the platform, and a token written
-  after the app opened would never be picked up.
+  `exclude=`); an older one shows "this panel needs tower 0.6.0".
 - `InputState.new` belongs in handlers, never in `render`.
 - Two-press confirms reset on the next refresh cycle if the row changed.
 - The Workflows panel needs a tower 0.7.0 server (`tower workflow`,
@@ -321,3 +325,10 @@ the full width) and tower panels in place of the Files/Changes panel:
   workflow's `task.completed` trigger shows "Completing it starts
   workflow X", and completing it starts that run.
 - `tower ui`'s web inbox and this panel agree on what needs you.
+- With a machine added (`hc machine ls`) that runs its own tower: select
+  a space on it → within ~1s the tab bar's machine button and every
+  panel header name that machine, and the panels match `hc exec --on
+  <machine> tower ps` / `task list` / `inbox`; the Events panel shows that
+  server's events. Pin "this computer" from the machine button → the
+  panels show the local fleet while the remote space stays shown, and a
+  dot marks the pin; "Follow space" undoes it.

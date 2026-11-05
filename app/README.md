@@ -50,11 +50,18 @@ Or ask your agent: "add the tower layout from this repo's `app/` folder"
 — it follows [`RECIPE.md`](RECIPE.md).
 
 The panels need the `tower` CLI on PATH. They find the server exactly as
-the CLI does. The events panel reads the token file directly from the
-tower home for its platform — `~/.local/share/tower` (Linux),
-`~/Library/Application Support/tower` (macOS) — or a path set as shared
-state `tower.token_file`; its server address honors `tower.server_url`
-the same way (mods cannot read the environment).
+the CLI does (`TOWER_URL`/`TOWER_TOKEN`, else the tower home's
+`config.toml` and token file), on whichever machine they follow.
+
+### Machines
+
+The panels talk to the tower server on one machine at a time: by default
+the shown space's machine (`hc machine ls`), so switching to a space on
+`vps` shows `vps`'s fleet. The machine button in the tab bar opens a
+picker: "Follow space", or pin this computer or a machine (a dot marks a
+pin; shared state `tower.machine`). A remote machine needs its own
+`tower` CLI and server; calls run there through herdr-core's ssh
+connection, so its server stays on loopback.
 
 ## What it does
 
@@ -105,11 +112,9 @@ follow. See [`RECIPE.md`](RECIPE.md) "Done when" for the re-check steps.
 
 ## Limits
 
-- The events panel talks to the default bind `127.0.0.1:8266`; set the
-  shared state `tower.server_url` for a non-default server, and
-  `tower.token_file` for a non-default token path (mods cannot read
-  `TOWER_URL`/`TOWER_TOKEN`). The other panels go through the CLI and
-  honor the environment.
+- The events panel needs `sh` and `curl` on the machine it follows, and
+  applying a workflow on a remote machine needs `sh` there: Windows is
+  not supported for either.
 - Editing jobs and schedules needs a tower 0.5 server (`task edit`,
   `schedule edit`), and the Workflows panel a tower 0.7.0 one; the other
   verbs the panels use exist on 0.4.

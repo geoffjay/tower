@@ -10,7 +10,14 @@
 import { h_flex, Input, InputState, v_flex } from "gpui-base";
 import { div, View } from "gpui-kit";
 import { theme } from "herdr";
-import { ago, messageText, tower, towerRead } from "./tower.js";
+import {
+	ago,
+	followMachine,
+	machineLabel,
+	messageText,
+	towerOn,
+	towerRead,
+} from "./tower.js";
 
 const PENDING = new Set(["pending"]);
 
@@ -24,16 +31,35 @@ export default class TowerInbox extends View {
 		this.screen = null; // {from, text} the asking agent's screen tail
 		this.screenFor = null;
 		this.answer = null; // {id, state} the answer form open on an item
+		this.gen = 0; // bumped when the panel moves to another machine
+		this.machine = followMachine(cx, (m, cx) => {
+			// A new server: nothing from the old one carries over.
+			this.machine = m;
+			this.gen++;
+			this.items = null;
+			this.error = null;
+			this.loadError = null;
+			this.busy = null;
+			this.confirm = null;
+			this.screen = null;
+			this.screenFor = null;
+			this.answer = null;
+			cx.spawn((cx) => this.refresh(cx));
+			cx.notify();
+		});
 		cx.timer.every(10000, (cx) => this.refresh(cx));
 		this.refresh(cx);
 	}
 
 	async refresh(cx) {
+		const gen = this.gen;
 		try {
-			const v = await tower("inbox");
+			const v = await towerOn(this.machine, "inbox");
+			if (gen !== this.gen) return;
 			this.items = v.messages ?? [];
 			this.loadError = null;
 		} catch (e) {
+			if (gen !== this.gen) return;
 			this.loadError = String(e.message ?? e);
 		}
 		cx.notify();
@@ -75,12 +101,16 @@ export default class TowerInbox extends View {
 		this.confirm = null;
 		this.busy = id;
 		cx.notify();
+		const on = this.machine;
+		const gen = this.gen;
 		cx.spawn(async (cx) => {
 			try {
-				await tower(...args);
+				await towerOn(on, ...args);
+				if (gen !== this.gen) return;
 				this.error = null;
 				this.answer = null;
 			} catch (e) {
+				if (gen !== this.gen) return;
 				this.error = `${e.message}`;
 			}
 			this.busy = null;
@@ -108,11 +138,15 @@ export default class TowerInbox extends View {
 		this.busy = m.id;
 		this.answer = null;
 		cx.notify();
+		const on = this.machine;
+		const gen = this.gen;
 		cx.spawn(async (cx) => {
 			try {
-				await tower("approve", m.id, "--answer", text);
+				await towerOn(on, "approve", m.id, "--answer", text);
+				if (gen !== this.gen) return;
 				this.error = null;
 			} catch (e) {
+				if (gen !== this.gen) return;
 				this.error = e.message;
 			}
 			this.busy = null;
@@ -131,10 +165,12 @@ export default class TowerInbox extends View {
 		this.screen = { from: m.from_id, text: "…" };
 		this.screenFor = m.id;
 		cx.notify();
+		const on = this.machine;
+		const gen = this.gen;
 		cx.spawn(async (cx) => {
 			let text = null;
 			try {
-				text = (await towerRead(m.from_id))
+				text = (await towerRead(m.from_id, { on }))
 					.trim()
 					.split("\n")
 					.slice(-24)
@@ -142,6 +178,7 @@ export default class TowerInbox extends View {
 			} catch (e) {
 				text = `cannot read ${m.from_id}: ${e.message}`;
 			}
+			if (gen !== this.gen || this.screenFor !== m.id) return;
 			this.screen = { from: m.from_id, text: text || "(no output)" };
 			cx.notify();
 		});
@@ -329,6 +366,12 @@ export default class TowerInbox extends View {
 					.border_b(1)
 					.border_color(t.border)
 					.child(div().font_semibold().child("Inbox"))
+					.child(
+						div()
+							.text_size(11)
+							.text_color(t.dim)
+							.child(`on ${machineLabel(this.machine)}`),
+					)
 					.child(div().flex_1())
 					.when(items.length > 0, (el) =>
 						el.child(

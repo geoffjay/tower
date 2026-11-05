@@ -1,7 +1,7 @@
 ---
 type: Concept
 title: Herdr app package
-description: The app/ layout and mods that put tower's agents, workflows, inbox, jobs and event log in the Herdr desktop app; how each mod reaches tower, how the workflows graph is laid out, and the rules the events panel follows.
+description: The app/ layout and mods that put tower's agents, workflows, inbox, jobs and event log in the Herdr desktop app; how each mod reaches tower, which machine the panels follow, how the workflows graph is laid out, and the rules the events panel follows.
 tags:
   - herdr
   - herdr-app
@@ -10,8 +10,8 @@ tags:
   - events
 status: stable
 generated:
-  by: omp/claude-opus-5-5
-  at: "2026-11-02T23:30:00Z"
+  by: claude-code/1.0
+  at: "2026-11-05T12:00:00Z"
 sources:
   - resource: app/README.md
     title: tower app package README
@@ -32,8 +32,9 @@ behavior contract; this doc records the facts and decisions behind it.
 ## How the mods reach tower
 
 - **Agents, Workflows, Inbox, Jobs** call the `tower` CLI with `--json` (`tower.js`
-  `tower()`). The CLI resolves the server and token like every client, so
-  these panels honor `TOWER_URL` / `TOWER_TOKEN`. Agent screens (the
+  `tower()`) on the machine the panels follow (see Machines below). The
+  CLI resolves the server and token like every client, so these panels
+  honor `TOWER_URL` / `TOWER_TOKEN` where it runs. Agent screens (the
   Agents detail section, the Inbox peek) use `towerRead()`, plain `tower
   read`: tower 0.5.0's `read` ignored `--json`. The Agents screen adds
   `--ansi`.
@@ -106,12 +107,45 @@ behavior contract; this doc records the facts and decisions behind it.
   `/v1/events` (SSE) from the page's `head`
   ([D§7](design/07-server-api.md)), directly with `curl`: bounded
   `--max-time 5` polls every 6 s for the stream. It needs a tower 0.6.0
-  server; an older one gets a "needs tower 0.6.0" error. Mods cannot
-  read the environment, so it reads the token file from the tower home for
-  `window().platform` (or shared state `tower.token_file`) and uses the
-  default bind (or `tower.server_url`).
+  server; an older one gets a "needs tower 0.6.0" error. `tower.js`
+  `towerHttp()` runs an `sh` script on the followed machine that resolves
+  the URL and token the way the CLI does (`TOWER_URL` / `TOWER_TOKEN`, else
+  the tower home's `config.toml` bind and token file), then `curl`. Mods
+  cannot read the environment, but `exec` runs programs in the user's
+  real one.
 - Every mod folder carries an identical copy of `tower.js`: mods cannot
   import across folders. Change one, copy it to all six.
+
+## Machines
+
+- **One machine at a time, the shown space's by default.** herdr spaces
+  live on a machine (`spaces()[].machine`, `hc machine ls`); the panels
+  follow the shown space's. Shared state `tower.machine` pins one
+  instead: `""` is this computer, a name a remote, unset (null) follows.
+  The tab bar's machine button names the machine (a dot marks a pin) and
+  opens `tower-tabs` itself as a popup picker.
+- **Calls run on the machine, not to it.** Every call is `exec` with `on`:
+  that machine's own `tower` CLI (or the events `sh` script) through
+  herdr-core's ssh connection, reaching its server on loopback with its
+  token. Chosen over a host/port per machine because nothing has to
+  listen beyond loopback (tower has no TLS; D§17 open question 4) and no
+  token is copied between machines. A remote call costs about 20–30 ms.
+  A remote CLI is found on PATH or at home-relative fallbacks
+  (`.cargo/bin`, `.local/bin`); a found CLI is cached per machine, a miss
+  is asked again next call.
+- **A switch starts over.** Each panel checks `target()` every 500 ms
+  (`followMachine`; `render` has no `cx`), clears everything from the old
+  server, reloads, and drops replies and action results started on the
+  old machine; actions go to the machine they started on. Event seqs and
+  ids are per server, so the events cursor and name cache reset; open
+  forms close.
+- **Workflow definitions.** `exec` has no stdin and `writeTextFile` no
+  `on`, so `applyWorkflow()` writes the local scratch file here and, on a
+  remote, passes the source as an `sh` argument that writes a `mktemp`
+  file there before `tower workflow apply`.
+- **Phase 5 is the fleet-wide answer.** One coordinator with node agents
+  ([D§18](design/18-phase-mapping.md)) would show every machine's agents
+  in one list; the switch is the view until then.
 
 ## Workflows panel
 
@@ -148,9 +182,9 @@ tower 0.7.0 server.
   the server would refuse it. Everything else (mapped agents, joins,
   triggers, context) is the TOML editor's job; `TOML…` carries the form
   over. Mods cannot pass stdin to a program, so a definition reaches the
-  server as a file: `writeTextFile` to
-  `<herdr-app home>/data/tower-workflows/draft.toml`, then `tower
-  workflow apply <path>`.
+  server as a file: `applyWorkflow()` writes
+  `<herdr-app home>/data/tower-workflows/draft.toml` (a `mktemp` file on
+  a remote machine), then `tower workflow apply <path>`.
 - **Errors.** An action's error stays until the next action; the 10 s
   poll keeps its own error, so a successful poll right after a refused
   apply does not erase the server's reason.
@@ -196,6 +230,8 @@ tower 0.7.0 server.
 
 ## Limits
 
+- The events panel and remote workflow applies need `sh` (and the events
+  panel `curl`) on the followed machine, so Windows is not supported there.
 - `message.created` payloads carry no text, so messages show sender,
   recipient, kind and status only.
 - `herdr-app check` validates a mod's load, not its runtime: verify live
