@@ -147,7 +147,9 @@ the full width) and tower panels in place of the Files/Changes panel:
 - Actions that stop work or let an agent act (Stop, Cancel, Approve,
   Deny, Remove) ask once with a second press.
 - Errors from the server (conflict, not found, unauthorized) show in a
-  red strip inside the panel that acted; they clear on the next success.
+  red strip inside the panel that acted; they clear on the next success
+  (in Jobs and Workflows: the next action that succeeds, or opening
+  another item or form; the 10s poll leaves them).
 - The events feed loads the newest 50 matching events on load and after
   a filter change, then follows live from the page's `head`, so nothing
   between the page and the stream is lost or shown twice. Nothing is lost
@@ -252,9 +254,10 @@ the full width) and tower panels in place of the Files/Changes panel:
   older version is drawn on it, with a note.
 - A workflow's start is a node with no incoming edge, loops included, so
   the create form never offers step 1 as a route target.
-- Action errors in the Workflows panel stay until the next action; a
-  poll's success must not clear them (the poll's own failure is shown
-  separately).
+- Action errors in the Jobs and Workflows panels stay until the next
+  action; a poll's success must not clear them (the poll's own failure
+  is kept separately). Jobs used to share one field, so the refresh
+  after a failed action erased the error before it was drawn.
 
 ## Done when
 

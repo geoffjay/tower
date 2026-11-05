@@ -40,7 +40,8 @@ export default class TowerJobs extends View {
 		this.tasks = null;
 		this.schedules = null;
 		this.agents = null;
-		this.error = null;
+		this.error = null; // the last action's failure, kept until the next action
+		this.loadError = null; // the last poll's failure
 		this.busy = null; // task/schedule id with an action in flight
 		this.confirm = null; // id awaiting a second press
 		this.create = null; // the create form's fields
@@ -68,9 +69,9 @@ export default class TowerJobs extends View {
 			this.agentMap = Object.fromEntries(
 				this.agents.map((a) => [a.id, a.name]),
 			);
-			this.error = null;
+			this.loadError = null;
 		} catch (e) {
-			this.error = String(e.message ?? e);
+			this.loadError = String(e.message ?? e);
 		}
 		if (this.sel) await this.loadDetail();
 		cx.notify();
@@ -129,6 +130,7 @@ export default class TowerJobs extends View {
 	/** Open a job or schedule in the detail section; the same one again
 	 * closes it. `from`: the schedule a run was opened from (a way back). */
 	select(kind, id, cx, from = null) {
+		this.error = null;
 		this.closeEdit();
 		this.assigning = null;
 		this.confirm = null;
@@ -243,6 +245,7 @@ export default class TowerJobs extends View {
 	}
 
 	openCreate(cx) {
+		this.error = null;
 		const field = (placeholder, value) =>
 			InputState.new({ placeholder, value: value ?? "" });
 		this.create = {
@@ -604,6 +607,7 @@ export default class TowerJobs extends View {
 					.child(
 						this.button("cf-cancel", "Cancel", t, (cx) => {
 							this.create = null;
+							this.error = null;
 							cx.notify();
 						}),
 					)
@@ -741,14 +745,14 @@ export default class TowerJobs extends View {
 							),
 					),
 			)
-			.when(Boolean(this.error), (el) =>
+			.when(Boolean(this.error ?? this.loadError), (el) =>
 				el.child(
 					div()
 						.px(14)
 						.py(6)
 						.text_size(12)
 						.text_color(t.ansi1)
-						.child(this.error),
+						.child(this.error ?? this.loadError),
 				),
 			)
 			.child(
