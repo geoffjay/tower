@@ -86,7 +86,11 @@ hand after that.
 ## What it does
 
 - **Agents** (right panel): every seat grouped by stack with live state
-  dots and the job each owns. Click an agent for a detail section: prompt
+  dots and the job each owns. A stack's heading is its prefix in capitals
+  (`KB` for `kb-*`), or the name you give it in
+  `~/.config/herdr-app/data/tower/stacks.json`, for example
+  `{"kb": "Knowledgebase"}` (read on every refresh; the names stay the same
+  whichever machine the panels follow). Click an agent for a detail section: prompt
   input, interrupt / stop / remove (two presses) / resume, its facts, and
   its terminal screen. Spawn form with the harnesses installed on the
   machine.

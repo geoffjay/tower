@@ -1,5 +1,6 @@
 // The tower fleet: every agent seat, its live state, and the job it works.
-// One section per stack (agents named <stack>-<role>), unstacked agents last.
+// One section per stack (agents named <stack>-<role>), unstacked agents last;
+// a stack's heading is its display name from stacks.json, else its prefix.
 // Clicking a row opens the detail section below the list (the same shape as
 // the events panel): the agent's facts, a prompt bar, its actions, and its
 // terminal screen, following its newest output.
@@ -22,10 +23,12 @@ import {
 } from "gpui-base";
 import { div, View } from "gpui-kit";
 import {
+	appHome,
 	closeOverlay,
 	knownAgents,
 	openOverlay,
 	props,
+	readTextFile,
 	settings,
 	theme,
 } from "herdr";
@@ -43,6 +46,21 @@ const SCREEN_MS = 2000; // the open agent's screen re-reads this often
 const SCREEN_LINES = 200; // the tail of `tower read` kept on screen
 const LINE_H = 17; // px per screen line (12px mono)
 const CHAR_W = 7.3; // px per column, for the screen's scroll width
+
+/** Display names for stacks, `{"kb": "Knowledgebase"}`, from
+ * `<app home>/data/tower/stacks.json` on this computer: a person's naming,
+ * so it stays put when the panels follow another machine. Missing or
+ * invalid: none, and headings show the uppercased prefix. */
+async function stackLabels() {
+	try {
+		const v = JSON.parse(
+			(await readTextFile(`${appHome()}/data/tower/stacks.json`)) ?? "{}",
+		);
+		return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+	} catch {
+		return {};
+	}
+}
 
 export default class TowerAgents extends View {
 	init(_props, cx) {
@@ -65,6 +83,7 @@ export default class TowerAgents extends View {
 			return;
 		}
 		this.agents = null;
+		this.stackLabels = {};
 		this.gen = 0; // bumped on a machine switch; older replies are dropped
 		this.jobs = []; // open jobs (queued / working / input-required)
 		this.error = null; // the last action's failure, kept until the next action
@@ -134,6 +153,7 @@ export default class TowerAgents extends View {
 			this.jobs = jobs;
 		}
 		this.loadError = loadError;
+		this.stackLabels = await stackLabels();
 		if (this.selected && this.agents && !this.find(this.selected)) {
 			this.select(null); // removed elsewhere
 		}
@@ -823,7 +843,13 @@ export default class TowerAgents extends View {
 				.text_size(11)
 				.font_semibold()
 				.text_color(t.dim)
-				.child(stack ? stack.toUpperCase() : "AGENTS"),
+				.child(
+					!stack
+						? "AGENTS"
+						: typeof this.stackLabels[stack] === "string"
+							? this.stackLabels[stack]
+							: stack.toUpperCase(),
+				),
 			...list.map((a) => this.row(a, t)),
 		]);
 		const detail = Boolean(this.selected) && !this.spawn;

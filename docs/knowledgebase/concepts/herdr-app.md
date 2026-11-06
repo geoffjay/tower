@@ -142,6 +142,13 @@ behavior contract; this doc records the facts and decisions behind it.
   A remote CLI is found on PATH or at home-relative fallbacks
   (`.cargo/bin`, `.local/bin`); a found CLI is cached per machine, a miss
   is asked again next call.
+- **Stack names are a person's, on this computer.** Tower has no stack
+  object (D§2): a stack is the `<stack>-` name prefix. The Agents panel
+  shows a stack's heading from `<app home>/data/tower/stacks.json`
+  (`{"kb": "Knowledgebase"}`), else the prefix in capitals. The file is read
+  on this computer, not the followed machine, so names stay put across a
+  switch; it is chosen over a server-side stack record because only the
+  app shows the name.
 - **A switch starts over.** Each panel checks `target()` every 500 ms
   (`followMachine`; `render` has no `cx`), clears everything from the old
   server, reloads, and drops replies and action results started on the
@@ -245,4 +252,6 @@ tower 0.7.0 server.
   recipient, kind and status only.
 - `herdr-app check` validates a mod's load, not its runtime: verify live
   (`herdr-app shot`, `herdr-app do layout.select --stack panel-body
-  --child tower-events`).
+  --child tower-events`). `shot` saves the last rendered frame: with the
+  window in the background it can be minutes old, so bring Herdr to the
+  front (`osascript -e 'tell application "Herdr" to activate'`) first.
