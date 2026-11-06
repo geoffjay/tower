@@ -77,29 +77,7 @@ pub async fn spawn(state: &AppState, req: SpawnRequest) -> anyhow::Result<Agent>
     }
 
     // spawn via driver; the pane learns who it is (CLI `--as` default, D§7)
-    // and where this server's data dir is when non-default
-    let mut env = vec![("TOWER_AGENT".to_string(), req.name.clone())];
-    if let Ok(home) = std::env::var("TOWER_HOME") {
-        env.push(("TOWER_HOME".into(), home));
-    }
-    // Harness args (D§4): the kind's own launch flags, then per-kind
-    // defaults from config.toml, then the agent's own args, then the model.
-    // All reach the harness after `--` in `herdr agent start` (D§8).
-    let mut args = launch_args(&kind);
-    args.extend(state.config.harnesses.args_for(&kind).iter().cloned());
-    args.extend(req.args.iter().cloned());
-    if let Some(m) = &req.model {
-        if kind == "opencode" {
-            // the TUI rejects `--model`; inline config is its last source
-            env.push((
-                "OPENCODE_CONFIG_CONTENT".into(),
-                serde_json::json!({ "model": m }).to_string(),
-            ));
-        } else {
-            args.push("--model".into());
-            args.push(m.clone());
-        }
-    }
+    let (args, env) = launch(state, &req.name, &kind, &req.args, req.model.as_deref());
 
     // worktree isolation (D§9.2): made before the harness starts, which then
     // runs in it; no fallback to the main checkout when it can't be made
@@ -190,9 +168,10 @@ async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
     }
     let kind = row.kind.clone();
 
-    // which session: explicit `resume`, else continue, else the session
-    // herdr last reported for the pane
-    let mut args = launch_args(&kind);
+    // the same launch as spawn (D§8.4), then which session: explicit
+    // `resume`, else continue, else the session herdr last reported for
+    // the pane
+    let (mut args, env) = launch(state, &req.name, &kind, &row.args, row.model.as_deref());
     if let Some(session) = &req.resume {
         let session = if session.is_empty() {
             let reported = match row.pane_id.as_deref() {
@@ -220,10 +199,6 @@ async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
     let guard = lock_for(&req.name);
     let creating = guard.lock().await;
 
-    let mut env = vec![("TOWER_AGENT".to_string(), req.name.clone())];
-    if let Ok(home) = std::env::var("TOWER_HOME") {
-        env.push(("TOWER_HOME".into(), home));
-    }
     let spec = AgentSpec {
         name: req.name.clone(),
         kind: kind.clone(),
@@ -262,6 +237,41 @@ async fn resume(state: &AppState, req: &SpawnRequest) -> anyhow::Result<Agent> {
     Ok(crate::inventory::get_agent(state, &req.name)
         .await?
         .expect("row exists"))
+}
+
+/// The harness launch shared by spawn and resume (D§4, D§8.4): args are
+/// the kind's launch flags, then the per-kind `[harness.<kind>] args`
+/// defaults, then the agent's own args, then the model; all reach the
+/// harness after `--` in `herdr agent start` (D§8). The env carries the
+/// pane's identity, this server's data dir when non-default, and
+/// opencode's model (D§8.5).
+fn launch(
+    state: &AppState,
+    name: &str,
+    kind: &str,
+    agent_args: &[String],
+    model: Option<&str>,
+) -> (Vec<String>, Vec<(String, String)>) {
+    let mut env = vec![("TOWER_AGENT".to_string(), name.to_string())];
+    if let Ok(home) = std::env::var("TOWER_HOME") {
+        env.push(("TOWER_HOME".into(), home));
+    }
+    let mut args = launch_args(kind);
+    args.extend(state.config.harnesses.args_for(kind).iter().cloned());
+    args.extend(agent_args.iter().cloned());
+    if let Some(m) = model {
+        if kind == "opencode" {
+            // the TUI rejects `--model`; inline config is its last source
+            env.push((
+                "OPENCODE_CONFIG_CONTENT".into(),
+                serde_json::json!({ "model": m }).to_string(),
+            ));
+        } else {
+            args.push("--model".into());
+            args.push(m.into());
+        }
+    }
+    (args, env)
 }
 
 /// Flags a harness kind needs on every launch, before any configured args
