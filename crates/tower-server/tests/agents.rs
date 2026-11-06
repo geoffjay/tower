@@ -323,7 +323,7 @@ async fn spawn_applies_kind_args_from_config() {
     tower_server::inventory::ensure_local_machine(&state)
         .await
         .unwrap();
-    let app = router(state);
+    let app = router(state.clone());
 
     // kind args first, then per-agent args, then --model
     let (status, v) = json_req(
@@ -351,6 +351,23 @@ async fn spawn_applies_kind_args_from_config() {
     );
     // the row stores only per-agent args, not the kind defaults
     assert_eq!(v["agent"]["args"], serde_json::json!(["--smol"]));
+
+    // a relaunch is the same launch plus the resume flag (D§8.4): dropping
+    // the row's args or model would silently change what the agent runs with
+    harness.kill("k1");
+    tower_server::inventory::reconcile(&state).await.unwrap();
+    let (status, v) = json_req(
+        &app,
+        "POST",
+        "/v1/agents",
+        Some(serde_json::json!({"name": "k1", "continue": true})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{v}");
+    assert_eq!(
+        harness.spawns().pop().unwrap().1,
+        ["--compact", "--smol", "--model", "gpt-6", "--continue"]
+    );
 }
 
 #[tokio::test]
@@ -388,7 +405,8 @@ async fn opencode_launches_standalone_with_the_model_in_its_env() {
         .iter()
         .any(|(k, v)| k == "TOWER_AGENT" && v == "oc"));
 
-    // resume keeps `--standalone`; opencode takes `--session <id>`
+    // resume keeps the launch (`--standalone`, the agent's args, the model
+    // in its env); opencode takes `--session <id>`
     harness.kill("oc");
     tower_server::inventory::reconcile(&state).await.unwrap();
     let (status, v) = json_req(
@@ -399,10 +417,12 @@ async fn opencode_launches_standalone_with_the_model_in_its_env() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{v}");
-    assert_eq!(
-        harness.specs().pop().unwrap().args,
-        ["--standalone", "--session", "ses_42"]
-    );
+    let spec = harness.specs().pop().unwrap();
+    assert_eq!(spec.args, ["--standalone", "--auto", "--session", "ses_42"]);
+    assert!(spec
+        .env
+        .iter()
+        .any(|(k, v)| k == "OPENCODE_CONFIG_CONTENT" && v.contains("opencode/big-pickle")));
 }
 
 #[tokio::test]
