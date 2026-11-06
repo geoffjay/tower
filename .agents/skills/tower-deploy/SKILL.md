@@ -1,6 +1,6 @@
 ---
 name: tower-deploy
-description: Design and deploy a tower stack — a named group of agents with roles, recurring jobs, and starting jobs — from the user's goals. Use when the user wants to set up agents for a project or purpose, change an existing stack, or tear one down. Interviews the user, proposes the stack for approval, deploys it with the tower CLI, and verifies each agent and schedule.
+description: Design and deploy a tower stack — a named group of agents with roles, recurring jobs, workflows, and starting jobs — from the user's goals. Use when the user wants to set up agents for a project or purpose, change an existing stack, or tear one down. Interviews the user, proposes the stack for approval, deploys it with the tower CLI, and verifies each agent, schedule, and workflow.
 argument-hint: "[stack purpose | update <stack> | teardown <stack>]"
 ---
 
@@ -15,10 +15,14 @@ exactly:
 | Stack name | Short, lowercase letters, digits, `-` | `docs` |
 | Agent | `<stack>-<role>` | `docs-writer` |
 | Schedule | Title `<stack>: <title>`, tag `stack:<stack>` | `docs: nightly link check` |
+| Workflow | Name `<stack>-<name>` | `docs-daily` |
 | Job | Tag `stack:<stack>` | — |
 
 With these names, the current state of any stack is visible from
-`tower ps`, `tower schedule list`, and `tower task list --tag stack:<stack>`.
+`tower ps`, `tower schedule list`, `tower workflow list`, and
+`tower task list --tag stack:<stack>`. A workflow step's job has no tags,
+so `task list --tag` does not show it: use `tower run list --workflow
+<name>` and `tower run show <id>`.
 
 Choose the mode from the text after the command:
 
@@ -37,20 +41,23 @@ Choose the mode from the text after the command:
    blocks the local connection to the server or to herdr. It does not
    mean that tower is down. Ask the user to allow the command to run
    outside the sandbox.
-3. Tell the user that schedules fire only while `tower serve` runs. For a
-   stack with recurring jobs, suggest `tower service install` so the
-   server keeps running.
+3. Tell the user that schedules and workflow schedule triggers fire only
+   while `tower serve` runs. For a stack with recurring work, suggest
+   `tower service install` so the server keeps running.
 
 ## 0. Read an existing stack (update and teardown)
 
 ```sh
 tower --json ps              # agents named <stack>-*
 tower --json schedule list   # titles "<stack>: …" or tag stack:<stack>
+tower --json workflow list   # names <stack>-*
+tower --json run list --workflow <stack>-<name>
 tower --json task list --tag stack:<stack>
 ```
 
 Show the user what exists: each agent (kind, state, workdir), each
-schedule (cadence, target, next run), and the open jobs.
+schedule (cadence, target, next run), each workflow (version, triggers,
+running runs), and the open jobs.
 
 ## 1. Interview
 
@@ -62,7 +69,9 @@ questions. Do not ask for a fact the user already gave.
 2. **Project.** Which directory or repo does it work in? Must agents write
    to it, or only read and report?
 3. **Work.** What recurring work is there (what, how often, what time,
-   which timezone)? What one-off work must start now?
+   which timezone)? What one-off work must start now? Does one piece of
+   work feed another (collect, then summarize)? Must work be reviewed and
+   fixed before it reaches the user?
 4. **People.** Who answers the agents' questions and approvals? How
    quickly? (An approval that nobody answers is denied after its deadline.)
 5. **Limits.** Harness preference, and a limit on the number of agents
@@ -81,6 +90,17 @@ Design the smallest stack that meets the purpose:
   of 600 seconds or more for real work. Put the done criteria and the
   result summary format in each schedule description.
 - Keep starting jobs few, and give each one done criteria.
+- Choose a schedule or a workflow for each piece of recurring work:
+  - A **schedule** fits work that stands alone: one agent, one job, and
+    nothing waits for its result.
+  - A **workflow** fits work in steps: a step that needs another step's
+    result (collect, then curate), steps that run in parallel and then
+    join, or a review loop (author → reviewer → fix → reviewer). Do not
+    chain steps with schedule times that guess how long each step takes.
+    A workflow starts each step when the step before it ends, and gives
+    it that step's summary.
+  - Never give the same work to both. When a workflow takes over
+    scheduled work, remove those schedules in the same deploy.
 
 Show the proposal in this format, then ask for approval:
 
@@ -94,15 +114,21 @@ Agents
 Schedules
 | title | cadence (tz) | owner | lease | description (short) |
 
+Workflows
+| name | trigger | steps (agent) and edges | loop limits |
+
 Starting jobs
 | title | owner | timing | description (short) |
 
 Notes: <cost, what needs the user, what the stack does not do>
 ```
 
-For an update, show only the changes: add, change, remove. A change to a
-schedule is a remove and a create, because tower cannot edit a schedule.
-Deploy nothing until the user approves the proposal.
+For an update, show only the changes: add, change, remove.
+`tower schedule edit <id>` changes a schedule's cadence, timezone, title,
+description, and pre-run or post-run prompts. A new target is a remove and
+a create. A changed workflow is a new version of the same name
+(`tower workflow apply`). Deploy nothing until the user approves the
+proposal.
 
 ## 3. Deploy
 
@@ -121,26 +147,58 @@ user how to continue.
    ```
 
    Use `--daily HH:MM` in place of `--cron` for a daily run.
-3. **Starting jobs.** For each job, follow `.agents/skills/tower-queue-job/SKILL.md`
+3. **Workflows.** Write each workflow as a TOML file. The format is in
+   `docs/knowledgebase/decisions/workflows.md` §9. Keep the file outside
+   the agents' repos, for example next to the stack's other config. Then:
+
+   ```sh
+   tower workflow apply <file>    # validates and stores a new version
+   tower workflow show <name>
+   ```
+
+   Follow these rules when you write the file. `apply` does not check
+   all of them:
+   - A node with an incoming edge does not start when the run starts. To
+     loop back to an author, add a separate fix node for that agent
+     (`author → review → fix → review`) instead of an edge back into the
+     first node.
+   - Every loop needs a node with `max_visits`. When a step goes past
+     the limit, it fails.
+   - A failed step with no `on = "failed"` edge fails the whole run and
+     cancels its open steps. Add `failed` edges where the rest of the run
+     must continue.
+   - A node that branches declares `outcomes`. Its prompt must name the
+     outcomes and tell the agent to report one, with a `summary` of at
+     most 2,000 characters.
+   - A node with `pre_run = "/clear"` starts without the agent's brief.
+     Start each prompt with "read your brief again" and the path of its
+     `PROMPT.md`. The same applies to schedules with `--pre-run /clear`.
+
+   If the user agrees, start one test run with `tower workflow run
+   <name>`, and show its steps with `tower run show <id>`.
+4. **Starting jobs.** For each job, follow `.agents/skills/tower-queue-job/SKILL.md`
    step 3, and add `--tag stack:<stack>`. Use `--when-available` when two
    starting jobs go to the same agent.
-4. **Removals (update only).** Remove schedules first, with
-   `tower schedule rm <id>`. Then remove agents as in
-   `.agents/skills/tower-agent-remove/SKILL.md`. If you remove the agent
-   first, its schedules pause and its reserved jobs go to the general
-   queue.
+5. **Removals (update only).** Remove workflows and schedules first, with
+   `tower workflow rm <name>` and `tower schedule rm <id>`. Then remove
+   agents as in `.agents/skills/tower-agent-remove/SKILL.md`. If you
+   remove the agent first, its schedules pause and its reserved jobs go to
+   the general queue.
 
 ## 4. Verify
 
 ```sh
 tower ps
 tower schedule list
+tower workflow list
 tower task list --tag stack:<stack>
 tower inbox
 ```
 
 Every agent must be `idle` or `working`. Every schedule must show the
-correct target and next run. Every starting job must be `assigned`,
+correct target and next run. Every workflow must be `enabled`, and its
+schedule trigger must show in `tower schedule list` as `workflow <name>`
+with the correct next run. Every starting job must be `assigned`,
 `working`, or reserved (`→<agent>`). If an agent is `blocked`, show the
 inbox item to the user. Do not answer it without the user.
 
@@ -149,8 +207,9 @@ inbox item to the user. Do not answer it without the user.
 Give the user:
 
 - the stack summary table with ids
-- the next run of each schedule
+- the next run of each schedule and each workflow
 - how to watch it: `/tower-status <stack>`, `tower task show <id>`,
+  `tower run list --workflow <name>`, `tower run show <id>`,
   `tower read <agent>`
 - how to change it: `/tower-deploy update <stack>`, and how to remove it:
   `/tower-deploy teardown <stack>`
@@ -160,19 +219,22 @@ Give the user:
 1. Read the stack (step 0) and show the user everything that will go.
    Say which jobs are `working` now. That work stops.
 2. Ask for confirmation.
-3. Remove every stack schedule: `tower schedule rm <id>`. Do this first,
-   so no new job fires during the teardown.
+3. Remove every stack workflow and schedule first, so no new job or run
+   fires during the teardown. Cancel a running run with
+   `tower run cancel <id>`, then `tower workflow rm <name>` (it refuses
+   while a run is running, and it removes the workflow's schedules).
+   Then `tower schedule rm <id>` for each schedule.
 4. Cancel open stack jobs that the user does not want to keep:
    `tower task cancel <id>`.
 5. Remove each agent: `tower stop <stack>-<role> --remove`.
-6. Run `tower ps` and `tower schedule list`, and confirm that nothing with
-   the stack name is left.
+6. Run `tower ps`, `tower schedule list`, and `tower workflow list`, and
+   confirm that nothing with the stack name is left.
 
 ## Rules
 
 - Do not deploy or tear down without the user's approval of the plan.
-- Do not use an agent name or schedule title outside the convention. The
-  convention is the only record of the stack.
+- Do not use an agent name, schedule title, or workflow name outside the
+  convention. The convention is the only record of the stack.
 - Do not put secrets in briefs, descriptions, or titles. Tower stores
   them in the event log.
 - Do not answer inbox items for the user.
