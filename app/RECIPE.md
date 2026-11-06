@@ -23,7 +23,10 @@ the full width) and tower panels in place of the Files/Changes panel:
 - **Right panel** (380px), opened from the tab bar's Agents / Workflows /
   Jobs / Events / Inbox buttons and remembered per space: a stack of:
   - **Agents**: every agent seat grouped by stack (agents named
-    `<stack>-<role>`), each row a state dot (theme colors: `working`,
+    `<stack>-<role>`) under a heading: the stack's name from
+    `<app home>/data/tower/stacks.json` (`{"<stack>": "<name>"}`, this
+    computer's file, read with `readTextFile` on every poll; missing or
+    invalid = no names), else the prefix in capitals. Each row a state dot (theme colors: `working`,
     `blocked`, `done`, `idle`; dead red `ansi1`), the name, the state word,
     and the job it owns (else its workdir). Click a row: a detail section
     opens below the list (the list keeps the top third) with a prompt

@@ -1,4 +1,5 @@
 ## 2026-11-06
+* **Herdr app: stack names**: ([concept](concepts/herdr-app.md)): the Agents panel heads a stack with its name from `<app home>/data/tower/stacks.json` (`{"kb": "Knowledgebase"}`), else the prefix in capitals. The file is the person's, on this computer, read every poll; tower's data model is unchanged.
 * **Resume keeps the launch**: ([design §8](concepts/design/08-harness-layer.md)): `spawn --resume` / `--continue` relaunch a dead row with the same launch as spawn (kind launch flags, `[harness.<kind>] args`, the row's own `args`, its model, opencode's model env) plus the resume flag. Before, a relaunch dropped all of it: an agent spawned with a config overlay or a model came back without them.
 
 ## 2026-11-05
