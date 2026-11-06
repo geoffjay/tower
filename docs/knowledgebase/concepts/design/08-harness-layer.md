@@ -104,10 +104,13 @@ pane. Re-attachment keeps the row's identity (issue #1):
   reconcile, which revives a row whose pane went live again.
 - **Resume** (`spawn <name> --resume [<session>]` / `--continue`): for a
   `dead` row, `herdr agent start` in the row's pane (a new pane if it is
-  gone) with the per-kind resume args — omp/claude `--resume <session>` /
-  `--continue`, pi/opencode `--session <session>` / `--continue`; the
-  session defaults to the one herdr reports for the pane. The row keeps
-  its id.
+  gone) with the same launch as spawn - the kind's launch flags,
+  `[harness.<kind>] args`, the row's own `args` and its model - then the
+  per-kind resume args: omp/claude `--resume <session>` / `--continue`,
+  pi/opencode `--session <session>` / `--continue`. The session defaults
+  to the one herdr reports for the pane. The row keeps its id. A resume
+  that dropped the row's args would silently lose what they set (a
+  config overlay, a permission mode) and fall back to the default model.
 
 ## 8.5 opencode specifics
 
