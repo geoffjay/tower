@@ -75,16 +75,12 @@ export default class TowerInbox extends View {
 			.items_center()
 			.rounded(6)
 			.text_size(12)
-			.bg(opts.solid ? t.solid : opts.raised)
+			.bg(opts.solid ? t.solid : t.raised)
 			.text_color(
-				opts.solid
-					? t.solid_foreground
-					: opts.danger
-						? t.ansi1
-						: opts.foreground,
+				opts.solid ? t.solid_foreground : opts.danger ? t.ansi1 : t.foreground,
 			)
 			.border_1()
-			.border_color(opts.solid ? t.solid : opts.border)
+			.border_color(opts.solid ? t.solid : t.border)
 			.cursor_pointer()
 			.hover((s) => s.opacity(0.8))
 			.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
