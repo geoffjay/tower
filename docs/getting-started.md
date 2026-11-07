@@ -279,6 +279,33 @@ $ tower task release t_01J9X8A       # give it back to the queue (acts as the ow
 
 Every command above takes `--json` to print the raw API response.
 
+You don't have to remember the flags. Run `tower task create` with no
+title in a terminal and it asks for each value: the title, the job prompt
+(in `$VISUAL`/`$EDITOR`), the agent from a list with each one's state,
+when to deliver it (now, when the agent is free, or a day from a calendar
+and a time), tags from the ones already in use plus new ones, priority,
+and, if you want them, a lease and pre-/post-run prompts. Flags you did
+pass are not asked again. Before it creates the job it prints the
+equivalent command and asks to go ahead:
+
+```console
+$ tower task create --tag stack:kb
+? Title: review dev-kb PR #45
+? Job prompt: <received>
+? Assign to: kb-reviewer  (omp, working, has a job)
+? Deliver: when it is free (reserve)
+? Priority: 0
+? Set a lease or pre-run / post-run prompts? No
+
+  tower task create 'review dev-kb PR #45' --description 'Review only …' --tag stack:kb --assign kb-reviewer --when-available
+
+? Create this job? Yes
+01M6VVSGHBDMBP5KR7N86HTN7V  reserved for kb-reviewer (delivered when available)
+```
+
+Esc or ctrl+c stops without creating anything. Without a terminal (a
+script, an agent's shell) a missing title is an error, never a question.
+
 ### Scheduled and recurring jobs
 
 An agent owns **one job at a time**; assigning a second while it's busy is
@@ -403,7 +430,15 @@ run 01M6MZPXNNBJ5C9FAYVEEHZC5D  completed → announce: The number 7 is odd…
 
 $ tower run show 01M6MZPXNNBJ5C9FAYVEEHZC5D   # steps, agents, outcomes, summaries
 $ tower workflow show parity                  # nodes, edges, triggers, recent runs
+$ tower workflow run                          # no name in a terminal: pick one, answer its inputs
 ```
+
+`tower workflow run` with no name asks the same way: the workflow from a
+list of enabled ones, then each of its `[inputs]` with its description,
+default, and required mark - yes/no for a true/false default, a number
+for a numeric one, text otherwise - and whether to follow the run. It
+prints the equivalent `tower workflow run … --input k=v` line before it
+starts.
 
 Each step's agent finishes with a result object — `summary` (at most
 2,000 characters), `outcome` when the node lists outcomes, optional

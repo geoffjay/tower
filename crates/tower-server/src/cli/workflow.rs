@@ -25,9 +25,10 @@ pub enum WorkflowCmd {
     Enable { name: String },
     /// Refuse manual starts, pause its schedules, stop its event triggers
     Disable { name: String },
-    /// Start a run of the current version
+    /// Start a run of the current version. No name in a terminal: pick the
+    /// workflow and answer its inputs
     Run {
-        name: String,
+        name: Option<String>,
         /// Input value, repeatable: --input issue=ENG-123
         #[arg(long = "input", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
@@ -96,7 +97,19 @@ pub async fn run_workflow(c: &Client, cmd: WorkflowCmd, json_out: bool) -> anyho
         }
         WorkflowCmd::Enable { name } => toggle(c, &name, "enable", json_out).await?,
         WorkflowCmd::Disable { name } => toggle(c, &name, "disable", json_out).await?,
-        WorkflowCmd::Run { name, inputs, wait } => {
+        WorkflowCmd::Run {
+            mut name,
+            mut inputs,
+            mut wait,
+        } => {
+            if name.is_none() {
+                super::wizard::require_terminal("the workflow name")?;
+                if !super::wizard::workflow_run(c, &mut name, &mut inputs, &mut wait).await? {
+                    eprintln!("not started");
+                    return Ok(());
+                }
+            }
+            let name = name.expect("asked above");
             let mut input = serde_json::Map::new();
             for kv in inputs {
                 let (k, v) = kv
