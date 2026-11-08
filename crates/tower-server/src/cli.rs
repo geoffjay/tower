@@ -668,10 +668,10 @@ async fn doctor() -> anyhow::Result<()> {
         ($name:expr, $ok:expr, $detail:expr) => {{
             checks += 1;
             if $ok {
-                println!("{:<16} ok    {}", $name, $detail);
+                println!("{:<20} ok    {}", $name, $detail);
             } else {
                 failed += 1;
-                println!("{:<16} FAIL  {}", $name, $detail);
+                println!("{:<20} FAIL  {}", $name, $detail);
             }
         }};
     }
@@ -689,6 +689,29 @@ async fn doctor() -> anyhow::Result<()> {
         let ok = which(harness);
         let detail = if ok { "found" } else { "not found" };
         check!(harness, ok, detail);
+    }
+
+    // herdr's integration per installed harness: herdr learns an agent's
+    // state from it, and without one reports a busy agent as idle (D§4)
+    let installed: Vec<&str> = HARNESS_KINDS.into_iter().filter(|k| which(k)).collect();
+    if herdr_ok && !installed.is_empty() {
+        match std::process::Command::new("herdr")
+            .args(["integration", "status"])
+            .output()
+        {
+            Ok(o) if o.status.success() => {
+                let status = String::from_utf8_lossy(&o.stdout);
+                for kind in installed {
+                    let (ok, detail) = integration_check(&status, kind);
+                    check!(format!("{kind} integration"), ok, detail);
+                }
+            }
+            _ => check!(
+                "herdr integrations",
+                false,
+                "`herdr integration status` failed: upgrade herdr"
+            ),
+        }
     }
 
     // tower server reachable: report the real cause (missing token file,
@@ -731,6 +754,37 @@ fn which(bin: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Harness kinds tower launches (D§8), each also its executable's name.
+const HARNESS_KINDS: [&str; 4] = ["pi", "claude", "omp", "opencode"];
+
+/// One kind's line of `herdr integration status`
+/// (`omp: current (v10) (/path)`) as a doctor result.
+fn integration_check(status: &str, kind: &str) -> (bool, String) {
+    let install = format!("`herdr integration install {kind}`");
+    let line = status
+        .lines()
+        .find_map(|l| l.strip_prefix(kind)?.strip_prefix(':'))
+        .map(str::trim);
+    let Some(line) = line else {
+        return (
+            false,
+            format!("herdr has no {kind} integration: upgrade herdr"),
+        );
+    };
+    // drop the trailing ` (/path/to/hook)`
+    let state = line.split(" (/").next().unwrap_or(line);
+    if state.starts_with("current") {
+        (true, state.to_string())
+    } else if state.starts_with("outdated") {
+        (true, format!("{state}: {install} updates it"))
+    } else {
+        (
+            false,
+            format!("{state}: run {install}, or its busy agents show as idle"),
+        )
+    }
+}
+
 /// `tower ui`: the server's scoped UI token as a login link (D§13).
 async fn ui(json_out: bool) -> anyhow::Result<()> {
     let c = client(None).await?;
@@ -771,7 +825,7 @@ pub fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::inbox_summary;
+    use super::{inbox_summary, integration_check};
 
     #[test]
     fn blocked_inbox_summary_includes_pane_context() {
@@ -793,5 +847,36 @@ mod tests {
             "parts": [{ "text": "Allow this command?" }]
         });
         assert_eq!(inbox_summary(&message), "Allow this command?");
+    }
+
+    #[test]
+    fn integration_check_passes_current_and_outdated_and_fails_the_rest() {
+        let status = "\
+pi: current (v9) (/home/u/.pi/agent/extensions/herdr-agent-state.ts)
+omp: not installed (/home/u/.omp/agent/extensions/herdr-omp-agent-state.ts)
+claude: outdated (v10 < v11) (/home/u/.claude/hooks/herdr-agent-state.sh)
+opencode: needs repair (v13) (/home/u/.config/opencode/plugins/herdr-agent-state.js)
+";
+        assert_eq!(
+            integration_check(status, "pi"),
+            (true, "current (v9)".into())
+        );
+        let (ok, detail) = integration_check(status, "claude");
+        assert!(
+            ok && detail.starts_with("outdated (v10 < v11): "),
+            "{detail}"
+        );
+        for (kind, state) in [("omp", "not installed"), ("opencode", "needs repair (v13)")] {
+            let (ok, detail) = integration_check(status, kind);
+            assert!(!ok, "{kind}");
+            assert!(
+                detail.starts_with(state)
+                    && detail.contains(&format!("herdr integration install {kind}")),
+                "{detail}"
+            );
+        }
+        // a kind this herdr predates, and no prefix match across kinds
+        let (ok, detail) = integration_check("opencode: current (v12)\n", "omp");
+        assert!(!ok && detail.contains("upgrade herdr"), "{detail}");
     }
 }

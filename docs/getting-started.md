@@ -64,13 +64,13 @@ $ tower --version                                        # the CLI; status flags
 
 ```console
 $ tower doctor
-herdr socket      ok    ~/.config/herdr/herdr.sock (protocol 20)
-herdr cli         ok    herdr 0.8.2
-claude            ok    ~/.local/bin/claude
-pi                ok    ~/.local/bin/pi (0.87.1)
-database          ok    ~/.local/share/tower/tower.db (writable)
-event log         ok    0 events
-machine local     ok    role=coordinator
+herdr server         ok    herdr status
+pi                   ok    found
+claude               ok    found
+pi integration       ok    current (v9)
+claude integration   ok    current (v11)
+omp integration      ok    current (v10)
+tower server         ok    healthz ok
 
 7 checks passed
 ```
@@ -78,6 +78,18 @@ machine local     ok    role=coordinator
 If herdr isn't running yet, start it first (`herdr` in another terminal, or
 its service unit). tower drives agents through herdr — that's where the
 panes, detection, and persistence come from.
+
+herdr learns whether an agent is working, blocked, or idle from its
+integration for that harness. Without one, herdr reports a busy agent as
+idle, and so does tower. `tower doctor` checks the integration for every
+harness it finds (pi, claude, omp, opencode) and fails with the fix:
+
+```console
+omp integration      FAIL  not installed: run `herdr integration install omp`, or its busy agents show as idle
+```
+
+Run the doctor on every machine that runs agents, including remote ones:
+each one has its own herdr and its own integrations.
 
 ## 3. First look
 
@@ -613,7 +625,7 @@ it to run outside the sandbox.
 | Command | Purpose |
 |---|---|
 | `tower serve` / `tower node` | run the server / a remote-machine agent |
-| `tower doctor` | preflight: herdr, harnesses, db, socket |
+| `tower doctor` | preflight: herdr, harnesses and their herdr integrations, server |
 | `tower ps [--json]` | list agents with live states |
 | `tower spawn NAME --kind K [--workdir D] [--worktree] [--adopt]` | create/adopt an agent |
 | `tower prompt NAME 'text' [--wait]` | send work |
