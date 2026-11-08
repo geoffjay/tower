@@ -33,7 +33,7 @@ tower dismiss <msg-id>               # close as stale, no answer delivered
 tower send <to> --kind <kind> ...    # generic unified send
 tower task list [--state queued] [--tag x] [--mine <name>]   # queue + owned views
 tower task show <id>                          # detail incl. assignment/lease trail
-tower task create 'title' [--tag x] [--assign name] [--priority N] [--pre-run P] [--post-run P]
+tower task create ['title'] [--tag x] [--assign name] [--priority N] [--pre-run P] [--post-run P]   # no title in a terminal: asks
 tower task edit <id> [--title T] [--description D] [--pre-run P] [--post-run P] [--at TIME]   # '' clears; D§5.2.3
 tower task assign <id> <name>                 # dispatch (operator; orchestrator later)
 tower task cancel <id> / task release <id> [--as <agent>]
@@ -47,7 +47,7 @@ tower schedule list | show <id> | pause <id> | resume <id> | run <id> | rm <id>
 tower service install | uninstall | status          # run `tower serve` as a user service (launchd / systemd)
 tower workflow apply <file.toml>    # validate + store a new version when changed (operator; D§5.6)
 tower workflow list | show <name> | rm <name> | enable <name> | disable <name>
-tower workflow run <name> [--input k=v]... [--wait]   # start a run; --wait follows it to the end
+tower workflow run [<name>] [--input k=v]... [--wait]   # start a run; --wait follows it to the end; no name in a terminal: asks
 tower run list [--workflow <name>] [--state running] | show <run-id> | cancel <run-id>
 tower artifact put <task-id> <name> [--file <path>] [--media-type T] [--as <agent>]   # stdin when no --file
 tower artifact get <artifact-id>    # print the content
@@ -63,6 +63,18 @@ tower serve / node / doctor / schema
 
 Output: human tables by default, `--json` everywhere (agentd lesson: the CLI is
 scriptable and agent-usable; MCP wraps the same surface).
+
+**Asked, not remembered.** `tower task create` and `tower workflow run` take
+their positional argument as optional. Run one without it in a terminal and
+the CLI asks for each missing value with the control that fits it: a list of
+agents, workflows, or known tags to pick from; a date picker and a time for
+`--at`; a number for priority and lease; yes/no for `--wait`; the workflow's
+declared `[inputs]` one by one, with their description, default, and
+required mark. Flags given on the command line are not asked again. Before
+it acts, the CLI prints the equivalent one-line command and asks to go
+ahead, so the flags are learned by use. Without a terminal (stdin or stderr
+not a TTY, as in scripts and agents) a missing argument is an error, never
+a hang. Questions go to stderr, so `--json` output stays clean.
 
 For blocked-agent inbox messages, the human `tower inbox` summary also prints
 the captured pane context, so the question is visible without opening the TUI.

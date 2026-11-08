@@ -38,6 +38,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 croner = "4.0.0"
 chrono-tz = "0.10.4"
 iana-time-zone = "0.1.65"
+inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "date", "editor", "fuzzy"] }
 tower-tui = { workspace = true }
 parking_lot = "0.12"
 hmac = "0.12"

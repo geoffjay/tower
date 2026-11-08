@@ -5,6 +5,7 @@ mod artifact;
 mod schedule;
 mod service;
 mod task;
+mod wizard;
 mod workflow;
 
 #[derive(Debug, Parser)]

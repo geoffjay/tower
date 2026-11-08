@@ -21,9 +21,10 @@ pub enum TaskCmd {
     },
     /// Detail incl. the assignment/lease trail
     Show { id: String },
-    /// Queue a job (optionally pre-assigned)
+    /// Queue a job (optionally pre-assigned). No title in a terminal: asks
+    /// for every value no flag gave
     Create {
-        title: String,
+        title: Option<String>,
         #[arg(long)]
         description: Option<String>,
         #[arg(long = "tag")]
@@ -158,15 +159,34 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
             pre_run,
             post_run,
         } => {
-            let not_before = at
-                .as_deref()
-                .map(|t| tower_client::parse_local_time(t).map_err(|e| e.context("--at")))
-                .transpose()?;
+            let mut t = super::wizard::NewTask {
+                title,
+                description,
+                tags,
+                priority,
+                assign,
+                when_available,
+                at,
+                lease_s,
+                pre_run,
+                post_run,
+            };
+            if t.title.is_none() {
+                super::wizard::require_terminal("the job title")?;
+                if !super::wizard::task_create(c, &mut t).await? {
+                    eprintln!("not created");
+                    return Ok(());
+                }
+            }
+            let not_before =
+                t.at.as_deref()
+                    .map(|s| tower_client::parse_local_time(s).map_err(|e| e.context("--at")))
+                    .transpose()?;
             let body = json!({
-                "title": title, "description": description, "tags": tags,
-                "priority": priority, "assign": assign, "lease_s": lease_s,
-                "when_available": when_available, "not_before": not_before,
-                "pre_run": pre_run, "post_run": post_run,
+                "title": t.title, "description": t.description, "tags": t.tags,
+                "priority": t.priority, "assign": t.assign, "lease_s": t.lease_s,
+                "when_available": t.when_available, "not_before": not_before,
+                "pre_run": t.pre_run, "post_run": t.post_run,
             });
             let v = c.post("/v1/tasks", Some(body)).await?;
             if json_out {
