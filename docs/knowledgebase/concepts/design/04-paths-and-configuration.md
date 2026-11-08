@@ -82,4 +82,10 @@ Harness argument order at spawn: the kind's own launch flags (opencode:
 overrides and extras), then `--model <id>`.
 
 `tower doctor` validates: herdr reachable, socket/CLI, database writable,
-port free, claude/pi executables found.
+port free, claude/pi executables found, and herdr's integration for each
+harness kind tower launches (pi, claude, omp, opencode) that is installed
+on the machine. The integration is how herdr learns an agent's state.
+Without it, herdr reports a busy agent as idle, and tower shows idle too.
+`current` passes; `outdated` passes with a hint; `not installed`,
+`needs repair`, or a kind herdr doesn't list fails with the
+`herdr integration install <kind>` command.
