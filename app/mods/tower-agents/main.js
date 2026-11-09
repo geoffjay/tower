@@ -4,11 +4,12 @@
 // Clicking a row opens the detail section below the list (the same shape as
 // the events panel): the agent's facts, a prompt bar, its actions, and its
 // terminal screen, following its newest output.
-// Reads: `tower ps`, `tower task list`, `tower read <name>`. Acts: prompt,
-// interrupt, stop / remove (two presses), resume (`spawn --continue`, dead
-// rows), spawn (a form of the harnesses installed there). All of it on the
-// machine the panels follow (tower.js); a switch empties the list and reads
-// the new machine's.
+// Reads: `tower ps`, `tower task list`, `tower read <name>`. Acts: prompt
+// (one line, or "Detailed…": a dialog with a multi-line prompt), connect
+// (a tab running `herdr agent attach`), interrupt, stop / remove (two
+// presses), resume (`spawn --continue`, dead rows), spawn (a form of the
+// harnesses installed there). All of it on the machine the panels follow
+// (tower.js); a switch empties the list and reads the new machine's.
 
 import {
 	Editor,
@@ -17,6 +18,8 @@ import {
 	Input,
 	InputState,
 	Scrollbar,
+	Textarea,
+	TextareaState,
 	VirtualListScrollHandle,
 	v_flex,
 	v_virtual_list,
@@ -29,7 +32,11 @@ import {
 	openOverlay,
 	props,
 	readTextFile,
+	run,
+	setShared,
 	settings,
+	shared,
+	spaces,
 	theme,
 } from "herdr";
 import { parseAnsi } from "./ansi.js";
@@ -46,6 +53,25 @@ const SCREEN_MS = 2000; // the open agent's screen re-reads this often
 const SCREEN_LINES = 200; // the tail of `tower read` kept on screen
 const LINE_H = 17; // px per screen line (12px mono)
 const CHAR_W = 7.3; // px per column, for the screen's scroll width
+// Unsent "Detailed…" prompts, `{"<machine>/<agent>": text}` ("" machine:
+// this computer): kept when the dialog closes without sending.
+const DRAFTS = "tower-agents.drafts";
+
+function draftKey(machine, name) {
+	return `${machine ?? ""}/${name}`;
+}
+
+function drafts() {
+	const v = shared(DRAFTS);
+	return v && typeof v === "object" ? v : {};
+}
+
+function setDraft(machine, name, text) {
+	const all = { ...drafts() };
+	if (text.trim()) all[draftKey(machine, name)] = text;
+	else delete all[draftKey(machine, name)];
+	setShared(DRAFTS, all);
+}
 
 /** Display names for stacks, `{"kb": "Knowledgebase"}`, from
  * `<app home>/data/tower/stacks.json` on this computer: a person's naming,
@@ -79,6 +105,27 @@ export default class TowerAgents extends View {
 					font_family: settings().font_family,
 					font_size: 12,
 				}),
+			};
+			return;
+		}
+		// Opened by "Detailed…": only the multi-line prompt dialog.
+		const compose = props()?.compose;
+		if (compose) {
+			const area = TextareaState.new({
+				placeholder: `Prompt ${compose.name}…`,
+				value: compose.text,
+			});
+			area.set_soft_wrap(true);
+			area.focus();
+			cx.timer.after(300, () => area.focus());
+			this.composer = {
+				name: compose.name,
+				machine: compose.machine,
+				overlay: props().overlay,
+				area,
+				sending: false,
+				sent: false,
+				error: null,
 			};
 			return;
 		}
@@ -281,6 +328,87 @@ export default class TowerAgents extends View {
 			.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
 			.on_click((_e, cx) => onClick(cx))
 			.child(label);
+	}
+
+	/** The line's text and any kept draft, in a dialog with room for
+	 * several lines. The line empties: its text moved to the dialog. */
+	openCompose(_cx) {
+		const name = this.selected;
+		if (!name) return;
+		const kept = drafts()[draftKey(this.machine, name)] ?? "";
+		const line = this.prompt?.value().trim() ?? "";
+		this.prompt?.set_value("");
+		openOverlay({
+			mod: "tower-agents",
+			kind: "dialog",
+			width: 0.6,
+			height: 0.6,
+			props: {
+				compose: {
+					name,
+					machine: this.machine,
+					text: [kept, line].filter(Boolean).join("\n"),
+				},
+			},
+		});
+	}
+
+	/** The dialog's Send: one prompt, newlines kept; closes on success. */
+	sendCompose(cx) {
+		const c = this.composer;
+		const text = c.area.value().trim();
+		if (!text || c.sending) return;
+		c.sending = true;
+		c.error = null;
+		cx.notify();
+		cx.spawn(async (cx) => {
+			try {
+				await towerOn(c.machine, "prompt", c.name, text);
+				c.sent = true;
+				closeOverlay(c.overlay);
+			} catch (e) {
+				c.error = String(e.message ?? e);
+				c.sending = false;
+				cx.notify();
+			}
+		});
+	}
+
+	/** The agent's own terminal in a tab on its machine: `herdr agent
+	 * attach`, a second view of the pane tower drives. Closing the tab ends
+	 * that view only; the agent keeps running. A tab already open for it is
+	 * shown instead of a new one. `--takeover` moves the view here from any
+	 * other `herdr agent attach` (herdr allows one). */
+	connect(cx, name) {
+		const machine = this.machine;
+		const here = spaces().filter((s) => (s.machine ?? null) === machine);
+		const open = here
+			.flatMap((s) => s.tabs.map((tab) => ({ s, tab })))
+			.find(({ tab }) => tab.named && tab.name === name);
+		const argv = ["herdr", "agent", "attach", name, "--takeover"];
+		try {
+			if (open) {
+				run("space.select", { id: open.s.id });
+				run("tab.select", { id: open.tab.id });
+				return;
+			}
+			const space = here.find((s) => s.active) ?? here[0];
+			if (space) {
+				run("space.select", { id: space.id });
+				run("tab.new", { name, space: space.id, argv });
+			} else {
+				// no space on that machine yet: one named after it
+				run("space.new", {
+					name: machineLabel(machine),
+					tab: name,
+					argv,
+					...(machine ? { machine } : {}),
+				});
+			}
+		} catch (e) {
+			this.error = `${name}: ${e.message ?? e}`;
+			cx.notify();
+		}
 	}
 
 	/** Run a tower verb for an agent; `confirmKey` asks for a second press. */
@@ -507,6 +635,11 @@ export default class TowerAgents extends View {
 								.child(Input.new(this.prompt).w_full().h_full().text_size(12)),
 						)
 						.child(
+							this.button("ag-detailed", "Detailed…", t, (cx) =>
+								this.openCompose(cx),
+							),
+						)
+						.child(
 							this.button("ag-send", "Send", t, (cx) => this.sendPrompt(cx), {
 								solid: true,
 							}),
@@ -522,6 +655,11 @@ export default class TowerAgents extends View {
 					.gap(6)
 					.when(!dead, (el) =>
 						el
+							.child(
+								this.button("ag-connect", "Connect", t, (cx) =>
+									this.connect(cx, a.name),
+								),
+							)
 							.child(
 								this.button("ag-int", "Interrupt", t, (cx) =>
 									this.act(cx, a.name, ["interrupt", a.name]),
@@ -793,6 +931,12 @@ export default class TowerAgents extends View {
 
 	close() {
 		this.viewer?.editor.release();
+		const c = this.composer;
+		if (c) {
+			// closed without sending (Esc, Cancel): keep the text for next time
+			setDraft(c.machine, c.name, c.sent ? "" : c.area.value());
+			c.area.release();
+		}
 	}
 
 	/** The overlay copy's whole view: a title bar over the read-only text. */
@@ -825,9 +969,84 @@ export default class TowerAgents extends View {
 			.child(div().flex_1().min_h(0).child(Editor.new(v.editor)));
 	}
 
+	/** The "Detailed…" dialog: a multi-line prompt for one agent.
+	 * Cmd-Enter sends; Esc or Cancel closes and keeps the text. */
+	composeView(t) {
+		const c = this.composer;
+		return v_flex()
+			.id("tower-agents-compose")
+			.size_full()
+			.min_h(0)
+			.p(14)
+			.gap(10)
+			.bg(t.popover)
+			.text_size(13)
+			.on_key_down((e, cx) => {
+				if (e.keystroke === "cmd-enter") {
+					cx.stop_propagation();
+					this.sendCompose(cx);
+				}
+			})
+			.child(
+				h_flex()
+					.flex_none()
+					.gap(8)
+					.items_center()
+					.child(div().font_semibold().child(`Prompt ${c.name}`))
+					.child(
+						div()
+							.text_size(11)
+							.text_color(t.dim)
+							.child(`${machineLabel(c.machine)} · ⌘↵ sends · Esc keeps it`),
+					),
+			)
+			.child(
+				div()
+					.flex_1()
+					.min_h(0)
+					.px(8)
+					.py(6)
+					.rounded(6)
+					.border_1()
+					.border_color(t.input)
+					.bg(t.background)
+					.child(Textarea.new(c.area).size_full().text_size(12)),
+			)
+			.when(Boolean(c.error), (el) =>
+				el.child(
+					div()
+						.flex_none()
+						.text_size(12)
+						.text_color(t.ansi1)
+						.child(c.error ?? ""),
+				),
+			)
+			.child(
+				h_flex()
+					.flex_none()
+					.gap(6)
+					.justify_end()
+					.child(
+						this.button("cp-cancel", "Cancel", t, () =>
+							closeOverlay(c.overlay),
+						),
+					)
+					.child(
+						this.button(
+							"cp-send",
+							c.sending ? "Sending…" : "Send",
+							t,
+							(cx) => this.sendCompose(cx),
+							{ solid: true },
+						),
+					),
+			);
+	}
+
 	render() {
 		const t = theme();
 		if (this.viewer) return this.viewerView(t);
+		if (this.composer) return this.composeView(t);
 		const agents = this.agents ?? [];
 		const stacks = new Map();
 		for (const a of agents) {

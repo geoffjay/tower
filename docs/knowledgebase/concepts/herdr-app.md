@@ -52,6 +52,28 @@ behavior contract; this doc records the facts and decisions behind it.
   { name, text } } })`): `init` sees `props().output`, builds a readonly
   `EditorState` of the plain-text snapshot (no colors) and starts no
   timers; selection and Cmd-C work, Esc and Close dismiss it.
+- **Detailed prompt.** `Detailed…` beside Send opens `tower-agents` as a
+  dialog the same way (`props: { compose: { name, machine, text } }`),
+  holding a `TextareaState` (soft wrap). Send or Cmd-Enter runs `tower
+  prompt` on that machine and closes it; herdr delivers a prompt with
+  newlines as one message (checked with omp). Esc closes any dialog
+  without asking the mod, so the text survives in `close()`, which writes
+  it to shared state `tower-agents.drafts` (`{"<machine>/<agent>":
+  text}`, `""` = this computer) unless it was sent. The next `Detailed…`
+  for that agent starts from the draft, with the line's text after it.
+- **Connect: a view, not the agent.** Tower's agents run in the herdr
+  server's `default` session, not in Herdr-app's terminals, so no
+  `terminal.*` command reaches them. `herdr agent attach <name>` is a
+  client of that one pane: the agent keeps running when the client ends
+  (checked by killing it, and by closing its tab). Herdr allows one
+  `agent attach` client per pane; a second fails with `already has an
+  attached client`, so Connect passes `--takeover`. An open `herdr
+  session attach` does not count, and keeps working. Connect looks for a
+  named tab with the agent's name in a space on the followed machine and
+  shows it; else `tab.new { name, space, argv }` in the shown space on
+  that machine (or its first space), else `space.new { name, machine,
+  tab, argv }`. A space's terminals run on its machine, so on kobo the
+  argv runs kobo's `herdr`, which has the agent.
 - **Agent screen colors.** `tower read --ansi` keeps herdr's SGR escapes
   (truecolor, 256-color, bold/italic/inverse; no cursor moves).
   `tower-agents/ansi.js` parses each line into runs of one style, and each
