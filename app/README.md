@@ -92,9 +92,11 @@ hand after that.
   `~/.config/herdr-app/data/tower/stacks.json`, for example
   `{"kb": "Knowledgebase"}` (read on every refresh; the names stay the same
   whichever machine the panels follow). Click an agent for a detail section: prompt
-  input, interrupt / stop / remove (two presses) / resume, its facts, and
-  its terminal screen. Spawn form with the harnesses installed on the
-  machine.
+  input (`Detailed…` opens a dialog for a prompt of several lines),
+  Connect (the agent's own terminal in a tab, to answer its questions or
+  type into it; closing the tab leaves the agent running), interrupt /
+  stop / remove (two presses) / resume, its facts, and its terminal
+  screen. Spawn form with the harnesses installed on the machine.
 - **Workflows** (right panel): every workflow with its version, triggers
   and open runs. Click one for its graph as a top-down list of nodes:
   a chain stays in line, branches indent under the node they leave with

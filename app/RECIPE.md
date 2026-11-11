@@ -30,9 +30,15 @@ the full width) and tower panels in place of the Files/Changes panel:
     `blocked`, `done`, `idle`; dead red `ansi1`), the name, the state word,
     and the job it owns (else its workdir). Click a row: a detail section
     opens below the list (the list keeps the top third) with a prompt
-    input (Enter or Send runs `tower prompt <name> <text>`), the actions
-    (`Interrupt`, `Stop` and `Remove` with a second press, `Resume` =
-    `tower spawn <name> --continue` on a dead row, `Following` /
+    input (Enter or Send runs `tower prompt <name> <text>`; `Detailed…`
+    moves its text, and any kept draft, into a dialog with a multi-line
+    textarea: Send or Cmd-Enter runs `tower prompt` with the newlines
+    kept and closes it, Esc or Cancel closes it and keeps the text as that
+    agent's draft), the actions (`Connect`: a tab named after the agent,
+    in a space on the followed machine, running `herdr agent attach <name>
+    --takeover`, or that tab again if it is open; closing it leaves the
+    agent running. `Interrupt`, `Stop` and `Remove` with a second press,
+    `Resume` = `tower spawn <name> --continue` on a dead row, `Following` /
     `↓ Follow`), the agent's facts (job, reserved jobs waiting for it,
     workdir, kind, permissions, worktree, machine, pane, desired state,
     adopted, created/updated, id), then its terminal screen in the agent's
@@ -206,9 +212,11 @@ the full width) and tower panels in place of the Files/Changes panel:
   in every folder):
   - `tower-agents`: `tower ps`, `tower task list` (owned and reserved
     jobs), `tower read --ansi` (the screen, colors parsed by `ansi.js`; `Copy…` reopens the mod as a read-only text dialog),
-    `tower prompt`, `tower interrupt`,
-    `tower stop [--remove]`, `tower spawn [--continue]`; `knownAgents()`
-    for the spawn form.
+    `tower prompt` (`Detailed…` reopens the mod as a prompt dialog),
+    `tower interrupt`, `tower stop [--remove]`, `tower spawn
+    [--continue]`; `knownAgents()` for the spawn form; `spaces()` and
+    `run("tab.new" | "space.new" | "space.select" | "tab.select")` for
+    Connect.
   - `tower-workflows`: `tower workflow list/show/run/enable/disable/rm/
     apply`, `tower run show/cancel`, `tower ps` (agent names, the form's
     agent pills); `workflows.js` lays a definition out as graph rows,
