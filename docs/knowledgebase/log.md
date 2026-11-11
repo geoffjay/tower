@@ -1,4 +1,5 @@
 ## 2026-11-11
+* **Slack integration proposal and comparison**: ([plan](plans/slack-integration.md), [findings](references/slack-discord-integrations.md)): record Socket Mode setup, work threads, forms, inbox actions, permissions, and recovery. Compare Slack with Discord using official platform documentation. Neither adapter is implemented or live-tested.
 * **Discord integration proposal**: ([plan](plans/discord-integration.md)): add an optional Gateway bot for agent prompts, jobs, workflow runs, and inbox responses. The plan defines permissions, thread routing, restart recovery, ordered milestones, and live acceptance checks. Implementation has not started.
 
 ## 2026-11-10

@@ -30,6 +30,9 @@ Add Discord as a remote control surface for one tower instance. Users can prompt
 
 Dependencies: the existing messaging, job queue, workflow, and event services. This work does not require multi-machine support or the A2A edge.
 
+The [Slack plan](slack-integration.md) is an alternative control surface, not a dependency.
+See [Slack and Discord findings](../references/slack-discord-integrations.md) for setup and platform selection tradeoffs.
+
 ## Existing contracts
 
 - [D§3](../concepts/design/03-process-and-deployment.md): `tower serve` owns server state; herdr runs agents.

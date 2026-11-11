@@ -65,6 +65,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 
 * [Execution plans overview](plans/overview.md) - plan structure, dependency graph, cross-cutting rules, status table.
 * [Discord integration](plans/discord-integration.md) - proposed; Gateway bot with permissions, work threads, inbox responses, and restart recovery.
+* [Slack integration](plans/slack-integration.md) - proposed; Socket Mode app with forms, work threads, scoped access, and inbox actions.
 * [Phase 1 — MVP core](plans/phase-1-mvp-core.md) - complete; herdr driver, server, CLI, restart rebind.
 * [Phase 2 — Messaging + job queue](plans/phase-2-messaging-task-pool.md) - complete; messages, blocked inbox, assignment-only job queue, MCP.
 * [Phase 2b — Scheduled jobs](plans/phase-2b-scheduled-jobs.md) - complete; reserved delivery, one job per agent, recurring cron schedules, `tower service`.
@@ -78,6 +79,7 @@ Wired agents: Claude Code via a SessionStart hook (`.claude/hooks/kb-inject.py`)
 ## References
 
 * [A2A protocol research](references/a2a.md) - Agent2Agent concepts and interaction modes; adopted internally, exposed at the edge.
+* [Slack and Discord integration findings](references/slack-discord-integrations.md) - setup, command UX, operating limits, and platform selection tradeoffs.
 * [agentd research](references/agentd.md) - prior project's microservice sprawl and the single-server simplification path.
 * [herdr research](references/herdr.md) - herdr 0.8.2 socket API, agent launch, detection manifests; tower's execution substrate.
 * [openrig research](references/openrig.md) - daemon/adapter architecture, herdr provider split, concepts to borrow, cautions.
