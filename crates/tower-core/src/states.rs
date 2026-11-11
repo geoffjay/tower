@@ -132,6 +132,8 @@ impl HookPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RunState {
+    /// Created, but an agent it claims is held by another run (D§5.6).
+    Waiting,
     Running,
     Completed,
     Failed,
@@ -141,6 +143,7 @@ pub enum RunState {
 impl RunState {
     pub fn as_str(&self) -> &'static str {
         match self {
+            RunState::Waiting => "waiting",
             RunState::Running => "running",
             RunState::Completed => "completed",
             RunState::Failed => "failed",
@@ -360,6 +363,8 @@ pub enum EventKind {
     WorkflowEnabled,
     #[serde(rename = "workflow.disabled")]
     WorkflowDisabled,
+    #[serde(rename = "workflow.run.waiting")]
+    RunWaiting,
     #[serde(rename = "workflow.run.started")]
     RunStarted,
     #[serde(rename = "workflow.run.completed")]
@@ -416,6 +421,7 @@ impl EventKind {
             EventKind::WorkflowRemoved => "workflow.removed",
             EventKind::WorkflowEnabled => "workflow.enabled",
             EventKind::WorkflowDisabled => "workflow.disabled",
+            EventKind::RunWaiting => "workflow.run.waiting",
             EventKind::RunStarted => "workflow.run.started",
             EventKind::RunCompleted => "workflow.run.completed",
             EventKind::RunFailed => "workflow.run.failed",

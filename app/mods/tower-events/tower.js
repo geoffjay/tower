@@ -287,6 +287,7 @@ export const STATE_COLOR = {
 	canceled: "dim",
 	rejected: "dim",
 	// workflow runs and steps (D§5.6)
+	waiting: "blocked",
 	running: "working",
 	pending: "dim",
 	ready: "accent",

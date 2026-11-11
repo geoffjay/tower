@@ -11,9 +11,12 @@
 //!   terminal finishes the step; a matching event trigger starts a run.
 //! - **reconcile** (boot + every sweep): the same transitions from the rows,
 //!   for events lost between a state write and its append.
+//! - **claims** (`claims.rs`): a run claims its agents at start, all or
+//!   nothing, or waits; ending a run releases them and admits waiting runs.
 //!
 //! Every service fn takes `now` (ms) so tests inject the clock.
 
+mod claims;
 pub mod def;
 
 use std::collections::VecDeque;
@@ -39,6 +42,8 @@ use def::{AgentRef, Definition, Join, Node, Trigger};
 
 /// Name of the engine's row in `event_consumers`.
 pub const CONSUMER: &str = "workflows";
+/// Run states that still hold or wait for agents (SQL list).
+const OPEN_RUN: &str = "('waiting','running')";
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -171,9 +176,9 @@ pub async fn list(state: &AppState) -> anyhow::Result<Vec<Value>> {
     for r in &rows {
         let w = row_to_workflow(r);
         let d = definition(state, &w.id, w.current_version).await?;
-        let open: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM workflow_runs WHERE workflow_id = ?1 AND state = 'running'",
-        )
+        let open: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM workflow_runs WHERE workflow_id = ?1 AND state IN {OPEN_RUN}"
+        ))
         .bind(w.id.0.as_str())
         .fetch_one(&state.pool)
         .await?;
@@ -215,19 +220,19 @@ pub async fn show(state: &AppState, name: &str) -> anyhow::Result<Value> {
 }
 
 /// Remove a workflow, its versions, and its schedules; finished runs keep
-/// their rows. Refused while a run is `running`.
+/// their rows. Refused while a run is `waiting` or `running`.
 pub async fn remove(state: &AppState, name: &str, _now: i64) -> anyhow::Result<()> {
     let _guard = state.workflow_lock.lock().await;
     let w = require_workflow(state, name).await?;
-    let open: Option<String> = sqlx::query_scalar(
-        "SELECT id FROM workflow_runs WHERE workflow_id = ?1 AND state = 'running' LIMIT 1",
-    )
+    let open: Option<String> = sqlx::query_scalar(&format!(
+        "SELECT id FROM workflow_runs WHERE workflow_id = ?1 AND state IN {OPEN_RUN} LIMIT 1"
+    ))
     .bind(w.id.0.as_str())
     .fetch_optional(&state.pool)
     .await?;
     if let Some(run) = open {
         let mut e = TowerError::conflict(format!(
-            "workflow {} has a running run ({run}): cancel it first",
+            "workflow {} has an open run ({run}): cancel it first",
             w.name
         ));
         e.detail = Some(json!({ "run_id": run }));
@@ -323,7 +328,8 @@ async fn definition(state: &AppState, id: &WorkflowId, version: i64) -> anyhow::
 // ---- runs ------------------------------------------------------------------
 
 /// Start a run of `name`'s current version (manual, schedule, or event
-/// trigger). Checks the input against `[inputs]`.
+/// trigger). Checks the input against `[inputs]`. The run claims its
+/// agents and starts, or waits for them (`waiting`, no steps yet).
 pub async fn start_run(
     state: &AppState,
     name: &str,
@@ -343,12 +349,12 @@ pub async fn start_run(
     }
     let def = definition(state, &w.id, w.current_version).await?;
     let input = resolve_input(&def, input)?;
-    let run = WorkflowRun {
+    let mut run = WorkflowRun {
         id: RunId::new(),
         workflow_id: w.id.clone(),
         workflow_name: w.name.clone(),
         version: w.current_version,
-        state: RunState::Running,
+        state: RunState::Waiting,
         input: Value::Object(input),
         trigger,
         result: None,
@@ -356,32 +362,65 @@ pub async fn start_run(
         created_at: now,
         ended_at: None,
     };
+    let wanted = claims::wanted(state, &def).await?;
+    let blockers = claims::blockers(state, &run, &wanted).await?;
+    if blockers.is_empty() {
+        run.state = RunState::Running;
+    }
     sqlx::query(
         "INSERT INTO workflow_runs (id, workflow_id, workflow_name, version, state, input, trigger,
                                     created_at)
-         VALUES (?1, ?2, ?3, ?4, 'running', ?5, ?6, ?7)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )
     .bind(run.id.0.as_str())
     .bind(w.id.0.as_str())
     .bind(&w.name)
     .bind(run.version)
+    .bind(run.state.as_str())
     .bind(run.input.to_string())
     .bind(run.trigger.to_string())
     .bind(now)
     .execute(&state.pool)
     .await?;
+    let id = run.id.clone();
+    if blockers.is_empty() {
+        begin(state, run, def, &wanted, now).await?;
+        // a run that ended at once released its agents
+        settle_claims(state, now).await?;
+    } else {
+        let mut payload = run_payload(&run);
+        payload["waiting_for"] = serde_json::to_value(&blockers)?;
+        event(state, EventKind::RunWaiting, "workflow_run", &id.0, payload).await?;
+    }
+    require_run(state, &id).await
+}
+
+/// `workflow.run.started` / `workflow.run.waiting` payload.
+fn run_payload(run: &WorkflowRun) -> Value {
+    json!({
+        "run_id": run.id, "workflow_id": run.workflow_id, "workflow": run.workflow_name,
+        "version": run.version, "trigger": run.trigger, "input": run.input,
+    })
+}
+
+/// A `running` run that saw no blockers: claim its agents, announce it, and
+/// activate its start nodes.
+async fn begin(
+    state: &AppState,
+    run: WorkflowRun,
+    def: Definition,
+    wanted: &[(AgentId, String)],
+    now: i64,
+) -> anyhow::Result<()> {
+    claims::claim(state, &run.id, wanted, now).await?;
     event(
         state,
         EventKind::RunStarted,
         "workflow_run",
         &run.id.0,
-        json!({
-            "run_id": run.id, "workflow_id": w.id, "workflow": w.name, "version": run.version,
-            "trigger": run.trigger, "input": run.input,
-        }),
+        run_payload(&run),
     )
     .await?;
-    let id = run.id.clone();
     let mut engine = Engine::new(state, run, def, now);
     for n in engine.def.start_nodes() {
         engine.queue.push_back(Action::Activate {
@@ -389,8 +428,56 @@ pub async fn start_run(
             from: None,
         });
     }
-    engine.drain().await?;
-    require_run(state, &id).await
+    engine.drain().await
+}
+
+/// After runs may have ended: admit the waiting runs that can claim now,
+/// then hand every free agent its next reserved job — in that order, so a
+/// waiting run gets a released agent before standalone work reserved for
+/// it. Under `workflow_lock`. Returns the runs admitted.
+async fn settle_claims(state: &AppState, now: i64) -> anyhow::Result<usize> {
+    let admitted = admit_waiting(state, now).await?;
+    crate::tasks::dispatch_all(state, now).await?;
+    Ok(admitted)
+}
+
+/// Start the waiting runs that can claim their agents now, oldest first,
+/// pass after pass until one admits nothing (a run that ends at once frees
+/// its agents for the next). Under `workflow_lock`. Returns the count.
+async fn admit_waiting(state: &AppState, now: i64) -> anyhow::Result<usize> {
+    let mut admitted = 0;
+    loop {
+        let rows = sqlx::query(
+            "SELECT * FROM workflow_runs WHERE state = 'waiting' ORDER BY created_at, id",
+        )
+        .fetch_all(&state.pool)
+        .await?;
+        let mut progressed = false;
+        for r in &rows {
+            let mut run = row_to_run(r);
+            let def = definition(state, &run.workflow_id, run.version).await?;
+            let wanted = claims::wanted(state, &def).await?;
+            if !claims::blockers(state, &run, &wanted).await?.is_empty() {
+                continue;
+            }
+            let res = sqlx::query(
+                "UPDATE workflow_runs SET state = 'running' WHERE id = ?1 AND state = 'waiting'",
+            )
+            .bind(run.id.0.as_str())
+            .execute(&state.pool)
+            .await?;
+            if res.rows_affected() == 0 {
+                continue;
+            }
+            run.state = RunState::Running;
+            begin(state, run, def, &wanted, now).await?;
+            admitted += 1;
+            progressed = true;
+        }
+        if !progressed {
+            return Ok(admitted);
+        }
+    }
 }
 
 fn resolve_input(
@@ -430,15 +517,41 @@ fn resolve_input(
     Ok(out)
 }
 
-/// Cancel a running run: its open steps are canceled and their jobs
-/// canceled (interrupting their owners). Operator-only.
+/// Cancel a waiting or running run: a running run's open steps are canceled
+/// with their jobs (interrupting their owners), and its agents are
+/// released. Operator-only.
 pub async fn cancel_run(state: &AppState, id: &RunId, now: i64) -> anyhow::Result<WorkflowRun> {
     let _guard = state.workflow_lock.lock().await;
-    let Some(mut engine) = Engine::load(state, id, now).await? else {
-        let run = require_run(state, id).await?;
-        return Err(TowerError::conflict(format!("run {id} is {}", run.state.as_str())).into());
-    };
-    engine.end(RunState::Canceled, None).await?;
+    match Engine::load(state, id, now).await? {
+        Some(mut engine) => engine.end(RunState::Canceled, None).await?,
+        None => {
+            let run = require_run(state, id).await?;
+            let res = sqlx::query(
+                "UPDATE workflow_runs SET state = 'canceled', ended_at = ?1
+                 WHERE id = ?2 AND state = 'waiting'",
+            )
+            .bind(now)
+            .bind(id.0.as_str())
+            .execute(&state.pool)
+            .await?;
+            if res.rows_affected() == 0 {
+                return Err(
+                    TowerError::conflict(format!("run {id} is {}", run.state.as_str())).into(),
+                );
+            }
+            let mut payload = run_payload(&run);
+            payload["state"] = json!("canceled");
+            event(
+                state,
+                EventKind::RunCanceled,
+                "workflow_run",
+                &id.0,
+                payload,
+            )
+            .await?;
+        }
+    }
+    settle_claims(state, now).await?;
     require_run(state, id).await
 }
 
@@ -486,11 +599,17 @@ pub async fn runs_of_schedule(
     Ok(rows.iter().map(row_to_run).collect())
 }
 
-/// A run with its steps in order.
+/// A run with its steps in order; a waiting run adds what it waits for.
 pub async fn show_run(state: &AppState, id: &RunId) -> anyhow::Result<Value> {
     let run = require_run(state, id).await?;
     let steps = steps_of(state, id).await?;
-    Ok(json!({ "run": run, "steps": steps }))
+    let waiting_for = if run.state == RunState::Waiting {
+        let def = definition(state, &run.workflow_id, run.version).await?;
+        claims::waiting_for(state, &run, &def).await?
+    } else {
+        Vec::new()
+    };
+    Ok(json!({ "run": run, "steps": steps, "waiting_for": waiting_for }))
 }
 
 pub async fn get_run(state: &AppState, id: &RunId) -> anyhow::Result<Option<WorkflowRun>> {
@@ -522,7 +641,7 @@ async fn steps_of(state: &AppState, run: &RunId) -> anyhow::Result<Vec<WorkflowS
 /// What a workflow schedule's firing did.
 pub enum Scheduled {
     Started(Box<WorkflowRun>),
-    /// The run this schedule started last is still running.
+    /// The run this schedule started last is still waiting or running.
     Running(RunId),
 }
 
@@ -537,11 +656,12 @@ pub async fn fire_schedule(
     let Some(workflow) = &s.workflow_id else {
         return Err(TowerError::invalid(format!("schedule {} starts no workflow", s.id)).into());
     };
-    let running: Option<String> = sqlx::query_scalar(
+    let running: Option<String> = sqlx::query_scalar(&format!(
         "SELECT id FROM workflow_runs
-         WHERE workflow_id = ?1 AND state = 'running' AND json_extract(trigger, '$.schedule_id') = ?2
-         LIMIT 1",
-    )
+         WHERE workflow_id = ?1 AND state IN {OPEN_RUN}
+           AND json_extract(trigger, '$.schedule_id') = ?2
+         LIMIT 1"
+    ))
     .bind(workflow.0.as_str())
     .bind(s.id.0.as_str())
     .fetch_optional(&state.pool)
@@ -672,12 +792,12 @@ async fn fire_event_trigger(
     if about_workflow(state, e, &t.workflow).await? {
         return Ok(());
     }
-    let running: Option<String> = sqlx::query_scalar(
+    let running: Option<String> = sqlx::query_scalar(&format!(
         "SELECT id FROM workflow_runs
-         WHERE workflow_id = ?1 AND state = 'running'
+         WHERE workflow_id = ?1 AND state IN {OPEN_RUN}
            AND json_extract(trigger, '$.kind') = 'event' AND json_extract(trigger, '$.trigger') = ?2
-         LIMIT 1",
-    )
+         LIMIT 1"
+    ))
     .bind(t.workflow.0.as_str())
     .bind(t.index as i64)
     .fetch_optional(&state.pool)
@@ -926,17 +1046,23 @@ async fn on_task(state: &AppState, task: &TaskId, now: i64) -> anyhow::Result<()
     if step.state == StepState::Running {
         engine.finish(&step, &job).await?;
     }
-    engine.drain().await
+    engine.drain().await?;
+    settle_claims(state, now).await?;
+    Ok(())
 }
 
-/// Advance every running run from its rows: finish steps whose job is
-/// terminal, create missing jobs for `ready` steps, end quiet runs.
+/// Advance every run from its rows: admit waiting runs that can claim,
+/// finish steps whose job is terminal, create missing jobs for `ready`
+/// steps, end quiet runs.
 pub async fn reconcile(state: &AppState, now: i64) -> anyhow::Result<usize> {
+    let mut advanced = {
+        let _guard = state.workflow_lock.lock().await;
+        admit_waiting(state, now).await?
+    };
     let runs: Vec<String> =
         sqlx::query_scalar("SELECT id FROM workflow_runs WHERE state = 'running'")
             .fetch_all(&state.pool)
             .await?;
-    let mut advanced = 0;
     for id in runs {
         let _guard = state.workflow_lock.lock().await;
         let Some(mut engine) = Engine::load(state, &RunId::from(id), now).await? else {
@@ -974,6 +1100,9 @@ pub async fn reconcile(state: &AppState, now: i64) -> anyhow::Result<usize> {
         }
         engine.drain().await?;
     }
+    // runs that ended above released their agents
+    let _guard = state.workflow_lock.lock().await;
+    advanced += settle_claims(state, now).await?;
     Ok(advanced)
 }
 
@@ -1670,7 +1799,10 @@ impl<'a> Engine<'a> {
                 "result": result, "error": error,
             }),
         )
-        .await
+        .await?;
+        // the agents go back; `settle_claims` admits waiting runs, then
+        // hands them other work
+        claims::release(self.state, &self.run.id).await
     }
 
     async fn step_event(

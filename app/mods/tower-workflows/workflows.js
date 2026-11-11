@@ -74,6 +74,20 @@ export function triggerOf(run) {
 	return t.kind ?? "?";
 }
 
+/** What a waiting run waits for (`run show`'s `waiting_for`): each agent
+ * and the run ahead of it, the one claiming it or an earlier waiting run.
+ * `kb-curator (run 01M…), kb-reviewer (run 01M…)`; none -> "". */
+export function waitingText(waitingFor) {
+	return (waitingFor ?? [])
+		.map((w) => (w.run_id ? `${w.agent} (run ${w.run_id})` : w.agent))
+		.join(", ");
+}
+
+/** Is a run still open: waiting for its agents, or running? */
+export function isOpen(state) {
+	return state === "waiting" || state === "running";
+}
+
 // --- the graph ------------------------------------------------------------
 
 /** An edge's condition as a label; `completed` (the default) is none. */

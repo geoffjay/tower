@@ -35,20 +35,19 @@ tower task list [--state queued] [--tag x] [--mine <name>]   # queue + owned vie
 tower task show <id>                          # detail incl. assignment/lease trail
 tower task create ['title'] [--tag x] [--assign name] [--priority N] [--pre-run P] [--post-run P]   # no title in a terminal: asks
 tower task edit <id> [--title T] [--description D] [--pre-run P] [--post-run P] [--at TIME]   # '' clears; D§5.2.3
-tower task assign <id> <name>                 # dispatch (operator; orchestrator later)
+tower task assign <id> <name>                 # dispatch (operator; orchestrator later): delivered when the agent is free, else reserved; prints why it waits
 tower task cancel <id> / task release <id> [--as <agent>]
 tower task start|heartbeat <id> [--as <agent>]            # agent work loop
 tower task status <id> <working|input-required|completed|failed> [--result R] [--as <agent>]
-tower task create 'title' --assign name --when-available | --at <time>   # reserve: deliver when free / after time
-tower task assign <id> <name> --when-available                          # reserve instead of immediate
+tower task create 'title' --assign name [--at <time>]   # delivered when the agent is free, else reserved; --at holds it until then
 tower schedule create 'title' (--daily HH:MM | --cron '…') [--tz Zone] [--assign name] [--tag x] [--lease-s N] [--pre-run P] [--post-run P]
 tower schedule edit <id> [--title T] [--description D] [--daily HH:MM | --cron '…'] [--tz Zone] [--pre-run P] [--post-run P]
 tower schedule list | show <id> | pause <id> | resume <id> | run <id> | rm <id>
 tower service install | uninstall | status          # run `tower serve` as a user service (launchd / systemd)
 tower workflow apply <file.toml>    # validate + store a new version when changed (operator; D§5.6)
 tower workflow list | show <name> | rm <name> | enable <name> | disable <name>
-tower workflow run [<name>] [--input k=v]... [--wait]   # start a run; --wait follows it to the end; no name in a terminal: asks
-tower run list [--workflow <name>] [--state running] | show <run-id> | cancel <run-id>
+tower workflow run [<name>] [--input k=v]... [--wait]   # start a run (waiting while another run claims one of its agents); --wait follows it to the end; no name in a terminal: asks
+tower run list [--workflow <name>] [--state waiting|running|…] | show <run-id> | cancel <run-id>   # show: a waiting run lists the agents it waits for
 tower artifact put <task-id> <name> [--file <path>] [--media-type T] [--as <agent>]   # stdin when no --file
 tower artifact get <artifact-id>    # print the content
                                     # --as defaults to $TOWER_AGENT (set in spawned panes)
@@ -75,6 +74,14 @@ it acts, the CLI prints the equivalent one-line command and asks to go
 ahead, so the flags are learned by use. Without a terminal (stdin or stderr
 not a TTY, as in scripts and agents) a missing argument is an error, never
 a hang. Questions go to stderr, so `--json` output stays clean.
+
+**Assignment waits for a free agent.** `task assign` and `task create
+--assign` deliver at once when the agent is free (D§5.2.2) and otherwise
+reserve the job for it. The human output names the reservation and the
+server's reason (`waiting.reason`), for example `t_…  reserved for
+kb-reviewer: kb-reviewer is busy with job 01M…`. There is no flag to ask
+for a reservation, and no availability error. The `task create` wizard
+asks only when to deliver: when the agent is free, or not before a time.
 
 For blocked-agent inbox messages, the human `tower inbox` summary also prints
 the captured pane context, so the question is visible without opening the TUI.

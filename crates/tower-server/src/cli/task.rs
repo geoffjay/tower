@@ -31,14 +31,12 @@ pub enum TaskCmd {
         tags: Vec<String>,
         #[arg(long)]
         priority: Option<i64>,
-        /// Pre-assign to this agent
+        /// Assign to this agent: delivered when it is free, else reserved
+        /// for it until it is
         #[arg(long)]
         assign: Option<String>,
-        /// With --assign: reserve it — delivered when the agent is free
-        #[arg(long)]
-        when_available: bool,
-        /// With --assign: reserve it and hold it until this time
-        /// (HH:MM today/tomorrow, "YYYY-MM-DD HH:MM" local, or RFC 3339)
+        /// With --assign: hold it until this time (HH:MM today/tomorrow,
+        /// "YYYY-MM-DD HH:MM" local, or RFC 3339)
         #[arg(long)]
         at: Option<String>,
         /// Lease window in seconds (default 60)
@@ -71,15 +69,13 @@ pub enum TaskCmd {
         #[arg(long)]
         at: Option<String>,
     },
-    /// Dispatch a queued job to an agent (one job per agent at a time)
+    /// Dispatch a queued job to an agent: delivered when the agent is free,
+    /// else reserved for it until it is (one job per agent at a time)
     Assign {
         id: String,
         name: String,
         #[arg(long)]
         lease_s: Option<i64>,
-        /// Reserve instead: deliver when the agent is free
-        #[arg(long)]
-        when_available: bool,
     },
     /// Cancel a job (interrupts its owner)
     Cancel { id: String },
@@ -153,7 +149,6 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
             tags,
             priority,
             assign,
-            when_available,
             at,
             lease_s,
             pre_run,
@@ -165,7 +160,6 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
                 tags,
                 priority,
                 assign,
-                when_available,
                 at,
                 lease_s,
                 pre_run,
@@ -185,15 +179,14 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
             let body = json!({
                 "title": t.title, "description": t.description, "tags": t.tags,
                 "priority": t.priority, "assign": t.assign, "lease_s": t.lease_s,
-                "when_available": t.when_available, "not_before": not_before,
-                "pre_run": t.pre_run, "post_run": t.post_run,
+                "not_before": not_before, "pre_run": t.pre_run, "post_run": t.post_run,
             });
             let v = c.post("/v1/tasks", Some(body)).await?;
             if json_out {
                 return print_json(&v);
             }
             let names = agent_names(c).await?;
-            println!("{}", summary(&v["task"], &names));
+            println!("{}", summary(&v["task"], &v["waiting"], &names));
         }
         TaskCmd::Edit {
             id,
@@ -247,25 +240,18 @@ pub async fn run(c: &Client, cmd: TaskCmd, json_out: bool) -> anyhow::Result<()>
                 changed.join(", ")
             );
         }
-        TaskCmd::Assign {
-            id,
-            name,
-            lease_s,
-            when_available,
-        } => {
+        TaskCmd::Assign { id, name, lease_s } => {
             let v = c
                 .post(
                     &format!("/v1/tasks/{id}/assign"),
-                    Some(
-                        json!({ "to": name, "lease_s": lease_s, "when_available": when_available }),
-                    ),
+                    Some(json!({ "to": name, "lease_s": lease_s })),
                 )
                 .await?;
             if json_out {
                 return print_json(&v);
             }
             let names = agent_names(c).await?;
-            println!("{}", summary(&v["task"], &names));
+            println!("{}", summary(&v["task"], &v["waiting"], &names));
         }
         TaskCmd::Cancel { id } => {
             let v = c.post(&format!("/v1/tasks/{id}/cancel"), None).await?;
@@ -374,8 +360,10 @@ pub(super) fn name<'a>(names: &'a HashMap<String, String>, id: &'a Value) -> &'a
     }
 }
 
-/// `t_…  queued` / `t_…  assigned to backend (lease 60s)`.
-fn summary(t: &Value, names: &HashMap<String, String>) -> String {
+/// `t_…  queued` / `t_…  assigned to backend (lease 60s)` /
+/// `t_…  reserved for backend: backend is working`. `waiting` is the
+/// response's reason a reserved job waits (`null` when delivered).
+fn summary(t: &Value, waiting: &Value, names: &HashMap<String, String>) -> String {
     let id = t["id"].as_str().unwrap_or("?");
     match t["state"].as_str() {
         Some("assigned") => format!(
@@ -390,11 +378,12 @@ fn summary(t: &Value, names: &HashMap<String, String>) -> String {
         ),
         Some("queued") if t["target_agent_id"].is_string() => {
             let who = name(names, &t["target_agent_id"]);
-            match t["not_before"].as_i64() {
-                Some(nb) if nb > tower_core::now_ms() => {
+            match (waiting["reason"].as_str(), t["not_before"].as_i64()) {
+                (Some(reason), _) => format!("{id}  reserved for {who}: {reason}"),
+                (None, Some(nb)) if nb > tower_core::now_ms() => {
                     format!("{id}  reserved for {who} (not before {})", clock(nb, true))
                 }
-                _ => format!("{id}  reserved for {who} (delivered when available)"),
+                _ => format!("{id}  reserved for {who} (delivered when it is free)"),
             }
         }
         Some(s) => format!("{id}  {s}"),
@@ -465,7 +454,7 @@ fn print_show(v: &Value, names: &HashMap<String, String>, now: i64) {
         Some(_) => format!(" (owner: {owner}, lease expired — requeues on next sweep)"),
         None if t["owner_id"].is_string() => format!(" (owner: {owner})"),
         None if t["target_agent_id"].is_string() => format!(
-            " (reserved for {}: delivered when available)",
+            " (reserved for {}: delivered when it is free)",
             name(names, &t["target_agent_id"])
         ),
         None => String::new(),

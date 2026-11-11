@@ -15,11 +15,12 @@ pub enum WorkflowCmd {
     /// Validate a TOML definition and store it as a new version when it
     /// changed (schedule triggers are synced)
     Apply { file: PathBuf },
-    /// Workflows with version, triggers, and running runs
+    /// Workflows with version, triggers, and open (waiting or running) runs
     List,
     /// A workflow's nodes, edges, triggers, and recent runs
     Show { name: String },
-    /// Remove a workflow and its schedules (refused while a run is running)
+    /// Remove a workflow and its schedules (refused while a run is waiting
+    /// or running)
     Rm { name: String },
     /// Allow runs again; resume its schedules
     Enable { name: String },
@@ -32,7 +33,8 @@ pub enum WorkflowCmd {
         /// Input value, repeatable: --input issue=ENG-123
         #[arg(long = "input", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
-        /// Follow the run until it ends (exit 1 unless it completes)
+        /// Follow the run until it ends (exit 1 unless it completes); a
+        /// waiting run is followed until it starts and ends
         #[arg(long)]
         wait: bool,
     },
@@ -44,13 +46,14 @@ pub enum RunCmd {
     List {
         #[arg(long)]
         workflow: Option<String>,
-        /// running | completed | failed | canceled
+        /// waiting | running | completed | failed | canceled
         #[arg(long)]
         state: Option<String>,
     },
-    /// A run's steps with agent, outcome, and summary
+    /// A run's steps with agent, outcome, and summary; a waiting run lists
+    /// the agents it waits for
     Show { id: String },
-    /// Cancel a running run and its open jobs
+    /// Cancel a waiting or running run and its open jobs
     Cancel { id: String },
 }
 
@@ -125,25 +128,24 @@ pub async fn run_workflow(c: &Client, cmd: WorkflowCmd, json_out: bool) -> anyho
                 .await?;
             let run = &v["run"];
             let id = run["id"].as_str().unwrap_or("?").to_string();
-            if !wait {
-                if json_out {
-                    return print_json(&v);
-                }
-                println!(
-                    "run {id}  started ({} v{})",
-                    run["workflow_name"].as_str().unwrap_or("?"),
-                    run["version"]
-                );
-                return Ok(());
+            if !wait && json_out {
+                return print_json(&v);
             }
             if !json_out {
                 println!(
-                    "run {id}  started ({} v{})",
+                    "run {id}  {} ({} v{})",
+                    if run["state"] == "waiting" {
+                        "waiting"
+                    } else {
+                        "started"
+                    },
                     run["workflow_name"].as_str().unwrap_or("?"),
                     run["version"]
                 );
             }
-            follow(c, &id, json_out).await?;
+            if wait {
+                follow(c, &id, json_out).await?;
+            }
         }
     }
     Ok(())
@@ -160,13 +162,29 @@ async fn toggle(c: &Client, name: &str, verb: &str, json_out: bool) -> anyhow::R
     Ok(())
 }
 
-/// Poll the run every 2 s, printing each step change, until it ends.
+/// Poll the run every 2 s, printing what a waiting run waits for and each
+/// step change, until it ends.
 async fn follow(c: &Client, id: &str, json_out: bool) -> anyhow::Result<()> {
     let mut seen: HashMap<String, String> = HashMap::new();
+    let mut waiting_seen = String::new();
     let names = agent_names(c).await?;
     loop {
         let v = c.get(&format!("/v1/runs/{id}")).await?;
+        let run = &v["run"];
         if !json_out {
+            let waiting = if run["state"] == "waiting" {
+                waiting_line(&v["waiting_for"])
+            } else {
+                String::new()
+            };
+            if waiting != waiting_seen {
+                if !waiting.is_empty() {
+                    println!("  waiting for {waiting}");
+                } else if run["state"] == "running" {
+                    println!("  started");
+                }
+                waiting_seen = waiting;
+            }
             for s in v["steps"].as_array().map(Vec::as_slice).unwrap_or(&[]) {
                 let sid = s["id"].as_str().unwrap_or_default().to_string();
                 let state = s["state"].as_str().unwrap_or("?").to_string();
@@ -176,9 +194,10 @@ async fn follow(c: &Client, id: &str, json_out: bool) -> anyhow::Result<()> {
                 }
             }
         }
-        let run = &v["run"];
         match run["state"].as_str() {
-            Some("running") => tokio::time::sleep(std::time::Duration::from_secs(2)).await,
+            Some("waiting" | "running") => {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await
+            }
             Some(end) => {
                 if json_out {
                     print_json(&v)?;
@@ -193,6 +212,26 @@ async fn follow(c: &Client, id: &str, json_out: bool) -> anyhow::Result<()> {
             None => anyhow::bail!("run {id}: unexpected response"),
         }
     }
+}
+
+/// `kb-curator (run 01M…), kb-reviewer (run 01M…)`: each agent a waiting
+/// run waits for and the run ahead of it (the one claiming the agent, or an
+/// earlier waiting run).
+fn waiting_line(waiting_for: &Value) -> String {
+    waiting_for
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|w| {
+            let agent = w["agent"].as_str().unwrap_or("?");
+            match w["run_id"].as_str() {
+                Some(run) => format!("{agent} (run {run})"),
+                None => agent.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// `: <error>` or ` → <node> <outcome>: <summary>`.
@@ -264,7 +303,7 @@ fn trigger_summary(t: &Value) -> String {
 fn print_list(workflows: &[Value]) {
     println!(
         "{:<24} {:<8} {:<9} {:<6} {:<8} {:<30} DESCRIPTION",
-        "NAME", "VERSION", "STATE", "NODES", "RUNNING", "TRIGGERS"
+        "NAME", "VERSION", "STATE", "NODES", "OPEN", "TRIGGERS"
     );
     for w in workflows {
         let triggers: Vec<String> = w["triggers"]
@@ -493,10 +532,18 @@ fn print_run(v: &Value, names: &HashMap<String, String>) {
             .collect();
         println!("  input    {}", pairs.join(" "));
     }
-    println!(
-        "  started  {}",
-        clock(r["created_at"].as_i64().unwrap_or(0), true)
-    );
+    if r["state"] == "waiting" {
+        println!(
+            "  created  {}",
+            clock(r["created_at"].as_i64().unwrap_or(0), true)
+        );
+        println!("  waiting  for {}", waiting_line(&v["waiting_for"]));
+    } else {
+        println!(
+            "  started  {}",
+            clock(r["created_at"].as_i64().unwrap_or(0), true)
+        );
+    }
     if let Some(e) = r["ended_at"].as_i64() {
         println!("  ended    {}", clock(e, true));
     }

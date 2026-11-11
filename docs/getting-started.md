@@ -294,8 +294,8 @@ Every command above takes `--json` to print the raw API response.
 You don't have to remember the flags. Run `tower task create` with no
 title in a terminal and it asks for each value: the title, the job prompt
 (in `$VISUAL`/`$EDITOR`), the agent from a list with each one's state,
-when to deliver it (now, when the agent is free, or a day from a calendar
-and a time), tags from the ones already in use plus new ones, priority,
+when to deliver it (when the agent is free, or not before a day from a
+calendar and a time), tags from the ones already in use plus new ones, priority,
 and, if you want them, a lease and pre-/post-run prompts. Flags you did
 pass are not asked again. Before it creates the job it prints the
 equivalent command and asks to go ahead:
@@ -305,14 +305,14 @@ $ tower task create --tag stack:kb
 ? Title: review dev-kb PR #45
 ? Job prompt: <received>
 ? Assign to: kb-reviewer  (omp, working, has a job)
-? Deliver: when it is free (reserve)
+? Deliver: when it is free
 ? Priority: 0
 ? Set a lease or pre-run / post-run prompts? No
 
-  tower task create 'review dev-kb PR #45' --description 'Review only …' --tag stack:kb --assign kb-reviewer --when-available
+  tower task create 'review dev-kb PR #45' --description 'Review only …' --tag stack:kb --assign kb-reviewer
 
 ? Create this job? Yes
-01M6VVSGHBDMBP5KR7N86HTN7V  reserved for kb-reviewer (delivered when available)
+01M6VVSGHBDMBP5KR7N86HTN7V  reserved for kb-reviewer: kb-reviewer is busy with job 01M6VTQ4R1XJ0B6WJ2YHZ8N3PE
 ```
 
 Esc or ctrl+c stops without creating anything. Without a terminal (a
@@ -320,17 +320,27 @@ script, an agent's shell) a missing title is an error, never a question.
 
 ### Scheduled and recurring jobs
 
-An agent owns **one job at a time**; assigning a second while it's busy is
-a `conflict`. To line work up for a busy agent, **reserve** it — tower
-delivers it the moment the agent is free (the lease starts then, not now):
+An agent owns **one job at a time**. Every assignment waits for a free
+agent: an agent is free when it is `idle` or `done`, owns no open job,
+runs no post-run prompt, and no workflow run claims it. When the agent is
+busy, tower **reserves** the job for it and delivers it the moment the
+agent is free (the lease starts then, not now). The answer says why the
+job waits:
 
 ```console
-$ tower task assign t_01J9X8C backend --when-available
-t_01J9X8C  reserved for backend (delivered when available)
+$ tower task assign t_01J9X8C backend
+t_01J9X8C  reserved for backend: backend is working
+
+$ tower task assign t_01J9X8F docs
+t_01J9X8F  assigned to docs (lease 60s)
 
 $ tower task create 'nightly cleanup' --assign backend --at 22:00
-t_01J9X8D  reserved for backend (not before 2026-09-28 22:00:00)
+t_01J9X8D  reserved for backend: held until 2026-09-28 22:00
 ```
+
+A dead agent also gets a reservation: the job waits until you resume the
+agent (`tower spawn <name> --continue`). `tower prompt` is different: it
+types into the agent at once, busy or not, so you can steer it.
 
 Recurring work is a **schedule**: a job template that fires on a cron
 cadence and creates an ordinary job each time.
@@ -354,8 +364,10 @@ What happens when things don't go to plan is fixed policy
 is still being worked, today's is **skipped**; if it was never picked up,
 it's **replaced** (at most one pending run per schedule); if tower was down
 across several firings, it fires **once**; removing the target agent
-**pauses** the schedule. Schedules only fire while `tower serve` runs —
-`tower service install` keeps it running as a user service.
+**pauses** the schedule. A job for an agent that a workflow run claims
+waits until the run ends (see Workflows). Schedules only fire while
+`tower serve` runs — `tower service install` keeps it running as a user
+service.
 
 ### Lifecycle prompts and editing
 
@@ -487,12 +499,34 @@ queues ordinary work; when its owner reports it completed, the workflow
 starts with `change = "ship v1.4"`. A schedule whose jobs carry the tag
 does the same on a cadence.
 
-A trigger skips while the run it started last is still running. Applying
-a changed file adds a version; running runs keep theirs. `tower workflow
-disable` pauses its schedules and triggers, `tower run cancel` stops a run
-and its jobs, `tower workflow rm` removes it (not while a run is
-running). The full rules are the
-[workflows decision](knowledgebase/decisions/workflows.md).
+A run **claims** every agent its definition names when it starts, and
+keeps them until it ends. While a run claims an agent, that agent gets
+only the run's jobs: a manual job, a schedule's job, or another run's step
+for it waits until the run ends. A run that needs an agent another run
+claims starts **waiting**. It has no steps yet, and it starts when every
+agent it names is free of other runs. Waiting runs start oldest first, so
+two workflows that share an agent run one after another:
+
+```console
+$ tower workflow run kb-review --wait
+run 01M6N2C4Q8T1VZ7XH3E5K9D0BW  waiting (kb-review v3)
+  waiting for kb-curator (run 01M6N1R2B6K0SX4WG9P7J3F8CA)
+  started
+  review #1  running  kb-reviewer
+…
+
+$ tower run list --state waiting
+$ tower run show 01M6N2C4Q8T1VZ7XH3E5K9D0BW   # a waiting run: the agents it waits for
+```
+
+A trigger skips while the run it started last is still waiting or
+running. Applying a changed file adds a version; open runs keep theirs.
+`tower workflow disable` pauses its schedules and triggers,
+`tower run cancel` stops a waiting or running run and its jobs,
+`tower workflow rm` removes it (not while a run is waiting or running).
+The full rules are the
+[workflows decision](knowledgebase/decisions/workflows.md) and the
+[agent availability decision](knowledgebase/decisions/agent-availability.md).
 
 ## 8. Watch the system
 
@@ -527,12 +561,12 @@ enter open · i prompt · x interrupt · o herdr · f state · m machine · s so
 | `1` Fleet | agents with state, job and why they wait; the line under the table shows the selected agent's full name and task; `f`/`m`/`s` filter by state or machine, sort; `enter` opens an agent |
 | Agent | its live screen (colors kept), message history; `i` prompt, `x` interrupt, `o` jump to the pane in herdr (focus when the TUI runs inside herdr, else attach; herdr's detach key brings you back) |
 | `2` Inbox | questions and approvals with deadlines and the agent's screen; `y`/`n` approve/deny (or yes/no), `r` answer in words |
-| `3` Tasks | owned jobs with live lease countdowns, the queue (with reservations), recently closed, schedules; `n` new job, `a` assign (`<name> later` reserves), `x x` cancel, `enter` trail, `e` edit (title, prompt, schedule, pre-run, post-run — `enter` edits a field, `E` opens `$EDITOR`, each field is saved on submit); on a schedule `p` pause/resume, `R` run now |
+| `3` Tasks | owned jobs with live lease countdowns, the queue (with reservations), recently closed, schedules; `n` new job, `a` assign (a busy agent gets it reserved; the toast says why it waits), `x x` cancel, `enter` trail, `e` edit (title, prompt, schedule, pre-run, post-run — `enter` edits a field, `E` opens `$EDITOR`, each field is saved on submit); on a schedule `p` pause/resume, `R` run now |
 | `4` Events | the feed; `f` type filter, `s` subject (an agent name works), `O` include output chunks; scrolling pauses, `G` follows |
 | `5` Machines | inventory and node status |
 
 `:` opens the command palette (`spawn`, `stop`, `prompt`, `ask`, `task`,
-`assign`, `reserve`, `cancel`, `agent`, `filter`, `sort`), `tab` cycles
+`assign`, `cancel`, `agent`, `filter`, `sort`), `tab` cycles
 views, `j`/`k`/`g`/`G` move, `?` lists every key, `q` quits. If the server
 restarts, the TUI shows `reconnecting` and resumes from where the stream
 left off.
@@ -632,10 +666,10 @@ it to run outside the sandbox.
 | `tower stream NAME` / `tower read NAME` | live output / snapshot read |
 | `tower interrupt NAME` / `tower stop NAME` | ctrl+c / end session (seat survives) |
 | `tower inbox` / `tower ask` / `tower approve ID` / `tower dismiss ID` | human ↔ agent loop; dismiss = drop stale, no answer sent |
-| `tower task create/list/assign/show/edit/cancel/release` | job queue (you assign, agents own) |
+| `tower task create/list/assign/show/edit/cancel/release` | job queue (you assign, agents own; a busy agent gets the job reserved) |
 | `tower schedule create/list/show/edit/pause/resume/run/rm` | recurring jobs |
 | `tower workflow apply/list/show/run/enable/disable/rm` | workflows: graphs of jobs, routed by outcomes |
-| `tower run list/show/cancel` | workflow runs and their steps |
+| `tower run list/show/cancel` | workflow runs (`waiting` or `running`, then ended) and their steps |
 | `tower artifact put/get` | text attached to a job, read by later workflow steps |
 | `tower service install/uninstall/status` | keep `tower serve` running |
 | `tower events --follow [--filter ...]` | system event stream |

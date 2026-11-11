@@ -17,7 +17,6 @@ fn job(title: &str) -> CreateTask {
         priority: None,
         tags: vec![],
         assign: None,
-        when_available: false,
         not_before: None,
         lease_s: None,
         max_attempts: None,
@@ -46,7 +45,7 @@ async fn agent_id(ctx: &common::Ctx, name: &str) -> tower_core::AgentId {
 // ---- one job per agent ---------------------------------------------------
 
 #[tokio::test]
-async fn busy_agent_assign_conflicts_and_names_the_open_job() {
+async fn assigning_a_busy_agent_reserves_the_job_and_says_why() {
     let ctx = common::boot().await;
     ctx.spawn("a", "omp").await;
     let j1 = tasks::create(&ctx.state, job("first"), T0).await.unwrap();
@@ -55,18 +54,64 @@ async fn busy_agent_assign_conflicts_and_names_the_open_job() {
         .await
         .unwrap();
 
-    let e = tasks::assign(&ctx.state, &j2.id, "a", None, "me", T0)
+    let t = tasks::assign(&ctx.state, &j2.id, "a", None, "me", T0)
         .await
-        .unwrap_err();
-    let err = e.downcast_ref::<TowerError>().unwrap();
-    assert_eq!(err.code, ErrorCode::Conflict);
-    assert_eq!(err.detail.as_ref().unwrap()["busy_with"], j1.id.0.as_str());
-    assert!(err.message.contains("--when-available"), "{}", err.message);
-    assert_eq!(state_of(&ctx, &j2.id).await.0, TaskState::Queued);
+        .unwrap();
+    assert_eq!(t.state, TaskState::Queued, "not delivered to a busy agent");
+    assert_eq!(t.target_agent_id.unwrap(), agent_id(&ctx, "a").await);
+    let t = tasks::get_task(&ctx.state, &j2.id).await.unwrap().unwrap();
+    let w = tasks::waiting(&ctx.state, &t).await.unwrap().unwrap();
+    assert_eq!(w.busy_with.unwrap(), j1.id);
+    assert!(w.reason.contains("busy with job"), "{}", w.reason);
+
+    tasks::report(
+        &ctx.state,
+        &j1.id,
+        "a",
+        Some(TaskState::Completed),
+        None,
+        T0 + 1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(state_of(&ctx, &j2.id).await.0, TaskState::Assigned);
+}
+
+#[tokio::test]
+async fn assigning_an_agent_working_on_a_prompt_waits_until_it_settles() {
+    let ctx = common::boot().await;
+    ctx.spawn("a", "omp").await;
+    // a prompt, not a job: the agent owns nothing but its pane is busy
+    ctx.harness.set_state("a", HarnessState::Working);
+    tower_server::inventory::reconcile(&ctx.state)
+        .await
+        .unwrap();
+    let before = ctx.harness.prompts().len();
+
+    let j = tasks::create(&ctx.state, job("next"), T0).await.unwrap();
+    let t = tasks::assign(&ctx.state, &j.id, "a", None, "me", T0)
+        .await
+        .unwrap();
+    assert_eq!(t.state, TaskState::Queued);
+    assert_eq!(
+        ctx.harness.prompts().len(),
+        before,
+        "nothing typed mid-turn"
+    );
+    let w = tasks::waiting(&ctx.state, &t).await.unwrap().unwrap();
+    assert_eq!(w.agent_state.as_str(), "working");
+    assert!(w.busy_with.is_none());
+
+    ctx.harness.set_state("a", HarnessState::Idle);
+    tower_server::inventory::reconcile(&ctx.state)
+        .await
+        .unwrap();
+    assert_eq!(state_of(&ctx, &j.id).await.0, TaskState::Assigned);
+    assert_eq!(ctx.harness.prompts().len(), before + 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-async fn concurrent_assigns_of_different_jobs_give_one_agent_one_job() {
+async fn concurrent_assigns_deliver_one_job_and_reserve_the_rest() {
     let ctx = common::boot().await;
     ctx.spawn("a", "omp").await;
     let mut ids = Vec::new();
@@ -85,14 +130,18 @@ async fn concurrent_assigns_of_different_jobs_give_one_agent_one_job() {
             tasks::assign(&state, &id, "a", None, "me", T0).await
         }));
     }
-    let mut won = 0;
+    let (mut owned, mut reserved) = (0, 0);
     for h in handles {
-        match h.await.unwrap() {
-            Ok(_) => won += 1,
-            Err(e) => assert_eq!(code(&e), ErrorCode::Conflict, "{e}"),
+        let t = h.await.unwrap().unwrap();
+        let t = tasks::get_task(&ctx.state, &t.id).await.unwrap().unwrap();
+        match t.state {
+            TaskState::Assigned => owned += 1,
+            TaskState::Queued if t.target_agent_id.is_some() => reserved += 1,
+            s => panic!("unexpected {s:?}"),
         }
     }
-    assert_eq!(won, 1, "the one-job check is atomic with the owner CAS");
+    assert_eq!(owned, 1, "the free check is atomic with the owner CAS");
+    assert_eq!(reserved, 15);
 }
 
 // ---- reserved delivery ---------------------------------------------------
@@ -253,7 +302,6 @@ async fn dead_target_keeps_the_reservation_waiting() {
         &ctx.state,
         CreateTask {
             assign: Some("a".into()),
-            when_available: true,
             ..job("x")
         },
         T0,
@@ -261,6 +309,8 @@ async fn dead_target_keeps_the_reservation_waiting() {
     .await
     .unwrap();
     assert_eq!(j.state, TaskState::Queued);
+    let w = tasks::waiting(&ctx.state, &j).await.unwrap().unwrap();
+    assert!(w.reason.contains("is dead"), "{}", w.reason);
     assert_eq!(
         tasks::dispatch_all(&ctx.state, T0 + 3_600_000)
             .await
@@ -278,7 +328,6 @@ async fn release_drops_the_releasers_own_reservation() {
         &ctx.state,
         CreateTask {
             assign: Some("a".into()),
-            when_available: true,
             ..job("x")
         },
         T0,
@@ -340,25 +389,18 @@ async fn removing_the_target_returns_reservations_to_the_general_queue() {
 }
 
 #[tokio::test]
-async fn reservation_options_need_a_target() {
+async fn not_before_needs_a_target() {
     let ctx = common::boot().await;
-    for req in [
-        CreateTask {
-            when_available: true,
-            ..job("x")
-        },
-        CreateTask {
-            not_before: Some(T0),
-            ..job("y")
-        },
-    ] {
-        let e = tasks::create(&ctx.state, req, T0).await.unwrap_err();
-        assert_eq!(code(&e), ErrorCode::Invalid);
-    }
+    let req = CreateTask {
+        not_before: Some(T0),
+        ..job("y")
+    };
+    let e = tasks::create(&ctx.state, req, T0).await.unwrap_err();
+    assert_eq!(code(&e), ErrorCode::Invalid);
 }
 
 #[tokio::test]
-async fn routes_reserve_with_when_available() {
+async fn routes_answer_waiting_when_the_agent_is_busy() {
     let ctx = common::boot().await;
     ctx.spawn("a", "omp").await;
     let (_, v) = ctx
@@ -369,6 +411,8 @@ async fn routes_reserve_with_when_available() {
         )
         .await;
     assert_eq!(v["task"]["state"], "assigned");
+    assert!(v["waiting"].is_null(), "delivered: {v}");
+    let busy = v["task"]["id"].as_str().unwrap().to_string();
     let (_, v) = ctx
         .req(
             "POST",
@@ -385,15 +429,20 @@ async fn routes_reserve_with_when_available() {
             Some(serde_json::json!({"to": "a"})),
         )
         .await;
-    assert_eq!(s, StatusCode::CONFLICT, "busy agent: {v}");
-    let (s, v) = ctx
-        .req(
-            "POST",
-            &format!("/v1/tasks/{id}/assign"),
-            Some(serde_json::json!({"to": "a", "when_available": true})),
-        )
-        .await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["task"]["state"], "queued");
     assert!(v["task"]["target_agent_id"].is_string());
+    assert_eq!(v["waiting"]["busy_with"], busy.as_str());
+    assert_eq!(v["waiting"]["agent_state"], "idle");
+
+    let (s, v) = ctx
+        .req(
+            "POST",
+            "/v1/tasks",
+            Some(serde_json::json!({"title": "third", "assign": "a"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{v}");
+    assert_eq!(v["task"]["state"], "queued");
+    assert_eq!(v["waiting"]["busy_with"], busy.as_str());
 }
