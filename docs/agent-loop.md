@@ -103,6 +103,6 @@ secret-keeping header forms — is [`docs/mcp.md`](./mcp.md).
 
 ```console
 $ tower task create 'implement CSV error column names' --tag rust
-$ tower task assign <id> backend      # exactly one owner; a second assign conflicts
+$ tower task assign <id> backend      # delivered when backend is free, else reserved; one owner per job
 $ tower task show <id>                # assignment / lease / status trail
 ```

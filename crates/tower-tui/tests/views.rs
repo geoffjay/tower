@@ -361,7 +361,7 @@ fn queue_shows_reservations() {
     a.store.load(Loaded::TasksDelta(vec![reserved, later]));
     a.on_key(key('3'));
     let frame = text(&mut a, 120, 30);
-    assert!(frame.contains("→backend when available"), "{frame}");
+    assert!(frame.contains("→backend when free"), "{frame}");
     assert!(frame.contains("→api in 5m00s"), "{frame}");
 }
 
@@ -466,11 +466,10 @@ fn palette_commands() {
         })]
     );
     assert_eq!(
-        run(&mut a, "reserve T4 backend"),
+        run(&mut a, "assign T4 backend"),
         vec![Effect::Api(Api::TaskAssign {
             task: TaskId("T4".into()),
             agent: "backend".into(),
-            when_available: true
         })]
     );
     // `T` prefixes several jobs: refuse rather than guess

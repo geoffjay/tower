@@ -208,7 +208,6 @@ async fn undelivered_occurrence_is_replaced_by_the_next() {
             priority: None,
             tags: vec![],
             assign: Some("backend".into()),
-            when_available: false,
             not_before: None,
             lease_s: Some(10 * 86_400),
             max_attempts: None,

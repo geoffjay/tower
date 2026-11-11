@@ -35,6 +35,7 @@ import {
 	tagTriggers,
 	trailLine,
 	waitingFor,
+	waitingNotice,
 	who,
 	withScheduleTrigger,
 } from "./jobs.js";
@@ -150,10 +151,10 @@ export default class TowerJobs extends View {
 		const on = this.machine;
 		cx.spawn(async (cx) => {
 			try {
-				await towerOn(on, ...args);
+				const v = await towerOn(on, ...args);
 				if (this.machine !== on) return;
 				this.error = null;
-				after?.();
+				after?.(v);
 			} catch (e) {
 				if (this.machine !== on) return;
 				this.error = e.message;
@@ -305,7 +306,6 @@ export default class TowerJobs extends View {
 			tags: field("deploy, infra (optional)"),
 			priority: "0",
 			agent: null,
-			when_available: false,
 			when: "now",
 			at: field("HH:MM, or YYYY-MM-DD HH:MM"),
 			cadence: "daily",
@@ -429,7 +429,8 @@ export default class TowerJobs extends View {
 				const args = runArgs(name, f.workflow?.definition?.inputs, values);
 				run = async () => {
 					const v = await towerOn(on, ...args);
-					return `run ${v.run?.id ?? "?"} of ${name} started (Workflows panel)`;
+					const state = v.run?.state === "waiting" ? "waiting" : "started";
+					return `run ${v.run?.id ?? "?"} of ${name} ${state} (Workflows panel)`;
 				};
 			} else {
 				const args = createArgs({
@@ -438,7 +439,6 @@ export default class TowerJobs extends View {
 					tags: text("tags"),
 					priority: f.priority,
 					agent: f.agent,
-					when_available: f.when_available,
 					when: f.when,
 					at: text("at"),
 					cadence: f.cadence,
@@ -447,10 +447,7 @@ export default class TowerJobs extends View {
 					pre_run: text("pre_run"),
 					post_run: text("post_run"),
 				});
-				run = async () => {
-					await towerOn(on, ...args);
-					return null;
-				};
+				run = async () => waitingNotice(await towerOn(on, ...args), f.agent);
 			}
 		} catch (e) {
 			this.error = e.message;
@@ -623,7 +620,15 @@ export default class TowerJobs extends View {
 						.on_mouse_down("left", (_e, cx) => cx.stop_propagation())
 						.on_click((_e, cx) => {
 							this.assigning = null;
-							this.act(cx, task.id, ["task", "assign", task.id, a.name]);
+							this.act(
+								cx,
+								task.id,
+								["task", "assign", task.id, a.name],
+								false,
+								(v) => {
+									this.notice = waitingNotice(v, a.name);
+								},
+							);
 						})
 						.child(div().size(6).rounded(3).bg(t[stateColor(a.state)]))
 						.child(a.name),
@@ -810,35 +815,6 @@ export default class TowerJobs extends View {
 					.child(label("OWNER"))
 					.child(this.agentPills(f, t)),
 			)
-			.when(job && Boolean(f.agent) && f.when === "now", (el) =>
-				el.child(
-					h_flex()
-						.pt(4)
-						.gap(6)
-						.items_center()
-						.cursor_pointer()
-						.on_click((_e, cx) => {
-							f.when_available = !f.when_available;
-							cx.notify();
-						})
-						.child(
-							div()
-								.w(14)
-								.h(14)
-								.flex_none()
-								.rounded(4)
-								.border_1()
-								.border_color(t.input)
-								.when(f.when_available, (el2) => el2.bg(t.accent)),
-						)
-						.child(
-							div()
-								.text_size(12)
-								.text_color(t.muted)
-								.child("Deliver when the agent is free (reserve)"),
-						),
-				),
-			)
 			.when(!job, (el) =>
 				el
 					.child(label("WORKFLOW"))
@@ -889,6 +865,13 @@ export default class TowerJobs extends View {
 						f.when = v;
 					},
 					t,
+				),
+			)
+			.when(job && Boolean(f.agent) && f.when === "now", (el) =>
+				el.child(
+					note(
+						`Delivered to ${f.agent} at once when it is free; otherwise reserved for it until it is.`,
+					),
 				),
 			)
 			.when(job && f.when === "at", (el) =>
@@ -1056,7 +1039,6 @@ export default class TowerJobs extends View {
 					.hover((s) => s.bg(t.hover))
 					.on_click((_e, cx) => {
 						f.agent = null;
-						f.when_available = false;
 						cx.notify();
 					})
 					.child("queue"),

@@ -62,7 +62,7 @@ CREATE TABLE tasks (
   max_attempts      INTEGER NOT NULL DEFAULT 3,
   lease_expires_at  INTEGER,                      -- ownership deadline; NULL when unowned
   lease_s           INTEGER NOT NULL DEFAULT 60,   -- renewal window per assign/heartbeat (migration 0002)
-  target_agent_id   TEXT REFERENCES agents(id),    -- reserved for this agent; dispatcher delivers when available (0003)
+  target_agent_id   TEXT REFERENCES agents(id),    -- reserved for this agent; dispatcher delivers when it is free (0003, D§5.2.2)
   not_before        INTEGER,                       -- dispatcher holds the job until this time (0003)
   schedule_id       TEXT,                          -- schedule that materialized it; no FK: history survives schedule removal (0003)
   occurrence_at     INTEGER,                       -- the schedule time this job is for (0003)
@@ -154,7 +154,7 @@ CREATE TABLE workflow_runs (
   workflow_id   TEXT NOT NULL,                    -- no FK: history survives removal
   workflow_name TEXT NOT NULL,
   version       INTEGER NOT NULL,
-  state         TEXT NOT NULL,                    -- running | completed | failed | canceled
+  state         TEXT NOT NULL,                    -- waiting | running | completed | failed | canceled
   input         TEXT NOT NULL,                    -- JSON object
   trigger       TEXT NOT NULL,                    -- JSON {kind, schedule_id?, event_seq?, trigger?}
   result        TEXT,
@@ -183,6 +183,13 @@ CREATE TABLE workflow_steps (
   UNIQUE (run_id, node_id, visit)
 );
 CREATE INDEX idx_steps_state ON workflow_steps(state);
+
+CREATE TABLE run_claims (                         -- agents a run holds (D§5.6), migration 0008
+  agent_id   TEXT PRIMARY KEY REFERENCES agents(id), -- one run per agent
+  run_id     TEXT NOT NULL REFERENCES workflow_runs(id),
+  claimed_at INTEGER NOT NULL
+);
+CREATE INDEX idx_claims_run ON run_claims(run_id);
 
 CREATE TABLE event_consumers (                    -- durable in-process event cursors (D§9.6)
   name   TEXT PRIMARY KEY,

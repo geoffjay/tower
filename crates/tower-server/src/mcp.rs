@@ -282,7 +282,6 @@ async fn call_tool(
                 assign: arg(args, "assign")?,
                 lease_s: arg(args, "lease_s")?,
                 max_attempts: arg(args, "max_attempts")?,
-                when_available: arg(args, "when_available")?.unwrap_or(false),
                 not_before: arg(args, "not_before")?,
                 pre_run: arg(args, "pre_run")?,
                 post_run: arg(args, "post_run")?,
@@ -290,7 +289,8 @@ async fn call_tool(
             if req.assign.is_some() {
                 operator_only(caller, "assign jobs")?;
             }
-            json!({ "task": crate::tasks::create(state, req, now).await? })
+            let task = crate::tasks::create(state, req, now).await?;
+            crate::tasks::assignment_json(state, task).await?
         }
         "tower_task_edit" => {
             operator_only(caller, "edit jobs")?;
@@ -303,12 +303,9 @@ async fn call_tool(
             operator_only(caller, "assign jobs")?;
             let id = TaskId::from(req_arg::<String>(args, "task_id")?);
             let to: String = req_arg(args, "to")?;
-            let task = if arg::<bool>(args, "when_available")?.unwrap_or(false) {
-                crate::tasks::reserve(state, &id, &to, None, "me", now).await?
-            } else {
-                crate::tasks::assign(state, &id, &to, arg(args, "lease_s")?, "me", now).await?
-            };
-            json!({ "task": task })
+            let task =
+                crate::tasks::assign(state, &id, &to, arg(args, "lease_s")?, "me", now).await?;
+            crate::tasks::assignment_json(state, task).await?
         }
         "tower_task_cancel" => {
             operator_only(caller, "cancel jobs")?;
@@ -564,13 +561,13 @@ fn tool_list() -> Vec<Value> {
         ),
         tool(
             "tower_task_create",
-            "Queue a job (pre-assign is operator-only).",
+            "Queue a job (pre-assign is operator-only). With `assign` it is delivered when that agent is free, else reserved for it; `waiting` says why.",
             json!({
                 "title": {"type": "string"}, "description": {"type": "string"},
                 "priority": {"type": "integer"}, "tags": {"type": "array", "items": {"type": "string"}},
                 "assign": {"type": "string"}, "lease_s": {"type": "integer"},
                 "max_attempts": {"type": "integer"},
-                "when_available": {"type": "boolean"}, "not_before": {"type": "integer", "description": "ms epoch"},
+                "not_before": {"type": "integer", "description": "ms epoch; with assign: held until then"},
                 "pre_run": pre_run, "post_run": post_run,
             }),
             &["title"],
@@ -588,10 +585,9 @@ fn tool_list() -> Vec<Value> {
         ),
         tool(
             "tower_task_assign",
-            "Assign a queued job to an agent (operator only).",
+            "Assign a queued job to an agent (operator only): delivered when the agent is free, else reserved for it; `waiting` says why.",
             json!({
                 "task_id": task_id, "to": {"type": "string"}, "lease_s": {"type": "integer"},
-                "when_available": {"type": "boolean", "description": "reserve: deliver when the agent is free"},
             }),
             &["task_id", "to"],
         ),

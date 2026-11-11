@@ -136,9 +136,7 @@ fn field_view(target: &EditTarget, field: Field, ctx: &Ctx) -> Option<FieldView>
                 Field::Schedule => FieldView {
                     shown: match (&t.target_agent_id, t.not_before) {
                         (Some(_), Some(nb)) => format!("at {}", ctx.tz.clock(nb, true)),
-                        (Some(a), None) => {
-                            format!("→{} when available", ctx.store.name_of(a))
-                        }
+                        (Some(a), None) => format!("→{} when free", ctx.store.name_of(a)),
                         (None, _) => "— (not reserved)".into(),
                     },
                     raw: t
@@ -148,7 +146,7 @@ fn field_view(target: &EditTarget, field: Field, ctx: &Ctx) -> Option<FieldView>
                     locked: delivered.or_else(|| {
                         t.target_agent_id
                             .is_none()
-                            .then_some("reserve the job first (a → `<name> later`)")
+                            .then_some("not reserved: assign it to a busy agent first (a)")
                     }),
                 },
                 Field::PreRun => text(&t.pre_run, delivered),
@@ -647,7 +645,7 @@ pub fn waiting_for(t: &Task, ctx: &Ctx) -> String {
     let held = t.not_before.filter(|nb| *nb > ctx.now);
     match (target, held) {
         (Some(who), Some(nb)) => format!("→{who} in {}", fmt::countdown(nb - ctx.now)),
-        (Some(who), None) => format!("→{who} when available"),
+        (Some(who), None) => format!("→{who} when free"),
         (None, Some(nb)) => format!("not before {}", ctx.tz.clock(nb, false)),
         (None, None) => "—".into(),
     }

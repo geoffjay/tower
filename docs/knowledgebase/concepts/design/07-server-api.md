@@ -44,9 +44,9 @@ Conventions:
 | `POST /v1/messages` | `{to, kind, parts, task_id?, deadline_s?}` | unified send (any direction) |
 | `POST /v1/messages/{id}/respond` | `{parts}` | answer/question or approval-response; sets `responded_at` |
 | `POST /v1/messages/{id}/dismiss` | — | operator-only: close as `dismissed` without notifying the sender; sets `responded_at`; CAS on `pending` (409 otherwise) |
-| `POST /v1/tasks` | `{title, description?, priority?, tags?, assign?, when_available?, not_before?, pre_run?, post_run?}` | create task; `assign: <agent>` pre-assigns (with `when_available`/`not_before`: reserves it for delivery when the agent is free), else it waits in the queue for assignment. `pre_run`/`post_run` are lifecycle prompts ([§5.2.3](05-core-objects.md)) |
+| `POST /v1/tasks` | `{title, description?, priority?, tags?, assign?, not_before?, pre_run?, post_run?}` | create task; `assign: <agent>` assigns it as `…/assign` does (delivered when the agent is free, else reserved; with `not_before`: reserved and held until then), else it waits in the queue for assignment. Returns `{task, waiting}` (`waiting` as for assign; `null` without `assign`). `pre_run`/`post_run` are lifecycle prompts ([§5.2.3](05-core-objects.md)) |
 | `PATCH /v1/tasks/{id}` | `{title?, description?, pre_run?, post_run?, not_before?}` | edit (operator-only); `null`/`""` clears; queued jobs take every field, delivered jobs only `post_run`, closed jobs none (409); emits `task.updated` |
-| `POST /v1/tasks/{id}/assign` | `{to: <agent_id>, lease_s?, when_available?}` | assign to an agent (assign-capable principals only); atomic CAS (conflict on 0 rows); state → `assigned` |
+| `POST /v1/tasks/{id}/assign` | `{to: <agent_id>, lease_s?}` | assign to an agent (assign-capable principals only). Delivered at once when the agent is free ([§5.2.2](05-core-objects.md)): atomic CAS, state → `assigned`. Otherwise reserved for it (stays `queued`, `target_agent_id` set, `not_before` cleared) and delivered by the dispatcher when free. Returns `{task, waiting}`: `waiting` is `null` when delivered, else `{reason, agent_state, busy_with?, held_by?}` (an open job of the agent, or the run claiming it). Conflict only when the job itself is not assignable (owned, closed) |
 | `POST /v1/tasks/{id}/start` | `{as: <agent_id>}` | owner declares work started; `assigned` → `working` (renews lease) |
 | `POST /v1/tasks/{id}/heartbeat` | `{as: <agent_id>}` | renew lease (owner-only, 409 otherwise) |
 | `POST /v1/tasks/{id}/status` | `{as: <agent_id>, state?, result?}` | owner status report; emits `task.status`; terminal states close the task |
@@ -58,10 +58,10 @@ Conventions:
 | `DELETE /v1/schedules/{id}` | — | remove (open jobs it created are left alone); a managed schedule answers 409 |
 | `POST /v1/tasks/{id}/artifacts` | `{as, name, content, media_type?}` | owner attaches a text artifact (≤ 1 MiB) to its open job; emits `artifact.created` |
 | `POST /v1/workflows` | `{source}` (TOML) | apply (operator-only): validate, store a new version when changed, sync schedule triggers; returns `{workflow, version, changed}` |
-| `DELETE /v1/workflows/{name}` | — | remove the workflow and its schedules; 409 while a run is `running` |
+| `DELETE /v1/workflows/{name}` | — | remove the workflow and its schedules; 409 while a run is `waiting` or `running` |
 | `POST /v1/workflows/{name}/enable` · `/disable` | — | disabled: no manual starts, schedules paused, event triggers off |
 | `POST /v1/workflows/{name}/runs` | `{input?}` | start a run (manual trigger); missing required input → 400 |
-| `POST /v1/runs/{id}/cancel` | — | cancel the run, its open steps, and their jobs (operator-only) |
+| `POST /v1/runs/{id}/cancel` | — | cancel a `waiting` or `running` run, its open steps, and their jobs (operator-only); releases its agent claims |
 
 ## Query (GET)
 
@@ -80,7 +80,7 @@ Conventions:
 | `GET /v1/ui/token` | the scoped read-only UI token + login path, for `tower ui` (bearer only, [D§13](13-security.md)) |
 | `GET /v1/artifacts/{id}` | artifact row + `content` |
 | `GET /v1/workflows` · `GET /v1/workflows/{name}` | workflows with version, enabled, triggers; detail adds the definition, source, and 20 newest runs |
-| `GET /v1/runs` · `GET /v1/runs/{id}` | `?workflow=&state=` newest first; detail adds the steps in order. Live: `GET /v1/events?subject=workflow_run:<id>` |
+| `GET /v1/runs` · `GET /v1/runs/{id}` | `?workflow=&state=` (`waiting`, `running`, …) newest first; detail adds the steps in order, and for a `waiting` run `waiting_for: [{agent, run_id}]` (each agent it waits for and the run claiming it, or the earlier waiting run ahead of it). Live: `GET /v1/events?subject=workflow_run:<id>` |
 
 ## Streaming (GET, SSE)
 

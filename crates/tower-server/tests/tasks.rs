@@ -14,7 +14,6 @@ fn job(title: &str) -> CreateTask {
         priority: None,
         tags: vec![],
         assign: None,
-        when_available: false,
         not_before: None,
         lease_s: None,
         max_attempts: None,
@@ -143,10 +142,16 @@ async fn assign_validates_agent_and_task() {
     tower_server::sessions::stop(&ctx.state, "a", false)
         .await
         .unwrap();
-    let e = tasks::assign(&ctx.state, &t.id, "a", None, "me", T0)
+    let r = tasks::assign(&ctx.state, &t.id, "a", None, "me", T0)
         .await
-        .unwrap_err();
-    assert_eq!(code(&e), ErrorCode::Invalid, "dead agents can't take work");
+        .unwrap();
+    assert_eq!(
+        r.state,
+        TaskState::Queued,
+        "a dead agent keeps a reservation"
+    );
+    let w = tasks::waiting(&ctx.state, &r).await.unwrap().unwrap();
+    assert!(w.reason.contains("is dead"), "{}", w.reason);
 
     // terminal jobs can't be assigned
     ctx.spawn("b", "pi").await;

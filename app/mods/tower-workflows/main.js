@@ -1,4 +1,4 @@
-// Workflows: every workflow (state, version, triggers, running runs), and,
+// Workflows: every workflow (state, version, triggers, open runs), and,
 // clicking one, its graph as a top-down list of nodes, the way a PR
 // timeline reads. Branches indent under the node they leave, labeled with
 // the outcome that takes them; a loop is a `↺` row back to its node; a join
@@ -38,6 +38,7 @@ import {
 	draftToml,
 	graphRows,
 	inputArgs,
+	isOpen,
 	latestStep,
 	missingInputs,
 	routeKeys,
@@ -48,10 +49,11 @@ import {
 	stepTone,
 	triggerOf,
 	triggersText,
+	waitingText,
 } from "./workflows.js";
 
 const REFRESH_MS = 10000;
-const RUN_MS = 3000; // a running run on screen re-reads this often
+const RUN_MS = 3000; // a waiting or running run on screen re-reads this often
 const RUNS_SHOWN = 5; // runs listed before "show all"
 const LEVEL = 20; // px per indent level: one rail column
 const ICONS = "mods/tower-workflows";
@@ -69,7 +71,7 @@ export default class TowerWorkflows extends View {
 		this.sel = null; // the open workflow's name
 		this.detail = null; // its `workflow show` answer
 		this.detailError = null;
-		this.autoRun = false; // open the newest run if it is running
+		this.autoRun = false; // open the newest run if it is waiting or running
 		this.runId = null; // the run laid over the graph
 		this.run = null; // its `run show` answer
 		this.opened = new Set(); // expanded graph rows
@@ -104,7 +106,7 @@ export default class TowerWorkflows extends View {
 		});
 		cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
 		cx.timer.every(RUN_MS, (cx) => {
-			if (this.run?.run?.state !== "running") return;
+			if (!isOpen(this.run?.run?.state)) return;
 			cx.spawn(async (cx) => {
 				await this.loadRun();
 				cx.notify();
@@ -138,7 +140,7 @@ export default class TowerWorkflows extends View {
 	}
 
 	/** `tower workflow show` for the open workflow; a late answer for an
-	 * earlier one is dropped. The first answer may open its running run. */
+	 * earlier one is dropped. The first answer may open its open run. */
 	async loadDetail() {
 		const name = this.sel;
 		const on = this.machine;
@@ -151,7 +153,7 @@ export default class TowerWorkflows extends View {
 			if (this.autoRun) {
 				this.autoRun = false;
 				const newest = d.runs?.[0];
-				if (newest?.state === "running" && !this.runId) {
+				if (isOpen(newest?.state) && !this.runId) {
 					this.runId = newest.id;
 					await this.loadRun();
 				}
@@ -580,7 +582,7 @@ export default class TowerWorkflows extends View {
 	render() {
 		const t = theme();
 		const list = this.workflows ?? [];
-		const running = list.reduce((n, w) => n + (w.open_runs ?? 0), 0);
+		const open = list.reduce((n, w) => n + (w.open_runs ?? 0), 0);
 		const body = this.create
 			? this.editor
 				? this.editorScreen(t)
@@ -616,7 +618,7 @@ export default class TowerWorkflows extends View {
 						div()
 							.text_size(11)
 							.text_color(t.dim)
-							.child(`${list.length} · ${running} running`),
+							.child(`${list.length} · ${open} open`),
 					),
 			)
 			.when(Boolean(this.error ?? this.loadError), (el) =>
@@ -674,7 +676,7 @@ export default class TowerWorkflows extends View {
 		const state = !w.enabled
 			? "disabled"
 			: live
-				? `${w.open_runs} running`
+				? `${w.open_runs} open`
 				: "enabled";
 		return v_flex()
 			.id(`wf-${w.name}`)
@@ -1037,7 +1039,7 @@ export default class TowerWorkflows extends View {
 							: "GRAPH",
 					)
 					.child(div().flex_1())
-					.when(run?.run.state === "running", (el) =>
+					.when(isOpen(run?.run.state), (el) =>
 						el.child(
 							this.button(
 								"wf-cancel-run",
@@ -1057,7 +1059,9 @@ export default class TowerWorkflows extends View {
 						),
 					),
 			)
-			.when(Boolean(run), (el) => el.child(this.runFacts(run.run, d, t)))
+			.when(Boolean(run), (el) =>
+				el.child(this.runFacts(run.run, run.waiting_for, d, t)),
+			)
 			.when(Boolean(this.runId) && !run, (el) =>
 				el.child(div().text_size(12).text_color(t.dim).child("Loading…")),
 			)
@@ -1076,14 +1080,19 @@ export default class TowerWorkflows extends View {
 			);
 	}
 
-	runFacts(r, d, t) {
+	runFacts(r, waitingFor, d, t) {
 		const input = Object.entries(r.input ?? {})
 			.map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
 			.join(" ");
+		const waiting = r.state === "waiting";
 		const rows = [
 			["trigger", triggerOf(r)],
-			["started", `${stamp(r.created_at)} (${ago(r.created_at)})`],
+			[
+				waiting ? "created" : "started",
+				`${stamp(r.created_at)} (${ago(r.created_at)})`,
+			],
 		];
+		if (waiting) rows.push(["waits for", waitingText(waitingFor) || "-"]);
 		if (input) rows.push(["input", input]);
 		if (r.ended_at) rows.push(["ended", stamp(r.ended_at)]);
 		const gist = runGist(r);
