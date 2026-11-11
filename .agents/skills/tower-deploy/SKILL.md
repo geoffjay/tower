@@ -57,7 +57,7 @@ tower --json task list --tag stack:<stack>
 
 Show the user what exists: each agent (kind, state, workdir), each
 schedule (cadence, target, next run), each workflow (version, triggers,
-running runs), and the open jobs.
+open (waiting or running) runs), and the open jobs.
 
 ## 1. Interview
 
@@ -174,11 +174,22 @@ user how to continue.
      Start each prompt with "read your brief again" and the path of its
      `PROMPT.md`. The same applies to schedules with `--pre-run /clear`.
 
+   A run claims every agent its definition names when it starts, and
+   keeps them until it ends. While a run claims an agent, the agent gets
+   only that run's jobs. So two workflows that share an agent run one
+   after another: the later run waits (state `waiting`) until the
+   earlier one ends. A standalone schedule or job for a claimed agent also
+   waits for the run. Give a workflow its own agents when it must not
+   wait, and do not schedule a standalone job for an agent at a time when
+   a run of a workflow that names it usually runs.
+
    If the user agrees, start one test run with `tower workflow run
-   <name>`, and show its steps with `tower run show <id>`.
+   <name>`, and show its steps with `tower run show <id>`. A `waiting`
+   run shows the agents it waits for and the run that holds each one.
 4. **Starting jobs.** For each job, follow `.agents/skills/tower-queue-job/SKILL.md`
-   step 3, and add `--tag stack:<stack>`. Use `--when-available` when two
-   starting jobs go to the same agent.
+   step 3, and add `--tag stack:<stack>`. Every assignment waits for a
+   free agent, so two starting jobs for the same agent run one after the
+   other.
 5. **Removals (update only).** Remove workflows and schedules first, with
    `tower workflow rm <name>` and `tower schedule rm <id>`. Then remove
    agents as in `.agents/skills/tower-agent-remove/SKILL.md`. If you
@@ -220,9 +231,10 @@ Give the user:
    Say which jobs are `working` now. That work stops.
 2. Ask for confirmation.
 3. Remove every stack workflow and schedule first, so no new job or run
-   fires during the teardown. Cancel a running run with
+   fires during the teardown. Cancel each waiting or running run with
    `tower run cancel <id>`, then `tower workflow rm <name>` (it refuses
-   while a run is running, and it removes the workflow's schedules).
+   while a run is waiting or running, and it removes the workflow's
+   schedules).
    Then `tower schedule rm <id>` for each schedule.
 4. Cancel open stack jobs that the user does not want to keep:
    `tower task cancel <id>`.

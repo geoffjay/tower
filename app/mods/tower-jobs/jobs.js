@@ -136,6 +136,14 @@ export function waitingFor(task, names) {
 	return parts.length ? parts.join(" · ") : "the general queue";
 }
 
+/** Why an assign or create answer left the job reserved for `agent`
+ * instead of delivering it (its `waiting.reason`), or null when it was
+ * delivered or has no owner. */
+export function waitingNotice(answer, agent) {
+	const reason = answer?.waiting?.reason;
+	return reason ? `Reserved for ${agent}: ${reason}` : null;
+}
+
 /** The lifecycle prompt in flight, in words. */
 export function hookText(hook) {
 	if (hook === "pre") return "pre-run prompt running (lease paused)";
@@ -211,7 +219,8 @@ export function editArgs(kind, id, fields, values) {
 
 /**
  * `tower task create` or `tower schedule create` arguments for the create
- * form. `when`: "now" queues it, "at" reserves it for its owner until a
+ * form. `when`: "now" queues it (with an owner: delivered when the owner is
+ * free, else reserved for it), "at" reserves it for its owner until a
  * time (`--at` needs an owner), "repeat" makes a schedule (`--daily` or
  * `--cron`, optional `--tz`; an owner gets each job reserved). `tags`
  * (a comma/space list) become `--tag`s: a workflow's event trigger can
@@ -239,8 +248,6 @@ export function createArgs(f) {
 		if (f.when === "at") {
 			if (!f.at?.trim()) throw new Error("give a time to hold the job until");
 			add("--at", f.at);
-		} else if (f.when === "now" && f.when_available) {
-			args.push("--when-available");
 		}
 	} else if (f.when === "at") {
 		throw new Error("a job held until a time needs an owner");

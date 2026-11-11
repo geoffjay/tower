@@ -131,6 +131,7 @@ async fn schema(State(_state): State<AppState>) -> impl IntoResponse {
         "workflow.removed",
         "workflow.enabled",
         "workflow.disabled",
+        "workflow.run.waiting",
         "workflow.run.started",
         "workflow.run.completed",
         "workflow.run.failed",

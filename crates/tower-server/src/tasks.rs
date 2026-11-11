@@ -3,8 +3,11 @@
 //!
 //! - **Assign** (operator; orchestrator later) is the only way a job gains
 //!   an owner. It first sweeps the job's expired lease, then CASes
-//!   `owner_id IS NULL AND state='queued'` — a live-owned job can never be
-//!   assigned to another agent. There is no claim/pull operation.
+//!   `owner_id IS NULL AND state='queued'` and a **free** agent (D§5.2.2:
+//!   row `idle`/`done`, no open job, no post-run prompt, no other run's
+//!   claim) — a live-owned job can never be assigned to another agent, and
+//!   a job is never typed into a busy agent. An agent that is not free gets
+//!   a reservation instead. There is no claim/pull operation.
 //! - **Owner writes** (start/heartbeat/status/release) CAS on
 //!   `owner_id = :as`. Ownership ends only when a lease is swept (sweeper
 //!   tick or assign-time sweep), so a late but un-swept owner can still
@@ -22,11 +25,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tower_core::{
-    Agent, AgentId, AgentState, EventKind, HookPhase, MessageKind, Part, PartyKind, Task, TaskId,
-    TaskState, TowerError,
+    Agent, AgentId, AgentState, EventKind, HookPhase, MessageKind, Part, PartyKind, RunId, Task,
+    TaskId, TaskState, TowerError,
 };
 
 use crate::http::{error_response, present};
@@ -66,14 +69,12 @@ pub struct CreateTask {
     pub priority: Option<i64>,
     #[serde(default)]
     pub tags: Vec<String>,
-    /// Pre-assign to this agent (name or id).
+    /// Assign to this agent (name or id) at once: delivered when it is
+    /// free, else reserved for it (D§5.2.2).
     #[serde(default)]
     pub assign: Option<String>,
-    /// With `assign`: reserve instead — deliver when the agent is available.
-    #[serde(default)]
-    pub when_available: bool,
     /// With `assign`: reserve, and hold back from dispatch until this time
-    /// (ms). Implies `when_available`.
+    /// (ms).
     #[serde(default)]
     pub not_before: Option<i64>,
     #[serde(default)]
@@ -110,9 +111,6 @@ pub struct AssignBody {
     pub to: String,
     #[serde(default)]
     pub lease_s: Option<i64>,
-    /// Reserve instead of assigning now: deliver when the agent is free.
-    #[serde(default)]
-    pub when_available: bool,
 }
 
 #[derive(Deserialize)]
@@ -169,17 +167,15 @@ pub async fn create(state: &AppState, req: CreateTask, now: i64) -> anyhow::Resu
     if lease_s <= 0 || max_attempts < 1 {
         return Err(TowerError::invalid("lease_s must be > 0 and max_attempts >= 1").into());
     }
-    // validate the pre-assignee before writing anything
+    // validate the assignee before writing anything (a reservation may
+    // wait for a dead agent)
     match &req.assign {
-        Some(to) if req.when_available || req.not_before.is_some() => {
-            resolve_agent(state, to).await?; // a reservation may wait for a dead agent
-        }
         Some(to) => {
-            assignable_agent(state, to).await?;
+            resolve_agent(state, to).await?;
         }
-        None if req.when_available || req.not_before.is_some() => {
+        None if req.not_before.is_some() => {
             return Err(TowerError::invalid(
-                "when_available / not_before need an `assign` target (nothing else dispatches it)",
+                "not_before needs an `assign` target (nothing else dispatches it)",
             )
             .into());
         }
@@ -216,7 +212,7 @@ pub async fn create(state: &AppState, req: CreateTask, now: i64) -> anyhow::Resu
     .await?;
 
     match req.assign {
-        Some(to) if req.when_available || req.not_before.is_some() => {
+        Some(to) if req.not_before.is_some() => {
             reserve(state, &id, &to, req.not_before, "me", now).await
         }
         Some(to) => assign(state, &id, &to, None, "me", now).await,
@@ -440,10 +436,11 @@ pub async fn reserve(
     require(state, id).await
 }
 
-/// Deliver the next reserved job to `agent` if it is available (D§5.2.2):
-/// row `idle`/`done`, no open job. Highest priority, then oldest, first;
-/// `not_before` must have passed. The one-job rule is enforced atomically
-/// by `assign`, so racing dispatch paths can't double-book the agent.
+/// Deliver the next reserved job to `agent` if it is free (D§5.2.2): row
+/// `idle`/`done`, no open job, and — while a run claims it — only that
+/// run's jobs. Highest priority, then oldest, first; `not_before` must have
+/// passed. The free check is repeated atomically by `deliver`, so racing
+/// dispatch paths can't double-book the agent.
 pub async fn dispatch_for(
     state: &AppState,
     agent: &AgentId,
@@ -455,12 +452,13 @@ pub async fn dispatch_for(
     if !matches!(a.state, AgentState::Idle | AgentState::Done) {
         return Ok(None);
     }
-    let due: Vec<(String, Option<String>)> = sqlx::query_as(
+    let due: Vec<(String, Option<String>)> = sqlx::query_as(&format!(
         "SELECT id, schedule_id FROM tasks
          WHERE target_agent_id = ?1 AND state = 'queued' AND owner_id IS NULL
            AND (not_before IS NULL OR not_before <= ?2)
-         ORDER BY priority DESC, created_at ASC",
-    )
+           AND NOT EXISTS ({OTHER_CLAIM})
+         ORDER BY priority DESC, created_at ASC"
+    ))
     .bind(agent.0.as_str())
     .bind(now)
     .fetch_all(&state.pool)
@@ -470,15 +468,12 @@ pub async fn dispatch_for(
             Some(s) => format!("schedule:{s}"),
             None => "dispatch".to_string(),
         };
-        match assign(state, &TaskId::from(id), &agent.0, None, &by, now).await {
-            Ok(t) => return Ok(Some(t)),
-            // agent became busy, or this job was just taken: stop / next
-            Err(e) if e.downcast_ref::<TowerError>().is_some() => {
-                if agent_busy(state, agent).await? {
-                    return Ok(None);
-                }
-            }
-            Err(e) => return Err(e),
+        if let Some(t) = deliver(state, &TaskId::from(id), &a, None, &by, now).await? {
+            return Ok(Some(t));
+        }
+        // the agent stopped being free, or this job was just taken: stop / next
+        if !is_free(state, agent).await? {
+            return Ok(None);
         }
     }
     Ok(None)
@@ -503,8 +498,19 @@ pub async fn dispatch_all(state: &AppState, now: i64) -> anyhow::Result<usize> {
     Ok(delivered)
 }
 
-async fn agent_busy(state: &AppState, agent: &AgentId) -> anyhow::Result<bool> {
-    Ok(busy_with(state, agent).await?.is_some())
+/// A run other than the job's own claims the agent (`?1`) — a subquery
+/// correlated with the outer `tasks` row (D§5.6: a claimed agent gets only
+/// its run's jobs).
+const OTHER_CLAIM: &str = "SELECT 1 FROM run_claims c WHERE c.agent_id = ?1
+       AND NOT (tasks.origin = 'workflow' AND tasks.context_id = c.run_id)";
+
+/// Row `idle`/`done` and nothing keeps it busy (claims aside: they depend
+/// on the job).
+async fn is_free(state: &AppState, agent: &AgentId) -> anyhow::Result<bool> {
+    let idle = crate::inventory::get_agent(state, &agent.0)
+        .await?
+        .is_some_and(|a| matches!(a.state, AgentState::Idle | AgentState::Done));
+    Ok(idle && busy_with(state, agent).await?.is_none())
 }
 
 /// What keeps an agent busy (one job per agent, D§5.2.2): the open job it
@@ -520,8 +526,92 @@ async fn busy_with(state: &AppState, agent: &AgentId) -> anyhow::Result<Option<(
     Ok(row.map(|(id, hook)| (TaskId::from(id), hook.as_deref() == Some("post"))))
 }
 
-/// Assign a queued job to an agent (D§5.2.1). `by` is the dispatching
-/// principal (operator `me`; the orchestrator later).
+/// The run claiming `agent`, with its workflow name.
+async fn claimed_by(state: &AppState, agent: &AgentId) -> anyhow::Result<Option<(RunId, String)>> {
+    let row: Option<(String, String)> = sqlx::query_as(
+        "SELECT c.run_id, r.workflow_name FROM run_claims c
+         JOIN workflow_runs r ON r.id = c.run_id WHERE c.agent_id = ?1",
+    )
+    .bind(agent.0.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    Ok(row.map(|(r, w)| (RunId::from(r), w)))
+}
+
+/// Why a reserved job is not delivered yet (D§5.2.2), for the operator.
+#[derive(Debug, Clone, Serialize)]
+pub struct Waiting {
+    pub reason: String,
+    pub agent_state: AgentState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub busy_with: Option<TaskId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub held_by: Option<RunId>,
+}
+
+/// Why `task` still waits for the agent it is reserved for; `None` when it
+/// is not a waiting reservation (delivered, unreserved, or closed).
+pub async fn waiting(state: &AppState, task: &Task) -> anyhow::Result<Option<Waiting>> {
+    if task.state != TaskState::Queued || task.owner_id.is_some() {
+        return Ok(None);
+    }
+    let Some(target) = &task.target_agent_id else {
+        return Ok(None);
+    };
+    let Some(agent) = crate::inventory::get_agent(state, &target.0).await? else {
+        return Ok(None);
+    };
+    let name = &agent.name;
+    let mut w = Waiting {
+        reason: String::new(),
+        agent_state: agent.state,
+        busy_with: None,
+        held_by: None,
+    };
+    if let Some((run, workflow)) = claimed_by(state, &agent.id).await? {
+        let own = task.origin == "workflow" && task.context_id.as_deref() == Some(run.0.as_str());
+        if !own {
+            w.reason = format!("{name} is claimed by run {run} ({workflow}) until it ends");
+            w.held_by = Some(run);
+            return Ok(Some(w));
+        }
+    }
+    if let Some((busy, post_run)) = busy_with(state, &agent.id).await? {
+        w.reason = if post_run {
+            format!("{name} is running the post-run prompt of job {busy}")
+        } else {
+            format!("{name} is busy with job {busy}")
+        };
+        w.busy_with = Some(busy);
+        return Ok(Some(w));
+    }
+    w.reason = match agent.state {
+        AgentState::Dead => {
+            format!("{name} is dead: resume it with `tower spawn {name} --continue`")
+        }
+        AgentState::Working => format!("{name} is working"),
+        AgentState::Blocked => format!("{name} is waiting for input"),
+        AgentState::Unknown => format!("{name} has no known state yet"),
+        AgentState::Idle | AgentState::Done => match task.not_before {
+            Some(t) if t > tower_core::now_ms() => format!("held until {}", utc(t)),
+            _ => format!("{name} has other jobs first"),
+        },
+        other => format!("{name} is {}", other.as_str()),
+    };
+    Ok(Some(w))
+}
+
+fn utc(ms: i64) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+        .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|| ms.to_string())
+}
+
+/// Assign a queued job to an agent (D§5.2.1-5.2.2): delivered at once when
+/// the agent is free, else reserved for it — the dispatcher delivers it
+/// when the agent becomes free. An explicit assign re-targets a job
+/// reserved for someone else and clears its `not_before`. `by` is the
+/// assigning principal (operator `me`; the orchestrator later).
 pub async fn assign(
     state: &AppState,
     id: &TaskId,
@@ -530,18 +620,56 @@ pub async fn assign(
     by: &str,
     now: i64,
 ) -> anyhow::Result<Task> {
-    let agent = assignable_agent(state, to).await?;
+    let agent = resolve_agent(state, to).await?;
     if lease_s.is_some_and(|s| s <= 0) {
         return Err(TowerError::invalid("lease_s must be > 0").into());
     }
     // one expiry code path: an expired lease is swept before the CAS
     expire_lease(state, id, now).await?;
+    if let Some(t) = deliver(state, id, &agent, lease_s, by, now).await? {
+        return Ok(t);
+    }
+    // not free (or the job is not assignable: the reservation CAS says which)
+    let res = sqlx::query(
+        "UPDATE tasks SET target_agent_id = ?1, not_before = NULL,
+                lease_s = COALESCE(?2, lease_s), updated_at = ?3
+         WHERE id = ?4 AND owner_id IS NULL AND state = 'queued'",
+    )
+    .bind(agent.id.0.as_str())
+    .bind(lease_s)
+    .bind(now)
+    .bind(id.0.as_str())
+    .execute(&state.pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(conflict_reason(state, id, None).await);
+    }
+    event(
+        state,
+        EventKind::TaskReserved,
+        id,
+        serde_json::json!({ "task_id": id, "target": agent.id, "not_before": null, "by": by }),
+    )
+    .await?;
+    // the agent may have become free since the first try
+    dispatch_for(state, &agent.id, now).await?;
+    require(state, id).await
+}
 
-    // one statement = one atomic check: the job is unowned AND the agent is
-    // not busy — no other open job, no post-run prompt running (one job per
-    // agent, D§5.2.2-5.2.3). Assigning a job reserved for someone else is
-    // an explicit override: the reservation is dropped. A pre-run prompt
-    // marks the job `hook = 'pre'` here, so its lease never ticks unpaused.
+/// The assignment CAS (D§5.2.1): the job is queued and unowned AND the
+/// agent is free — row `idle`/`done`, no other open job, no post-run prompt
+/// running (D§5.2.2-5.2.3), and no run but the job's own claims it (D§5.6).
+/// One statement, one atomic check. A job reserved for someone else loses
+/// the reservation. A pre-run prompt marks the job `hook = 'pre'` here, so
+/// its lease never ticks unpaused. `None`: nothing changed.
+async fn deliver(
+    state: &AppState,
+    id: &TaskId,
+    agent: &Agent,
+    lease_s: Option<i64>,
+    by: &str,
+    now: i64,
+) -> anyhow::Result<Option<Task>> {
     let res = sqlx::query(&format!(
         "UPDATE tasks SET owner_id = ?1, state = 'assigned',
                 lease_s = COALESCE(?2, lease_s),
@@ -550,8 +678,10 @@ pub async fn assign(
                 hook = CASE WHEN pre_run IS NOT NULL THEN 'pre' END,
                 updated_at = ?3
          WHERE id = ?4 AND owner_id IS NULL AND state = 'queued'
+           AND EXISTS (SELECT 1 FROM agents a WHERE a.id = ?1 AND a.state IN ('idle','done'))
            AND NOT EXISTS (SELECT 1 FROM tasks o WHERE o.owner_id = ?1
-                             AND (o.state IN {OWNED} OR o.hook IS NOT NULL))"
+                             AND (o.state IN {OWNED} OR o.hook IS NOT NULL))
+           AND NOT EXISTS ({OTHER_CLAIM})"
     ))
     .bind(agent.id.0.as_str())
     .bind(lease_s)
@@ -560,25 +690,8 @@ pub async fn assign(
     .execute(&state.pool)
     .await?;
     if res.rows_affected() == 0 {
-        if let Some((busy, post_run)) = busy_with(state, &agent.id).await? {
-            if busy != *id {
-                let what = if post_run {
-                    format!("running the post-run prompt of job {busy}")
-                } else {
-                    format!("busy with job {busy}")
-                };
-                let mut err = TowerError::conflict(format!(
-                    "{} is {what} (one job at a time); \
-                     reserve with --when-available to deliver it when free",
-                    agent.name
-                ));
-                err.detail = Some(serde_json::json!({ "busy_with": busy }));
-                return Err(err.into());
-            }
-        }
-        return Err(conflict_reason(state, id, None).await);
+        return Ok(None);
     }
-
     let task = require(state, id).await?;
     event(
         state,
@@ -590,8 +703,8 @@ pub async fn assign(
         }),
     )
     .await?;
-    crate::hooks::deliver(state, &agent, &task, by).await;
-    Ok(task)
+    crate::hooks::deliver(state, agent, &task, by).await;
+    Ok(Some(task))
 }
 
 /// Owner declares work started: `assigned` → `working`, lease renewed.
@@ -832,8 +945,8 @@ pub async fn update(
     }
     if matches!(req.not_before, Some(Some(_))) && before.target_agent_id.is_none() {
         return Err(TowerError::invalid(
-            "not_before needs a reservation: reserve the job for an agent first \
-             (assign --when-available)",
+            "not_before needs a reservation: a job assigned to an agent that is \
+             not free yet, or created with `--assign <agent> --at <time>`",
         )
         .into());
     }
@@ -980,7 +1093,12 @@ pub async fn sweep_leases(state: &AppState, now: i64) -> anyhow::Result<usize> {
 pub async fn detach_agent(state: &AppState, agent: &Agent, now: i64) -> anyhow::Result<usize> {
     // schedules targeting it pause (and drop the target: the FK must go)
     crate::schedules::on_target_removed(state, &agent.id, now).await?;
-    // first: jobs reserved for it fall back to the general queue (decision
+    // its run claim goes (the FK must go; the run's steps for it then fail)
+    sqlx::query("DELETE FROM run_claims WHERE agent_id = ?1")
+        .bind(agent.id.0.as_str())
+        .execute(&state.pool)
+        .await?;
+    // then: jobs reserved for it fall back to the general queue (decision
     // table) — before releasing, so a departing agent is never offered work
     let reserved: Vec<String> = sqlx::query_scalar(
         "SELECT id FROM tasks WHERE target_agent_id = ?1 AND state NOT IN ('completed','failed','canceled','rejected')",
@@ -1193,14 +1311,6 @@ async fn resolve_agent(state: &AppState, name_or_id: &str) -> anyhow::Result<Age
         .ok_or_else(|| TowerError::not_found(format!("agent {name_or_id} not found")).into())
 }
 
-async fn assignable_agent(state: &AppState, name_or_id: &str) -> anyhow::Result<Agent> {
-    let agent = resolve_agent(state, name_or_id).await?;
-    if agent.state == AgentState::Dead {
-        return Err(TowerError::invalid(format!("agent {} is dead", agent.name)).into());
-    }
-    Ok(agent)
-}
-
 /// Owner-only CAS: `SET {set}` where `owner_id = owner AND {cond}`.
 /// Bind order: ?1 id, ?2 owner, ?3 now.
 async fn owner_cas(
@@ -1346,10 +1456,21 @@ fn task_json(r: anyhow::Result<Task>) -> Response {
 }
 
 async fn create_route(State(s): State<AppState>, Json(b): Json<CreateTask>) -> Response {
-    match create(&s, b, tower_core::now_ms()).await {
-        Ok(t) => (StatusCode::CREATED, Json(serde_json::json!({ "task": t }))).into_response(),
+    let res = async {
+        let t = create(&s, b, tower_core::now_ms()).await?;
+        assignment_json(&s, t).await
+    };
+    match res.await {
+        Ok(v) => (StatusCode::CREATED, Json(v)).into_response(),
         Err(e) => error_response(e),
     }
+}
+
+/// `{task, waiting}` (D§7): `waiting` says why a reserved job is not
+/// delivered yet, `null` when it was (or has no target).
+pub async fn assignment_json(state: &AppState, task: Task) -> anyhow::Result<serde_json::Value> {
+    let waiting = waiting(state, &task).await?;
+    Ok(serde_json::json!({ "task": task, "waiting": waiting }))
 }
 
 async fn list_route(State(s): State<AppState>, Query(f): Query<ListFilter>) -> Response {
@@ -1397,11 +1518,14 @@ async fn assign_route(
     Json(b): Json<AssignBody>,
 ) -> Response {
     let (id, now) = (TaskId::from(id), tower_core::now_ms());
-    task_json(if b.when_available {
-        reserve(&s, &id, &b.to, None, "me", now).await
-    } else {
-        assign(&s, &id, &b.to, b.lease_s, "me", now).await
-    })
+    let res = async {
+        let t = assign(&s, &id, &b.to, b.lease_s, "me", now).await?;
+        assignment_json(&s, t).await
+    };
+    match res.await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => error_response(e),
+    }
 }
 
 async fn start_route(

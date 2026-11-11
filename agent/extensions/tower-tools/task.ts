@@ -77,13 +77,7 @@ export function registerTaskTool(pi: ExtensionAPI, client: TowerClient): void {
 			.string()
 			.optional()
 			.describe(
-				"create: the owner (or reservation target). assign: the new owner",
-			),
-		when_available: z
-			.boolean()
-			.optional()
-			.describe(
-				"create, assign: reserve for the agent and deliver when it is free (the lease starts then)",
+				"create: the owner (or reservation target). assign: the new owner. Delivered when the agent is free, else reserved for it",
 			),
 		at: z
 			.string()
@@ -129,8 +123,8 @@ export function registerTaskTool(pi: ExtensionAPI, client: TowerClient): void {
 			"The job queue (API and CLI name: task). Agents never take work: the operator creates and assigns it.",
 			"list: open jobs by default; `state` picks one state (closed states too), `tags` and `owner` filter.",
 			"show: one job with description, result, lifecycle prompts, trail, and messages.",
-			"create: `title` and a standalone `description` (goal, inputs, limits, done criteria, what to report); with `agent` it is assigned now, or reserved with `when_available` (delivered when the agent is free) or `at` (held until a time).",
-			"assign: dispatch queued job `id` to `agent`; an agent owns one open job at a time, so a busy agent answers conflict — use `when_available`.",
+			"create: `title` and a standalone `description` (goal, inputs, limits, done criteria, what to report); with `agent` it is delivered when the agent is free, else reserved for it until it is; `at` holds it until a time.",
+			"assign: dispatch queued job `id` to `agent`. An agent owns one open job at a time: a busy, claimed, or dead agent gets the job reserved, and the result says why it waits.",
 			'edit: change `title`, `description`, `pre_run`, `post_run`, `at` ("" clears); queued jobs take every field, delivered jobs only post_run.',
 			"cancel: cancel and interrupt the owner. release: return the job to the queue for its owner.",
 		].join(" "),
@@ -152,7 +146,7 @@ export function registerTaskTool(pi: ExtensionAPI, client: TowerClient): void {
 					return textResult(showJob(detail, names));
 				}
 				case "create": {
-					const { task } = await client.post<{ task: Task }>(
+					const { task, waiting } = await client.post<Assigned>(
 						"/v1/tasks",
 						{
 							title: need(params.title, "title", action),
@@ -160,7 +154,6 @@ export function registerTaskTool(pi: ExtensionAPI, client: TowerClient): void {
 							priority: params.priority,
 							tags: params.tags ?? [],
 							assign: params.agent,
-							when_available: params.when_available ?? false,
 							not_before: params.at ? parseLocalTime(params.at) : undefined,
 							lease_s: params.lease_s,
 							max_attempts: params.max_attempts,
@@ -170,21 +163,20 @@ export function registerTaskTool(pi: ExtensionAPI, client: TowerClient): void {
 						{ signal },
 					);
 					return textResult(
-						`created ${describeJob(task, await fetchNames(client, signal))}`,
+						`created ${describeJob(task, await fetchNames(client, signal), waiting)}`,
 					);
 				}
 				case "assign": {
-					const { task } = await client.post<{ task: Task }>(
+					const { task, waiting } = await client.post<Assigned>(
 						route("/assign"),
 						{
 							to: need(params.agent, "agent", action),
 							lease_s: params.lease_s,
-							when_available: params.when_available ?? false,
 						},
 						{ signal },
 					);
 					return textResult(
-						describeJob(task, await fetchNames(client, signal)),
+						describeJob(task, await fetchNames(client, signal), waiting),
 					);
 				}
 				case "edit": {
@@ -247,7 +239,6 @@ export function registerTaskTool(pi: ExtensionAPI, client: TowerClient): void {
 				quoted(args.title),
 			];
 			if (args.agent) detail.push(`→ ${args.agent}`);
-			if (args.when_available) detail.push("(when available)");
 			if (args.at) detail.push(`at ${args.at}`);
 			return callLine("tower job", detail.filter(Boolean).join(" "), theme);
 		},
@@ -255,6 +246,20 @@ export function registerTaskTool(pi: ExtensionAPI, client: TowerClient): void {
 			return textBody(result, options, theme);
 		},
 	});
+}
+
+/** Why an assignment left the job reserved instead of delivering it. */
+interface Waiting {
+	reason: string;
+	agent_state: string;
+	busy_with?: string;
+	held_by?: string;
+}
+
+/** The answer of create and assign: `waiting` is null when delivered. */
+interface Assigned {
+	task: Task;
+	waiting?: Waiting | null;
 }
 
 interface ListParams {
@@ -318,8 +323,13 @@ async function listJobs(
 		: text;
 }
 
-/** One line: id, state, and who has it or will get it. */
-function describeJob(task: Task, names: AgentNames): string {
+/** One line: id, state, and who has it or will get it; `waiting` is the
+ * server's reason a reserved job waits. */
+function describeJob(
+	task: Task,
+	names: AgentNames,
+	waiting?: Waiting | null,
+): string {
 	const now = Date.now();
 	let where = "queued for the operator to assign";
 	if (task.owner_id) {
@@ -329,7 +339,8 @@ function describeJob(task: Task, names: AgentNames): string {
 			task.not_before && task.not_before > now
 				? `, not before ${clock(task.not_before, now)}`
 				: "";
-		where = `reserved for ${names(task.target_agent_id)} (delivered when available${after})`;
+		const why = waiting?.reason ?? "delivered when it is free";
+		where = `reserved for ${names(task.target_agent_id)} (${why}${after})`;
 	}
 	return `${task.id} ${task.state}: ${where} — "${task.title}"`;
 }

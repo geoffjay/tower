@@ -33,6 +33,10 @@ Date: 2026-11-04. Status: **accepted** (operator answers in
 and item 8 of the [outcomes-and-brief decision](outcomes-and-brief.md). Plan:
 [phase 7](../plans/phase-7-workflows.md).
 
+Amended 2026-11-10 by the [agent availability decision](agent-availability.md):
+a run claims every agent its definition names at start, all or nothing,
+and waits (`waiting`, a new run state) while another run holds one.
+
 ## Context
 
 The operator wants multi-step work that tower drives by itself. Two

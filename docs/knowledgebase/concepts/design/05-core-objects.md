@@ -95,10 +95,14 @@ assignment-only, and time-bound:
   state = 'queued'`. That is the `(owner IS NULL OR lease_expires_at <
   now)` check with one code path for expiry accounting — an exhausted job
   is never reassigned and a paused `input-required` lease is never
-  stolen. The same `UPDATE` also requires that the agent owns **no other
-  open job** (one job per agent at a time — [§5.2.2](#522-reservations-and-schedules)).
-  Affected-rows == 1 → assigned; 0 → `conflict`. A job with a
-  live owner can never be assigned to another agent. No coordinator
+  stolen. The same `UPDATE` also requires that the agent is **free**
+  ([§5.2.2](#522-reservations-and-schedules)): its row `idle`/`done`, no
+  other open job, no post-run prompt running, and no other run claiming
+  it. Affected-rows == 1 → assigned. When the job is assignable but the
+  agent is not free, the operator's assign **reserves** it for the agent
+  instead and answers `waiting` with the reason
+  ([decision](../../decisions/agent-availability.md)). A job with a live
+  owner can never be assigned to another agent. No coordinator
   arbitration needed — SQLite row state is the lock (the single-writer
   SQLite design from [§6](06-data-model.md) makes the check-and-set
   atomic).
@@ -163,18 +167,26 @@ table there is normative.
 
 - **Reserved delivery**: a queued job may carry `target_agent_id`. It stays
   `queued`; the **dispatcher** assigns it (normal CAS, lease starts at
-  delivery) when the target is *available* — row state `idle`/`done` and no
-  open job. Triggers: the target's row entering `idle`/`done`, its open job
-  closing, and the ~10s sweep. Highest priority, then oldest, first.
-  `task.assigned` records `by: "schedule:<id>"` for schedule jobs, else
-  `"dispatch"`.
-- **One job per agent**: every assignment (manual or dispatched) is refused
-  with `conflict` while the agent owns an open job, or one of its closed
-  jobs still runs its post-run prompt ([§5.2.3](#523-lifecycle-prompts-and-editing));
-  the check lives in the assignment `UPDATE`, so it is atomic.
+  delivery) when the target is *free*. Triggers: the target's row
+  entering `idle`/`done`, its open job closing, a run releasing it, and
+  the ~10s sweep. Highest priority, then oldest, first. `task.assigned`
+  records `by: "schedule:<id>"` for schedule jobs, else `"dispatch"`.
+- **Free agent** ([decision](../../decisions/agent-availability.md)):
+  row `idle`/`done`, no open job (one job per agent), none of its closed
+  jobs still running a post-run prompt
+  ([§5.2.3](#523-lifecycle-prompts-and-editing)), and no workflow run
+  other than the job's own claiming it ([§5.6](#56-workflow-run-step)).
+  The check lives in the assignment `UPDATE`, so it is atomic. Tower never
+  types a job into an agent that is not free.
+- **Every assignment waits for a free agent**: manual assign (CLI, MCP,
+  TUI, app) delivers when the agent is free and otherwise reserves the job
+  for it, answering `waiting: {reason, agent_state, busy_with?,
+  held_by?}`. Availability is never a `conflict`. A dead target keeps the
+  reservation until it is resumed.
 - **`not_before`** holds a reserved job back from the dispatcher until a
-  time (`task create --at`). Immediate manual `assign` ignores it and may
-  take a reserved job for any agent — explicit operator action wins.
+  time (`task create --at`). An explicit assign clears it and may take a
+  job reserved for any agent — explicit operator action wins — and the
+  job then waits its turn in that agent's queue.
 - **Schedules**: a job template (title, description, lifecycle prompts) +
   cron expression + IANA timezone. Each
   firing creates an ordinary job (`origin='schedule'`, `schedule_id`,
@@ -188,7 +200,7 @@ table there is normative.
 - **Workflow schedules**: a schedule with `workflow_id` belongs to a
   workflow's schedule trigger ([§5.6](#56-workflow-run-step)). Each firing
   starts a run instead of creating a job; it skips (`previous_running`)
-  while the run it started last is still `running`. `apply` creates,
+  while the run it started last is still `waiting` or `running`. `apply` creates,
   updates, and deletes these rows; edit and remove answer `conflict`;
   pause, resume, and run work as for any schedule.
 
@@ -214,7 +226,7 @@ Decision: [job lifecycle prompts](../../decisions/job-lifecycle-hooks.md).
   waits for it to settle, clears `hook`, and runs the dispatcher for the
   agent. Cancel, lease expiry, and release never run it.
 - **Busy until it settles**: an agent with a `hook = 'post'` job is busy
-  (§5.2.2) — manual assign answers `conflict`, the dispatcher waits.
+  (§5.2.2) — an assignment waits as a reservation until it settles.
 - **Never blocking**: a send error, or no settle within
   `[jobs] hook_timeout_s` ([§4](04-paths-and-configuration.md), default
   600), records the failure and the sequence goes on (the delegation still
@@ -297,11 +309,21 @@ normative for routing, hand-off, triggers, and the engine.
 - **Run**: one execution of one version, with an `input` object and its
   trigger (manual, schedule, event). A run's id is the `context_id` of
   every job it creates (A2A context grouping).
+- **Agent claims** ([decision](../../decisions/agent-availability.md)):
+  a run claims every agent its definition can name (each node's agent and
+  every value of an agent map) before its first step, all or nothing,
+  one run per agent. A claimed agent gets only its run's jobs; every other
+  job reserved for it waits until the run ends. When another run claims
+  one of its agents, or an earlier waiting run wants one, a new run starts
+  `waiting` with no steps; waiting runs are admitted oldest first. Ending
+  a run releases its claims to the waiting runs first, then to other
+  reserved jobs. A schedule skips while its last run is
+  `waiting` or `running`.
 
 ```
-RunState:  running ──► completed
-              │  └───► failed     (a step failed with no `on = "failed"` edge)
-              └──────► canceled   (operator)
+RunState:  waiting ──► running ──► completed
+              │           │  └───► failed     (a step failed with no `on = "failed"` edge)
+              └───────────┴──────► canceled   (operator)
 ```
 
 - **Step**: one execution of one node; a loop visit is a new step

@@ -185,28 +185,20 @@ pub async fn api(c: &Client, a: &Api) -> anyhow::Result<String> {
                 short(v["task"]["id"].as_str().unwrap_or(""))
             )
         }
-        Api::TaskAssign {
-            task,
-            agent,
-            when_available,
-        } => {
+        Api::TaskAssign { task, agent } => {
             let v = c
                 .post(
                     &format!("/v1/tasks/{task}/assign"),
-                    Some(json!({ "to": agent, "when_available": when_available })),
+                    Some(json!({ "to": agent })),
                 )
                 .await?;
-            if *when_available {
-                format!(
-                    "…{} reserved for {agent} (delivered when available)",
-                    short(&task.0)
-                )
-            } else {
-                format!(
+            match v["waiting"]["reason"].as_str() {
+                Some(reason) => format!("…{} reserved for {agent}: {reason}", short(&task.0)),
+                None => format!(
                     "…{} assigned to {agent} (lease {}s)",
                     short(&task.0),
                     v["task"]["lease_s"].as_i64().unwrap_or(0)
-                )
+                ),
             }
         }
         Api::TaskCancel { task } => {

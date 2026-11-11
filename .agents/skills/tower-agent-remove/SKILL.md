@@ -68,8 +68,8 @@ confirmation before you run either command.
 1. Run the command.
 2. Run `tower ps` and confirm that the agent is gone (or `dead`).
 3. For each job that went back to the queue, ask the user for a new owner.
-   Assign with `tower task assign <id> <agent>`, or `--when-available` if
-   that agent is busy.
+   Assign with `tower task assign <id> <agent>`. If that agent is busy,
+   tower reserves the job for it and delivers it when the agent is free.
 4. For each paused schedule, ask the user for a new target. There is no
    command to change a schedule target. Remove it with
    `tower schedule rm <id>` and create it again with `--assign <agent>`,

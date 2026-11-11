@@ -19,6 +19,11 @@ Date: 2026-09-27. Builds on the [job-queue decision](job-queue.md). Amends
 [§5.2.1](../concepts/design/05-core-objects.md), [§6](../concepts/design/06-data-model.md), [§7](../concepts/design/07-server-api.md), [§9.4](../concepts/design/09-server-modules.md),
 [§10](../concepts/design/10-client-cli.md), [§18](../concepts/design/18-phase-mapping.md). Plan: [phase 2b](../plans/phase-2b-scheduled-jobs.md).
 
+Amended 2026-11-10 by the [agent availability decision](agent-availability.md):
+items 5 and 6 changed. An assignment to an agent that is not free (busy,
+working on a prompt, claimed by a workflow run, or dead) reserves the job
+instead of answering `conflict`, so `--when-available` is gone.
+
 ## Context
 
 The operator needs jobs dispatched on a schedule — "every day, have

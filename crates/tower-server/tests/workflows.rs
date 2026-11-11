@@ -309,7 +309,7 @@ async fn a_loop_past_max_visits_fails_its_step_and_the_run() {
 
 #[tokio::test]
 async fn a_workflow_jobs_completion_must_meet_the_result_contract() {
-    let ctx = boot_with(ISSUE_AGENTS).await;
+    let ctx = boot_with(&["triager", "builder", "designer", "reviewer", "outsider"]).await;
     apply(&ctx, ISSUE).await;
     let run = start(&ctx, "issue", json!({ "issue": "ENG-3" })).await;
     let triage = open_step(&ctx, &run, "triage").await;
@@ -383,7 +383,7 @@ async fn a_workflow_jobs_completion_must_meet_the_result_contract() {
         tower_core::ErrorCode::Conflict
     );
 
-    // jobs outside workflows are unchanged
+    // jobs outside workflows are unchanged (on an agent the run doesn't claim)
     let plain = tasks::create(
         &ctx.state,
         tasks::CreateTask {
@@ -391,8 +391,7 @@ async fn a_workflow_jobs_completion_must_meet_the_result_contract() {
             description: None,
             priority: None,
             tags: vec![],
-            assign: Some("reviewer".into()),
-            when_available: false,
+            assign: Some("outsider".into()),
             not_before: None,
             lease_s: None,
             max_attempts: None,
@@ -406,7 +405,7 @@ async fn a_workflow_jobs_completion_must_meet_the_result_contract() {
     tasks::report(
         &ctx.state,
         &plain.id,
-        "reviewer",
+        "outsider",
         Some(TaskState::Completed),
         None,
         T0,
@@ -910,7 +909,6 @@ fn tagged_job(title: &str, tags: &[&str], max_attempts: Option<i64>) -> tasks::C
         priority: None,
         tags: tags.iter().map(|t| t.to_string()).collect(),
         assign: Some("w".into()),
-        when_available: false,
         not_before: None,
         lease_s: None,
         max_attempts,
@@ -1274,4 +1272,162 @@ async fn agents_start_and_read_runs_over_mcp_but_only_the_operator_defines_or_ca
         .tool(None, "tower_run_cancel", json!({ "run_id": run_id }))
         .await;
     assert_eq!(r["structuredContent"]["run"]["state"], "canceled");
+}
+
+// ---- agent claims (decision: agent-availability) ---------------------------
+
+const REVIEW_ONLY: &str = r#"
+name = "review-only"
+
+[[nodes]]
+id = "review"
+agent = "reviewer"
+prompt = "Review."
+"#;
+
+#[tokio::test]
+async fn a_run_holds_its_agents_so_other_jobs_wait_until_it_ends() {
+    let ctx = boot_with(ISSUE_AGENTS).await;
+    apply(&ctx, ISSUE).await;
+    let run = start(&ctx, "issue", json!({ "issue": "ENG-9" })).await;
+    assert_eq!(run.state, RunState::Running);
+
+    // reviewer is idle and owns nothing, but the run claimed it; builder is
+    // claimed too, through the agent map
+    let mut manual = Vec::new();
+    for agent in ["reviewer", "builder"] {
+        let req = tasks::CreateTask {
+            assign: None,
+            ..tagged_job(agent, &[], None)
+        };
+        let t = tasks::create(&ctx.state, req, T0).await.unwrap();
+        let t = tasks::assign(&ctx.state, &t.id, agent, None, "me", T0)
+            .await
+            .unwrap();
+        assert_eq!(t.state, TaskState::Queued, "{agent} is held by the run");
+        let w = tasks::waiting(&ctx.state, &t).await.unwrap().unwrap();
+        assert_eq!(w.held_by.as_ref(), Some(&run.id));
+        manual.push(t);
+    }
+    assert_eq!(tasks::dispatch_all(&ctx.state, T0).await.unwrap(), 0);
+
+    // the run's own step still reaches its claimed agent
+    let triage = open_step(&ctx, &run, "triage").await;
+    complete(
+        &ctx,
+        &triage,
+        json!({ "summary": "backend work", "outcome": "build" }),
+    )
+    .await;
+    let work = open_step(&ctx, &run, "work").await;
+    assert_eq!(owner_name(&ctx, &job(&ctx, &work).await).await, "builder");
+
+    // a second run waits for reviewer; when the first ends it takes reviewer
+    // before the standalone job reserved for it, and builder goes to its job
+    apply(&ctx, REVIEW_ONLY).await;
+    let next = start(&ctx, "review-only", json!({})).await;
+    assert_eq!(next.state, RunState::Waiting);
+    workflows::cancel_run(&ctx.state, &run.id, T0)
+        .await
+        .unwrap();
+    assert_eq!(reload(&ctx, &next).await.state, RunState::Running);
+    let review = open_step(&ctx, &next, "review").await;
+    assert_eq!(
+        owner_name(&ctx, &job(&ctx, &review).await).await,
+        "reviewer"
+    );
+    let state = |t: &Task| {
+        let (state, id) = (ctx.state.clone(), t.id.clone());
+        async move { tasks::get_task(&state, &id).await.unwrap().unwrap() }
+    };
+    let for_reviewer = state(&manual[0]).await;
+    assert_eq!(for_reviewer.state, TaskState::Queued);
+    let w = tasks::waiting(&ctx.state, &for_reviewer)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(w.held_by.as_ref(), Some(&next.id));
+    assert_eq!(
+        state(&manual[1]).await.state,
+        TaskState::Assigned,
+        "builder is free"
+    );
+
+    complete(&ctx, &review, json!({ "summary": "ok" })).await;
+    assert_eq!(reload(&ctx, &next).await.state, RunState::Completed);
+    assert_eq!(state(&manual[0]).await.state, TaskState::Assigned);
+}
+
+#[tokio::test]
+async fn runs_that_share_an_agent_wait_their_turn_oldest_first() {
+    let ctx = boot_with(&["triager", "builder", "designer", "reviewer", "other"]).await;
+    apply(&ctx, ISSUE).await;
+    apply(&ctx, REVIEW_ONLY).await;
+    apply(&ctx, &REVIEW_ONLY.replace("review-only", "review-two")).await;
+    apply(
+        &ctx,
+        &REVIEW_ONLY
+            .replace("review-only", "elsewhere")
+            .replace("\"reviewer\"", "\"other\""),
+    )
+    .await;
+
+    let first = start(&ctx, "issue", json!({ "issue": "ENG-10" })).await;
+    let second = start(&ctx, "review-only", json!({})).await;
+    let third = start(&ctx, "review-two", json!({})).await;
+    assert_eq!(second.state, RunState::Waiting);
+    assert_eq!(third.state, RunState::Waiting);
+    assert!(
+        steps(&ctx, &second).await.is_empty(),
+        "no steps while waiting"
+    );
+    let v = workflows::show_run(&ctx.state, &second.id).await.unwrap();
+    assert_eq!(
+        v["waiting_for"],
+        json!([{ "agent": "reviewer", "run_id": first.id }])
+    );
+    let v = workflows::show_run(&ctx.state, &third.id).await.unwrap();
+    assert_eq!(
+        v["waiting_for"],
+        json!([{ "agent": "reviewer", "run_id": first.id }])
+    );
+    assert_eq!(ctx.event_count("workflow.run.waiting").await, 2);
+
+    // a run that shares nothing starts at once
+    let free = start(&ctx, "elsewhere", json!({})).await;
+    assert_eq!(free.state, RunState::Running);
+
+    // finishing the first run admits the second, not the third
+    let triage = open_step(&ctx, &first, "triage").await;
+    complete(&ctx, &triage, json!({ "summary": "s", "outcome": "build" })).await;
+    let work = open_step(&ctx, &first, "work").await;
+    complete(&ctx, &work, json!("built")).await;
+    let review = open_step(&ctx, &first, "review").await;
+    complete(
+        &ctx,
+        &review,
+        json!({ "summary": "ok", "outcome": "approved" }),
+    )
+    .await;
+    assert_eq!(reload(&ctx, &first).await.state, RunState::Completed);
+    assert_eq!(reload(&ctx, &second).await.state, RunState::Running);
+    assert_eq!(
+        reload(&ctx, &third).await.state,
+        RunState::Waiting,
+        "queued behind the earlier waiting run"
+    );
+    let v = workflows::show_run(&ctx.state, &third.id).await.unwrap();
+    assert_eq!(
+        v["waiting_for"],
+        json!([{ "agent": "reviewer", "run_id": second.id }])
+    );
+    let step = open_step(&ctx, &second, "review").await;
+    assert_eq!(owner_name(&ctx, &job(&ctx, &step).await).await, "reviewer");
+
+    // a waiting run can be canceled; it never claimed anything
+    let canceled = workflows::cancel_run(&ctx.state, &third.id, T0)
+        .await
+        .unwrap();
+    assert_eq!(canceled.state, RunState::Canceled);
+    assert!(steps(&ctx, &third).await.is_empty());
 }

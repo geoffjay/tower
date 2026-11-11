@@ -71,7 +71,6 @@ pub struct NewTask {
     pub tags: Vec<String>,
     pub priority: Option<i64>,
     pub assign: Option<String>,
-    pub when_available: bool,
     pub at: Option<String>,
     pub lease_s: Option<i64>,
     pub pre_run: Option<String>,
@@ -108,9 +107,6 @@ impl NewTask {
         if let Some(p) = &self.post_run {
             flag("post-run", p);
         }
-        if self.when_available {
-            w.push("--when-available".into());
-        }
         w.join(" ")
     }
 }
@@ -119,7 +115,6 @@ impl NewTask {
 struct Assignee {
     name: Option<String>,
     label: String,
-    busy: bool,
 }
 
 impl fmt::Display for Assignee {
@@ -162,7 +157,6 @@ pub async fn task_create(c: &Client, t: &mut NewTask) -> anyhow::Result<bool> {
     let mut rows = vec![Assignee {
         name: None,
         label: "nobody: leave it queued".into(),
-        busy: false,
     }];
     for a in agents["agents"]
         .as_array()
@@ -176,19 +170,17 @@ pub async fn task_create(c: &Client, t: &mut NewTask) -> anyhow::Result<bool> {
         if state == "dead" {
             continue;
         }
-        let has_job = owners.contains(id);
+        let job = if owners.contains(id) {
+            ", has a job"
+        } else {
+            ""
+        };
         let kind = a["kind"].as_str().unwrap_or("?");
-        let job = if has_job { ", has a job" } else { "" };
         rows.push(Assignee {
             name: Some(name.to_string()),
             label: format!("{name}  ({kind}, {state}{job})"),
-            busy: has_job || state != "idle",
         });
     }
-    // an assignee from --assign is looked up so the delivery default fits it
-    let mut busy_agent = rows
-        .iter()
-        .any(|r| r.busy && r.name.is_some() && r.name == t.assign);
     if t.assign.is_none() {
         let pick = answer(
             Select::new("Assign to:", rows)
@@ -196,23 +188,18 @@ pub async fn task_create(c: &Client, t: &mut NewTask) -> anyhow::Result<bool> {
                 .with_page_size(12)
                 .prompt(),
         )?;
-        busy_agent = pick.busy;
         t.assign = pick.name;
     }
 
-    if t.assign.is_some() && !t.when_available && t.at.is_none() {
-        const NOW: &str = "now";
-        const FREE: &str = "when it is free (reserve)";
-        const AT: &str = "not before a time (reserve)";
+    if t.assign.is_some() && t.at.is_none() {
+        const FREE: &str = "when it is free";
+        const AT: &str = "not before a time";
         let when = answer(
-            Select::new("Deliver:", vec![NOW, FREE, AT])
-                .with_starting_cursor(if busy_agent { 1 } else { 0 })
-                .with_help_message("an agent holds one job at a time; a busy one refuses `now`")
+            Select::new("Deliver:", vec![FREE, AT])
+                .with_help_message("a busy agent gets the job when it is free")
                 .prompt(),
         )?;
-        if when == FREE {
-            t.when_available = true;
-        } else if when == AT {
+        if when == AT {
             let today = chrono::Local::now().date_naive();
             let day = answer(
                 DateSelect::new("Day:")
@@ -497,14 +484,14 @@ mod tests {
             tags: vec!["stack:kb".into()],
             priority: Some(2),
             assign: Some("kb-reviewer".into()),
-            when_available: true,
+            at: Some("2026-11-09 22:00".into()),
             pre_run: Some("/clear".into()),
             ..Default::default()
         };
         assert_eq!(
             t.command_line(),
             "tower task create 'review PR #45' --tag stack:kb --priority 2 \
-             --assign kb-reviewer --pre-run /clear --when-available"
+             --assign kb-reviewer --at '2026-11-09 22:00' --pre-run /clear"
         );
         assert_eq!(
             run_command_line("kb-daily", &["pr=45".into(), "note=a b".into()], true),

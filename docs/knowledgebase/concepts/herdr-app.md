@@ -11,7 +11,7 @@ tags:
 status: stable
 generated:
   by: claude-code/1.0
-  at: "2026-11-05T12:00:00Z"
+  at: "2026-11-10T00:00:00Z"
 sources:
   - resource: app/README.md
     title: tower app package README
@@ -21,13 +21,14 @@ sources:
 
 # Herdr app package
 
-`app/` holds a layout (`layouts/tower.json`) and six mods for the Herdr
+`app/` holds a layout (`layouts/tower.json`) and seven mods for the Herdr
 desktop app (`herdr-app`, the GUI over herdr-core). Installed under
 `~/.config/herdr-app/`, they put tower's fleet beside the terminals:
 Agents, Workflows, Jobs, Events and Inbox as tabs of the right panel (one
 shown at a time, so none takes room until opened; the layout has no
-sidebar); and a `tower-tabs` tab bar. `app/RECIPE.md` is the install and
-behavior contract; this doc records the facts and decisions behind it.
+sidebar); a `tower-tabs` tab bar; and a `tower-spaces` dock strip on the far left.
+`app/RECIPE.md` is the install and behavior contract; this doc records the facts and
+decisions behind it.
 
 ## How the mods reach tower
 
@@ -100,9 +101,10 @@ behavior contract; this doc records the facts and decisions behind it.
   closed jobs by `updated_at`, because `task list` puts the oldest first.
 - **Jobs create form.** `＋ New…` is one form for the ways work enters
   tower, first `a job` or `a workflow run`, then WHEN: a job `now`
-  (`task create`, optionally reserved with "deliver when free"), `at a
-  time` (`task create --assign --at`; a hold needs an owner, the CLI's
-  rule) or `repeats` (`schedule create --daily|--cron [--tz]`); a run
+  (`task create`; with an owner it is delivered when the owner is free,
+  else reserved for it), `at a time` (`task create --assign --at`; a
+  hold needs an owner, the CLI's rule) or `repeats` (`schedule create
+  --daily|--cron [--tz]`); a run
   `now` (`workflow run --input`) or `repeats`. One form, not a second
   button, because the fields overlap and only the timing differs.
   Pre-run and post-run are on the form so a job needs no edit after it
@@ -122,6 +124,12 @@ behavior contract; this doc records the facts and decisions behind it.
   source that declares `triggers = [...]` inline is refused by the
   server's parser, and its error shows in the strip.
   `jobs.js` builds every command, `--flag=value` like edit.
+- **Reserved, not refused.** Every assignment waits for a free agent
+  ([agent availability](../decisions/agent-availability.md)). When the
+  agent picker's `task assign` or the form's `task create --assign`
+  answers with `waiting`, the panel's notice line shows `Reserved for
+  <agent>: <waiting.reason>` (`waitingNotice()` in `jobs.js`). There is
+  no separate reserve choice: every assignment reserves when it must.
 - **Tab bar** (`tower-tabs`) polls `tower inbox` every 10 s itself and
   colors the Inbox button `blocked` while anything is pending. The Inbox
   panel is usually closed, so the always-shown tab bar carries the signal.
@@ -144,9 +152,17 @@ behavior contract; this doc records the facts and decisions behind it.
   the tower home's `config.toml` bind and token file), then `curl`. Mods
   cannot read the environment, but `exec` runs programs in the user's
   real one.
+- **Spaces strip** (`tower-spaces`) sits on the far left of the workspace as
+  a thin 38px vertical panel. It renders a 28x28 square icon with a status dot
+  for each space (`spaces()`). Clicking selects the space (`space.select`),
+  right-clicking opens the space context menu, and dragging reorders spaces
+  within their machine (`space.move`). The selected space is highlighted with
+  an accent border. Machines are separated by a horizontal divider with a
+  machine tooltip. Dot colors reflect the most urgent agent or terminal status
+  in the space: `blocked` > `done` > `working` > `idle`, with plain shell
+  terminals showing a quiet foreground/dim dot.
 - Every mod folder carries an identical copy of `tower.js`: mods cannot
-  import across folders. Change one, copy it to all six.
-
+  import across folders. Change one, copy it to all seven.
 ## Machines
 
 - **One machine at a time, the shown space's by default.** herdr spaces
@@ -210,8 +226,13 @@ tower 0.7.0 server.
   is drawn on the workflow's current version; a run of another version
   says so, and steps of nodes the version lacks are listed after the
   graph. Each node's mark and line come from its latest step; a click
-  shows every visit. Opening a workflow whose newest run is running
-  shows that run, and a running run re-reads every 3 s.
+  shows every visit. Opening a workflow whose newest run is waiting or
+  running shows that run, and an open run re-reads every 3 s. A
+  `waiting` run (it waits for agents another run claims) has no steps
+  yet: its facts show `waits for` with each agent and the run ahead of
+  it (`waiting_for` from `run show`), and `Cancel run` works on it. The
+  state color for `waiting` is the theme's `blocked` (`STATE_COLOR` in
+  every `tower.js` copy).
 - **Creating.** The form writes TOML (`draftToml()`): one node per step,
   one edge per outcome (or "when done") that doesn't go to `end`; `next`
   is the following step. A route to the same or an earlier step is a
@@ -277,3 +298,7 @@ tower 0.7.0 server.
   --child tower-events`). `shot` saves the last rendered frame: with the
   window in the background it can be minutes old, so bring Herdr to the
   front (`osascript -e 'tell application "Herdr" to activate'`) first.
+  Inspect the frame itself; `status.errors` can be empty while a mod shows a
+  render-error card. Color arguments accept theme values or hex literals,
+  not CSS names: `tower-spaces` uses `#00000000` for inactive borders because
+  `transparent` causes a live render failure that `check` did not catch.

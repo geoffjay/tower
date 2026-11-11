@@ -154,11 +154,10 @@ pub enum Api {
     TaskCreate {
         title: String,
     },
+    /// Delivered when the agent is free, else reserved for it (D§5.2.2).
     TaskAssign {
         task: TaskId,
         agent: String,
-        /// Reserve: deliver when the agent is free (D§5.2.2).
-        when_available: bool,
     },
     TaskCancel {
         task: TaskId,
@@ -200,7 +199,7 @@ impl InputPurpose {
             InputPurpose::Prompt { agent } => format!("prompt {agent} › "),
             InputPurpose::Reply { .. } => "reply › ".into(),
             InputPurpose::NewTask => "new job title › ".into(),
-            InputPurpose::Assign { .. } => "assign to agent (`<name> later` reserves) › ".into(),
+            InputPurpose::Assign { .. } => "assign to agent › ".into(),
             InputPurpose::EventKind => "filter type › ".into(),
             InputPurpose::EventSubject => "filter subject › ".into(),
             InputPurpose::Edit { target, field } => match (field, target) {
@@ -553,17 +552,10 @@ impl App {
                 text: Some(text.into()),
             }),
             InputPurpose::NewTask => api(Api::TaskCreate { title: text.into() }),
-            InputPurpose::Assign { task } => {
-                let (agent, later) = match text.strip_suffix(" later") {
-                    Some(a) => (a.trim(), true),
-                    None => (text, false),
-                };
-                api(Api::TaskAssign {
-                    task,
-                    agent: agent.into(),
-                    when_available: later,
-                })
-            }
+            InputPurpose::Assign { task } => api(Api::TaskAssign {
+                task,
+                agent: text.into(),
+            }),
             InputPurpose::EventKind => {
                 self.events.kind_filter = text.into();
                 Vec::new()
@@ -662,11 +654,10 @@ impl App {
                 agent: name.to_string(),
             }),
             ("task", [_, ..]) => api(Api::TaskCreate { title: tail(0) }),
-            ("assign" | "reserve", [task, agent]) => match self.resolve_task(task) {
+            ("assign", [task, agent]) => match self.resolve_task(task) {
                 Some(task) => api(Api::TaskAssign {
                     task,
                     agent: agent.to_string(),
-                    when_available: verb == "reserve",
                 }),
                 None => Vec::new(),
             },
@@ -940,8 +931,10 @@ pub const PALETTE: &[(&str, &str)] = &[
     ("ask <name> <text>", "ask an agent a question"),
     ("interrupt <name>", "ctrl+c the agent"),
     ("task <title>", "queue a job"),
-    ("assign <job> <agent>", "assign a job (id prefix ok)"),
-    ("reserve <job> <agent>", "deliver when the agent is free"),
+    (
+        "assign <job> <agent>",
+        "assign a job (id prefix ok); waits until the agent is free",
+    ),
     ("cancel <job>", "cancel a job"),
     (
         "filter state=<s> machine=<m>",

@@ -1,13 +1,13 @@
 ---
 name: tower-queue-job
-description: Put a job in the tower job queue from a plain-language description. Use when the user wants an agent to do a piece of work through tower — now, when an agent is free, at a time, or on a recurring cadence. Takes the job description as the argument; interviews the user for anything missing (done criteria, agent, timing), shows the job for approval, then creates it with the tower CLI.
+description: Put a job in the tower job queue from a plain-language description. Use when the user wants an agent to do a piece of work through tower — now, at a time, or on a recurring cadence. Takes the job description as the argument; interviews the user for anything missing (done criteria, agent, timing), shows the job for approval, then creates it with the tower CLI.
 argument-hint: "[job description]"
 ---
 
 # Queue a tower job
 
 Turn the user's request into one well-formed tower job. Then create it,
-assign or reserve it, and report how to follow it.
+assign it, and report how to follow it.
 
 Tower dispatch is assignment-only. Agents never take work themselves. You
 act as the operator: you create the job and you choose the owner.
@@ -39,7 +39,7 @@ them together in one message, not one at a time.
 | What to do | The agent sees only the title and description | — (required) |
 | Done criteria | The agent must know when to report `completed` | Ask; do not guess for non-trivial work |
 | Owner | Which agent, or leave it in the queue | Suggest one from `tower ps` by role name |
-| Timing | Now, when the agent is free, at a time, or recurring | Now if the owner is idle, else when free |
+| Timing | Now (delivered when the agent is free), at a time, or recurring | Now |
 | Lease | Seconds the agent may go silent before the job requeues | 300 for real work; 60 only for trivial jobs |
 | Priority, tags | Queue order and filtering | Priority 0; tag `stack:<name>` if the agent belongs to a stack |
 | Before / after prompts | Tower types them into the agent's harness before and after the run, for example `/clear` before and `/reflect` after | None. Ask only if the user mentions context, compaction, or reflection |
@@ -66,11 +66,8 @@ changed job again.
 Choose one command:
 
 ```sh
-# owner idle now: assign and deliver at once
+# an owner: delivered at once when the agent is free, else reserved for it
 tower task create '<title>' --description '<text>' --assign <agent> --lease-s 300
-
-# owner busy, or "when it is free": reserve it
-tower task create '<title>' --description '<text>' --assign <agent> --when-available --lease-s 300
 
 # hold until a time (HH:MM, "YYYY-MM-DD HH:MM" local, or RFC 3339)
 tower task create '<title>' --description '<text>' --assign <agent> --at 22:00 --lease-s 300
@@ -94,9 +91,11 @@ Tower sends the text exactly as written, so harness commands such as
 `/compact` work. To change a queued job later, use
 `tower task edit <id>` (`tower schedule edit <id>` for a schedule).
 
-An agent owns one job at a time. A plain `--assign` to a busy agent fails
-with `conflict` and names the open job. In that case, tell the user and
-create the job with `--when-available`.
+An agent owns one job at a time. Every assignment waits for a free agent:
+when the owner is busy, claimed by a workflow run, or dead, tower reserves
+the job for it and prints why it waits (for example
+`reserved for kb-reviewer: kb-reviewer is busy with job 01M…`). The job
+is delivered when the agent is free. Tell the user the reason.
 
 ## 4. Report
 

@@ -49,15 +49,17 @@ the full width) and tower panels in place of the Files/Changes panel:
     form: name, harness pills (installed kinds, via `knownAgents()`),
     workdir, first prompt → `tower spawn`.
   - **Workflows**: every workflow (`tower workflow list`): state dot
-    (`working` while a run is running, `idle` enabled, dim disabled), the
-    name, `v<n>`, the state word ("2 running" / "enabled" / "disabled"),
+    (`working` while a run is waiting or running, `idle` enabled, dim
+    disabled), the name, `v<n>`, the state word ("2 open" / "enabled" /
+    "disabled"),
     then steps · triggers · description. Click a row: the panel shows that
     workflow (`tower workflow show`), with `‹ Workflows` to go back:
     name, description, actions (`Run…` while enabled, `Edit`,
     `Disable`/`Enable`, `Remove` with a second press), facts (triggers,
     inputs with `*` for required, result node, next scheduled run,
     updated), RUNS (the newest 5, `show all` for the 20 the server keeps:
-    state dot, start time, state, result gist or trigger), then the GRAPH
+    state dot (`blocked` color for a `waiting` run), start time, state,
+    result gist or trigger), then the GRAPH
     as a top-down list of nodes in the shape of a PR timeline: a mark per
     node on a vertical rail, the node id, its agent (a mapped agent as
     `builder | designer (by triage)`), its outcomes as chips, `join all` /
@@ -69,13 +71,15 @@ the full width) and tower panels in place of the Files/Changes panel:
     shows once, after the branches it waits for, with `after a, b`;
     several start nodes hang under a `Start` row. Click a node: its prompt
     and the nodes it reads. Click a run: the graph shows that run (the
-    newest one opens by itself when it is running) — run facts (trigger,
-    started, input, ended, the result or error), and each node's latest
+    newest one opens by itself when it is waiting or running) — run facts
+    (trigger, started (created for a waiting run), `waits for` on a
+    waiting run: each agent and the run ahead of it, input, ended, the
+    result or error), and each node's latest
     step as its mark (filled check done, filled cross failed, spinner
     running, ring waiting, small dim ring not reached) with visit,
     agent, state, outcome and time, then the summary's first line. Click
     a node: every visit with its full summary, error and job id. A
-    running run re-reads every 3s and has `Cancel run` (second press);
+    waiting or running run re-reads every 3s and has `Cancel run` (second press);
     `× Graph` (or the run again) goes back to the definition. A run of an
     older version says so; steps of nodes the current version lacks are
     listed after the graph. `Run…` opens a field per declared input
@@ -96,7 +100,8 @@ the full width) and tower panels in place of the Files/Changes panel:
   - **Jobs**: QUEUE section (open jobs: state dot, title, `P<n>` priority,
     state, owner/hold/tags/age), RECENT (the last 10 to close), SCHEDULES
     (title, cron, next run, target). Per-job buttons: `Assign…` (pills of
-    live agents), `Release` (owned jobs), `Cancel` (two presses; interrupts
+    live agents; a busy agent gets the job reserved and the notice line
+    shows `Reserved for <agent>: <reason>`), `Release` (owned jobs), `Cancel` (two presses; interrupts
     the owner). Per-schedule: `Run now`, `Pause`/`Resume`, `Remove`
     (two-press). Click a job or schedule: a detail section opens below the
     list (the list keeps the top third). For a job it shows the actions
@@ -118,8 +123,8 @@ the full width) and tower panels in place of the Files/Changes panel:
     starts workflow X" for every enabled workflow whose event trigger on
     `task.completed` / `task.failed` / `task.created` matches only a tag
     the job carries), priority pills, owner pills (queue or an agent),
-    then WHEN: `now` (with an owner, a "deliver when free" reserve
-    checkbox) → `tower task create`; `at a time` (an AT field; needs an
+    then WHEN: `now` (with an owner: delivered when it is free, else
+    reserved for it, with the same notice) → `tower task create`; `at a time` (an AT field; needs an
     owner) → `tower task create --assign --at`; `repeats` (CADENCE `daily
     at` HH:MM or `cron`, an optional IANA timezone; an owner gets each job
     reserved) → `tower schedule create`. PRE-RUN and POST-RUN fields go
@@ -202,7 +207,7 @@ the full width) and tower panels in place of the Files/Changes panel:
   `workspace-status` mod reused as-is; the tab bar is the `tower-tabs`
   clone below, which pads for the macOS window buttons itself when there
   is no sidebar).
-- Six mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
+- Seven mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
   the layout is the only placement), and a shared `tower.js` (identical
   in every folder):
   - `tower-agents`: `tower ps`, `tower task list` (owned and reserved
@@ -247,6 +252,13 @@ the full width) and tower panels in place of the Files/Changes panel:
     Everything else is the shipped tab bar: tab pills, drag-to-reorder,
     `+` menu, window buttons. A `nextCommand()` loop takes `next` / `prev`
     and selects the neighbouring `panel-body` child, then shows `panel`.
+  - `tower-spaces`: a thin vertical strip on the far left of the workspace
+    showing square icons with status dots for every space. Click to switch
+    (`space.select`), right-click for the space popup menu, drag to reorder
+    within the same machine (`space.move`). The selected space is highlighted
+    with an accent border; hosts are separated by a horizontal divider with
+    machine tooltips. Dot colors reflect the most urgent status contained in
+    the space (`blocked` > `done` > `working` > `idle` > plain shell / `dim`).
 - `keys.json` (the folder's root, herdr.dev convention for a mod's keys):
   `"layout:tower": { "cmd-shift-left": "tower-tabs.prev",
   "cmd-shift-right": "tower-tabs.next" }`. Install merges it into the
@@ -264,6 +276,9 @@ the full width) and tower panels in place of the Files/Changes panel:
 
 ## Watch out
 
+- Color arguments accept theme values or hex literals, not CSS names such as
+  `transparent`. Use `#00000000` for an invisible border. A passing
+  `herdr-app check` is not proof that the live view renders.
 - Mods cannot import across folders ("resolves outside the application
   directory"): each mod carries its own copy of `tower.js` (identical
   md5 across the set).
@@ -312,6 +327,9 @@ the full width) and tower panels in place of the Files/Changes panel:
   Workflows / Jobs / Events / Inbox buttons; clicking Jobs opens the panel on the Jobs stack, and
   after switching to another space and back, that space's panel is as it
   was left (the shipped `tabs` would have closed it).
+- The spaces strip renders with both selected and unselected spaces. Switch
+  spaces and inspect a fresh `herdr-app shot`: the accent outline moves and
+  no render-error card appears.
 - With a tower server running: the Agents panel lists every agent
   `tower ps` shows, grouped by stack, with live states; the Jobs panel's
   QUEUE matches `tower task list`, and SCHEDULES matches

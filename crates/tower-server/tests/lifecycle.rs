@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use serde_json::json;
-use tower_core::{ErrorCode, HookPhase, Task, TaskId, TaskState, TowerError};
+use tower_core::{HookPhase, Task, TaskId, TaskState};
 use tower_driver::HarnessState;
 use tower_server::tasks::{self, CreateTask};
 use tower_server::Config;
@@ -24,7 +24,6 @@ fn job(title: &str) -> CreateTask {
         priority: None,
         tags: vec![],
         assign: None,
-        when_available: false,
         not_before: None,
         lease_s: None,
         max_attempts: None,
@@ -83,10 +82,6 @@ async fn settle_after_running(ctx: &common::Ctx, id: &TaskId, phase: &str, agent
     .await;
     tokio::time::sleep(Duration::from_millis(50)).await;
     ctx.harness.set_state(agent, HarnessState::Idle);
-}
-
-fn code(e: &anyhow::Error) -> ErrorCode {
-    e.downcast_ref::<TowerError>().expect("TowerError").code
 }
 
 // ---- pre-run ---------------------------------------------------------------
@@ -254,7 +249,6 @@ async fn post_run_holds_the_next_reserved_job_until_it_settles() {
         &ctx.state,
         CreateTask {
             assign: Some("a".into()),
-            when_available: true,
             ..job("next")
         },
         T0,
@@ -279,11 +273,16 @@ async fn post_run_holds_the_next_reserved_job_until_it_settles() {
         TaskState::Queued,
         "post-run first"
     );
-    let e = tasks::assign(&ctx.state, &j2.id, "a", None, "me", T0 + 11)
+    let t = tasks::assign(&ctx.state, &j2.id, "a", None, "me", T0 + 11)
         .await
-        .unwrap_err();
-    assert_eq!(code(&e), ErrorCode::Conflict);
-    assert!(e.to_string().contains("post-run"), "{e}");
+        .unwrap();
+    assert_eq!(
+        t.state,
+        TaskState::Queued,
+        "still waits for the post-run prompt"
+    );
+    let w = tasks::waiting(&ctx.state, &t).await.unwrap().unwrap();
+    assert!(w.reason.contains("post-run"), "{}", w.reason);
 
     // the agent finishes its closing turn, then gets the post-run prompt
     ctx.harness.set_state("a", HarnessState::Idle);
@@ -396,13 +395,12 @@ async fn boot_clears_marks_a_crash_left_behind() {
             .unwrap();
     }
     let next = tasks::create(&ctx.state, job("for b"), T0).await.unwrap();
+    let held = tasks::assign(&ctx.state, &next.id, "b", None, "me", T0)
+        .await
+        .unwrap();
     assert_eq!(
-        code(
-            &tasks::assign(&ctx.state, &next.id, "b", None, "me", T0)
-                .await
-                .unwrap_err()
-        ),
-        ErrorCode::Conflict,
+        held.state,
+        TaskState::Queued,
         "b is held by the stale post-run mark"
     );
     assert_eq!(
@@ -423,9 +421,10 @@ async fn boot_clears_marks_a_crash_left_behind() {
         1
     );
     assert_eq!(task(&ctx, &pre.id).await.state, TaskState::Queued);
-    tasks::assign(&ctx.state, &next.id, "b", None, "me", T0)
+    let t = tasks::assign(&ctx.state, &next.id, "b", None, "me", T0)
         .await
         .unwrap();
+    assert_eq!(t.state, TaskState::Assigned);
 }
 
 // ---- editing jobs ------------------------------------------------------------

@@ -19,6 +19,7 @@ app/
     ├── tower-inbox/       pending questions/approvals, answer/approve/deny
     ├── tower-jobs/        queue, schedules, job/schedule detail and edit, create/assign/cancel/release
     ├── tower-events/      newest events first, then /v1/events live (bounded SSE polls)
+    ├── tower-spaces/      spaces strip: compact vertical dots on the far left, highlighted active space, grouped by machine, status colors
     └── tower-tabs/        the tab bar, with Agents/Workflows/Jobs/Events/Inbox panel buttons
 ```
 
@@ -43,7 +44,7 @@ Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/geoffj
 
 ```sh
 cp app/layouts/tower.json ~/.config/herdr-app/layouts/
-cp -R app/mods/tower-{agents,workflows,inbox,jobs,events,tabs} ~/.config/herdr-app/mods/
+cp -R app/mods/tower-{agents,workflows,inbox,jobs,events,tabs,spaces} ~/.config/herdr-app/mods/
 # add app/keys.json's keys that ~/.config/herdr-app/keys.json doesn't bind yet
 K=~/.config/herdr-app/keys.json
 jq -s '.[0] as $u | ([$u[] | keys[]]) as $used | .[1]
@@ -97,12 +98,13 @@ hand after that.
   stop / remove (two presses) / resume, its facts, and its terminal
   screen. Spawn form with the harnesses installed on the machine.
 - **Workflows** (right panel): every workflow with its version, triggers
-  and running runs. Click one for its graph as a top-down list of nodes:
+  and open runs. Click one for its graph as a top-down list of nodes:
   a chain stays in line, branches indent under the node they leave with
   the outcome that takes them, a loop is a `↺` row, a join shows after
   its branches. Pick a run and each node shows its latest step (done,
   failed, running, not reached) and summary; click a node for every
-  visit. Run with the declared inputs, enable/disable, remove, edit the
+  visit. A `waiting` run (another run claims one of its agents) shows
+  the agents it waits for. Run with the declared inputs, enable/disable, remove, edit the
   TOML source, cancel a run. `＋ New workflow…` builds one from a form of
   steps (agent, prompt, outcomes, where each outcome goes) or from TOML.
   Needs a tower 0.7.0 server.
@@ -115,7 +117,8 @@ hand after that.
   with tags and pre-run and post-run prompts, or starts a workflow run
   now or on a schedule. A tag shows which workflows the job's completion
   starts. Assign a job to an agent
-  (pills), release or cancel owned jobs, pause/resume/run schedules.
+  (pills): a busy agent gets it reserved, and the notice line says why
+  it waits. Release or cancel owned jobs, pause/resume/run schedules.
   Click a job for its facts, prompts, result, trail and messages, or a
   schedule for its cadence, prompts and runs (a run opens as a job).
   Edit either in place.
@@ -132,7 +135,7 @@ you already work in.
 ## Verification
 
 `herdr-app check` must pass per mod (the gate the Herdr docs require);
-done for all six as of writing. Live behavior was verified against a
+done for all seven as of writing. Live behavior was verified against a
 tower 0.4.0 server: fleet state transitions, queue create/assign/
 complete, inbox question + approval round-trips, event replay and
 follow. See [`RECIPE.md`](RECIPE.md) "Done when" for the re-check steps.
