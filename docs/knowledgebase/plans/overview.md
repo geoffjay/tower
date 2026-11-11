@@ -11,8 +11,8 @@ sources:
   - resource: git:340c189:plans/README.md
     title: Original plan (removed from repo; full text in git history)
 generated:
-  by: omp/claude-opus-5-5
-  at: "2026-09-26T23:50:57Z"
+  by: claude-code/1.0
+  at: "2026-11-11T00:00:00Z"
 ---
 
 # tower — Execution Plans
@@ -83,9 +83,12 @@ and 0009.
 | Plan | Depends on | Status |
 |---|---|---|
 | [Discord integration](discord-integration.md) | Messaging, job queue, workflows, event services | Proposed; not started |
+| [Slack integration](slack-integration.md) | Messaging, job queue, workflows, event services | Proposed; not started |
 
-The Discord plan adds an optional remote control surface. It does not require
-phase 5 or phase 6. It preserves the existing job and workflow lifecycle rules.
+The integration plans add optional remote control surfaces. Neither requires
+phase 5 or phase 6. Both preserve the existing job and workflow lifecycle rules.
+They are alternatives; neither requires the other adapter. See the
+[Slack and Discord findings](../references/slack-discord-integrations.md) before choosing a platform.
 
 ## Cross-cutting rules (all phases)
 
