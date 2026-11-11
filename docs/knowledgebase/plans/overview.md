@@ -78,6 +78,15 @@ Phase 7 (workflows) builds on 2b's reserved delivery and schedules and on
 workflow jobs only. It took migration 0007, so 2c's migrations are 0008
 and 0009.
 
+## Integration plans
+
+| Plan | Depends on | Status |
+|---|---|---|
+| [Discord integration](discord-integration.md) | Messaging, job queue, workflows, event services | Proposed; not started |
+
+The Discord plan adds an optional remote control surface. It does not require
+phase 5 or phase 6. It preserves the existing job and workflow lifecycle rules.
+
 ## Cross-cutting rules (all phases)
 
 1. **Workspace hygiene**: one commit per task where practical; conventional

@@ -3,6 +3,7 @@
 Plans for the tower project.
 
 * [Execution plans overview](overview.md) - plan structure, dependency graph, cross-cutting rules, status table.
+* [Discord integration](discord-integration.md) - proposed; Gateway bot for prompts, jobs, workflows, inbox responses, and durable notifications.
 * [Phase 1 — MVP core](phase-1-mvp-core.md) - complete; herdr driver, server, CLI, restart rebind.
 * [Phase 2 — Messaging + job queue](phase-2-messaging-task-pool.md) - complete; messages, blocked inbox, assignment-only job queue, MCP.
 * [Phase 2b — Scheduled jobs](phase-2b-scheduled-jobs.md) - complete; reserved delivery, one job per agent, recurring cron schedules, `tower service`.
