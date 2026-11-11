@@ -201,7 +201,7 @@ the full width) and tower panels in place of the Files/Changes panel:
   `workspace-status` mod reused as-is; the tab bar is the `tower-tabs`
   clone below, which pads for the macOS window buttons itself when there
   is no sidebar).
-- Six mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
+- Seven mods, each a folder with `main.js`, `mod.json` (`place: "none"` —
   the layout is the only placement), and a shared `tower.js` (identical
   in every folder):
   - `tower-agents`: `tower ps`, `tower task list` (owned and reserved
@@ -244,6 +244,13 @@ the full width) and tower panels in place of the Files/Changes panel:
     Everything else is the shipped tab bar: tab pills, drag-to-reorder,
     `+` menu, window buttons. A `nextCommand()` loop takes `next` / `prev`
     and selects the neighbouring `panel-body` child, then shows `panel`.
+  - `tower-spaces`: a thin vertical strip on the far left of the workspace
+    showing square icons with status dots for every space. Click to switch
+    (`space.select`), right-click for the space popup menu, drag to reorder
+    within the same machine (`space.move`). The selected space is highlighted
+    with an accent border; hosts are separated by a horizontal divider with
+    machine tooltips. Dot colors reflect the most urgent status contained in
+    the space (`blocked` > `done` > `working` > `idle` > plain shell / `dim`).
 - `keys.json` (the folder's root, herdr.dev convention for a mod's keys):
   `"layout:tower": { "cmd-shift-left": "tower-tabs.prev",
   "cmd-shift-right": "tower-tabs.next" }`. Install merges it into the
@@ -261,6 +268,9 @@ the full width) and tower panels in place of the Files/Changes panel:
 
 ## Watch out
 
+- Color arguments accept theme values or hex literals, not CSS names such as
+  `transparent`. Use `#00000000` for an invisible border. A passing
+  `herdr-app check` is not proof that the live view renders.
 - Mods cannot import across folders ("resolves outside the application
   directory"): each mod carries its own copy of `tower.js` (identical
   md5 across the set).
@@ -309,6 +319,9 @@ the full width) and tower panels in place of the Files/Changes panel:
   Workflows / Jobs / Events / Inbox buttons; clicking Jobs opens the panel on the Jobs stack, and
   after switching to another space and back, that space's panel is as it
   was left (the shipped `tabs` would have closed it).
+- The spaces strip renders with both selected and unselected spaces. Switch
+  spaces and inspect a fresh `herdr-app shot`: the accent outline moves and
+  no render-error card appears.
 - With a tower server running: the Agents panel lists every agent
   `tower ps` shows, grouped by stack, with live states; the Jobs panel's
   QUEUE matches `tower task list`, and SCHEDULES matches

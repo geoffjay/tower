@@ -26,6 +26,12 @@
 					"gap": 8,
 					"children": [
 						{
+							"id": "spaces",
+							"type": "block",
+							"size": { "px": 38 },
+							"content": { "mod": "tower-spaces" }
+						},
+						{
 							"id": "main",
 							"type": "block",
 							"content": {

@@ -11,7 +11,7 @@ tags:
 status: stable
 generated:
   by: claude-code/1.0
-  at: "2026-11-05T12:00:00Z"
+  at: "2026-11-10T00:00:00Z"
 sources:
   - resource: app/README.md
     title: tower app package README
@@ -21,13 +21,14 @@ sources:
 
 # Herdr app package
 
-`app/` holds a layout (`layouts/tower.json`) and six mods for the Herdr
+`app/` holds a layout (`layouts/tower.json`) and seven mods for the Herdr
 desktop app (`herdr-app`, the GUI over herdr-core). Installed under
 `~/.config/herdr-app/`, they put tower's fleet beside the terminals:
 Agents, Workflows, Jobs, Events and Inbox as tabs of the right panel (one
 shown at a time, so none takes room until opened; the layout has no
-sidebar); and a `tower-tabs` tab bar. `app/RECIPE.md` is the install and
-behavior contract; this doc records the facts and decisions behind it.
+sidebar); a `tower-tabs` tab bar; and a `tower-spaces` dock strip on the far left.
+`app/RECIPE.md` is the install and behavior contract; this doc records the facts and
+decisions behind it.
 
 ## How the mods reach tower
 
@@ -129,9 +130,17 @@ behavior contract; this doc records the facts and decisions behind it.
   the tower home's `config.toml` bind and token file), then `curl`. Mods
   cannot read the environment, but `exec` runs programs in the user's
   real one.
+- **Spaces strip** (`tower-spaces`) sits on the far left of the workspace as
+  a thin 38px vertical panel. It renders a 28x28 square icon with a status dot
+  for each space (`spaces()`). Clicking selects the space (`space.select`),
+  right-clicking opens the space context menu, and dragging reorders spaces
+  within their machine (`space.move`). The selected space is highlighted with
+  an accent border. Machines are separated by a horizontal divider with a
+  machine tooltip. Dot colors reflect the most urgent agent or terminal status
+  in the space: `blocked` > `done` > `working` > `idle`, with plain shell
+  terminals showing a quiet foreground/dim dot.
 - Every mod folder carries an identical copy of `tower.js`: mods cannot
-  import across folders. Change one, copy it to all six.
-
+  import across folders. Change one, copy it to all seven.
 ## Machines
 
 - **One machine at a time, the shown space's by default.** herdr spaces
@@ -267,3 +276,7 @@ tower 0.7.0 server.
   --child tower-events`). `shot` saves the last rendered frame: with the
   window in the background it can be minutes old, so bring Herdr to the
   front (`osascript -e 'tell application "Herdr" to activate'`) first.
+  Inspect the frame itself; `status.errors` can be empty while a mod shows a
+  render-error card. Color arguments accept theme values or hex literals,
+  not CSS names: `tower-spaces` uses `#00000000` for inactive borders because
+  `transparent` causes a live render failure that `check` did not catch.
